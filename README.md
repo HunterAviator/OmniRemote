@@ -28,14 +28,14 @@ A comprehensive Home Assistant integration for universal remote control. Manage 
 
 1. Open HACS in Home Assistant
 2. Click the three dots menu → **Custom repositories**
-3. Add: `https://github.com/HunterAviator/OmniRemote`
+3. Add: `https://github.com/YOUR_USERNAME/omniremote`
 4. Category: **Integration**
 5. Click **Add** → Search for "OmniRemote" → **Download**
 6. Restart Home Assistant
 
 ### Manual Installation
 
-1. Download the latest release from [Releases] [https://github.com/YOUR_USERNAME/omniremote](https://github.com/HunterAviator/OmniRemote/releases)
+1. Download the latest release from [Releases](https://github.com/YOUR_USERNAME/omniremote/releases)
 2. Extract and copy `custom_components/omniremote` to your `config/custom_components/`
 3. Restart Home Assistant
 
