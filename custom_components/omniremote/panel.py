@@ -27,7 +27,12 @@ PANEL_ICON = "mdi:remote-tv"
 
 async def async_register_panel(hass: HomeAssistant) -> None:
     """Register the panel and API."""
-    # Register API views
+    # Check if already registered (avoid duplicate registration on reload)
+    if hass.data.get(DOMAIN, {}).get("_panel_registered"):
+        _LOGGER.debug("OmniRemote panel already registered, skipping")
+        return
+    
+    # Register API views (safe to call multiple times - HA handles duplicates)
     hass.http.register_view(OmniApiRooms(hass))
     hass.http.register_view(OmniApiDevices(hass))
     hass.http.register_view(OmniApiScenes(hass))
@@ -42,19 +47,32 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     hass.http.register_view(OmniApiAreaRemotes(hass))
     hass.http.register_view(OmniRemoteCardResource(hass))
     
-    # Register the panel
-    await panel_custom.async_register_panel(
-        hass,
-        webcomponent_name="omniremote-panel",
-        frontend_url_path="omniremote",
-        sidebar_title=PANEL_TITLE,
-        sidebar_icon=PANEL_ICON,
-        module_url="/api/omniremote/panel.js",
-        embed_iframe=False,
-        require_admin=False,
-    )
+    # Check if panel already exists before registering
+    if "omniremote" in hass.data.get("frontend_panels", {}):
+        _LOGGER.debug("OmniRemote panel already in frontend_panels, skipping registration")
+        hass.data.setdefault(DOMAIN, {})["_panel_registered"] = True
+        return
     
-    _LOGGER.info("OmniRemote panel registered")
+    try:
+        # Register the panel
+        await panel_custom.async_register_panel(
+            hass,
+            webcomponent_name="omniremote-panel",
+            frontend_url_path="omniremote",
+            sidebar_title=PANEL_TITLE,
+            sidebar_icon=PANEL_ICON,
+            module_url="/api/omniremote/panel.js",
+            embed_iframe=False,
+            require_admin=False,
+        )
+        hass.data.setdefault(DOMAIN, {})["_panel_registered"] = True
+        _LOGGER.info("OmniRemote panel registered successfully")
+    except ValueError as ex:
+        if "Overwriting" in str(ex):
+            _LOGGER.debug("Panel already exists: %s", ex)
+            hass.data.setdefault(DOMAIN, {})["_panel_registered"] = True
+        else:
+            raise
 
 
 def _get_database(hass: HomeAssistant) -> RemoteDatabase | None:
@@ -70,7 +88,6 @@ class OmniPanelView(HomeAssistantView):
     
     url = "/api/omniremote/panel.js"
     name = "api:omniremote:panel"
-    requires_auth = False
     
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the view."""
@@ -356,6 +373,9 @@ class OmniApiBlasters(HomeAssistantView):
     
     url = "/api/omniremote/blasters"
     name = "api:omniremote:blasters"
+    requires_auth = False
+    
+    requires_auth = False
     
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the view."""
@@ -461,6 +481,9 @@ class OmniApiCommands(HomeAssistantView):
     
     url = "/api/omniremote/commands"
     name = "api:omniremote:commands"
+    requires_auth = False
+    
+    requires_auth = False
     
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the view."""
@@ -503,6 +526,9 @@ class OmniApiLearn(HomeAssistantView):
     
     url = "/api/omniremote/learn"
     name = "api:omniremote:learn"
+    requires_auth = False
+    
+    requires_auth = False
     
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the view."""
@@ -545,6 +571,9 @@ class OmniApiCatalog(HomeAssistantView):
     
     url = "/api/omniremote/catalog"
     name = "api:omniremote:catalog"
+    requires_auth = False
+    
+    requires_auth = False
     
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the view."""
@@ -617,6 +646,9 @@ class OmniApiActivities(HomeAssistantView):
     
     url = "/api/omniremote/activities"
     name = "api:omniremote:activities"
+    requires_auth = False
+    
+    requires_auth = False
     
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the view."""
@@ -733,6 +765,7 @@ class OmniApiNetworkDevices(HomeAssistantView):
     
     url = "/api/omniremote/network"
     name = "api:omniremote:network"
+    requires_auth = False
     
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the view."""
