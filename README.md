@@ -35,7 +35,7 @@ A comprehensive Home Assistant integration for universal remote control. Manage 
 
 ### Manual Installation
 
-1. Download the latest release from [Releases](https://github.com/YOUR_USERNAME/omniremote/releases)
+1. Download the latest release from [Releases](https://github.com/HunterAviator/omniremote/releases)
 2. Extract and copy `custom_components/omniremote` to your `config/custom_components/`
 3. Restart Home Assistant
 
