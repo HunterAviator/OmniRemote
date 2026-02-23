@@ -13,7 +13,7 @@ from homeassistant.components import frontend, panel_custom
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN, DeviceCategory, SceneAction, Blaster
+from .const import DOMAIN, VERSION, DeviceCategory, SceneAction, Blaster
 from .database import RemoteDatabase
 from .catalog import DEVICE_CATALOG, CATALOG_BY_BRAND, CATALOG_BY_CATEGORY, get_catalog_device, search_catalog, list_catalog
 from .activities import Activity, ActivityAction, ActionType, ActivityRunner
@@ -46,6 +46,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     hass.http.register_view(OmniApiBluetoothRemotes(hass))
     hass.http.register_view(OmniApiAreaRemotes(hass))
     hass.http.register_view(OmniRemoteCardResource(hass))
+    hass.http.register_view(OmniApiVersion(hass))
     
     # Check if panel already exists before registering
     if "omniremote" in hass.data.get("frontend_panels", {}):
@@ -1036,3 +1037,21 @@ class OmniRemoteCardResource(HomeAssistantView):
             )
         
         return web.Response(status=404, text="Card not found")
+
+
+class OmniApiVersion(HomeAssistantView):
+    """API for version info."""
+    
+    url = "/api/omniremote/version"
+    name = "api:omniremote:version"
+    requires_auth = False
+    
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+    
+    async def get(self, request: web.Request) -> web.Response:
+        """Return version info."""
+        return web.json_response({
+            "version": VERSION,
+            "name": "OmniRemote Manager"
+        })

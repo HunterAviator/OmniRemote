@@ -1,7 +1,9 @@
 /**
- * OmniRemote Manager Panel v2
+ * OmniRemote Manager Panel v1.1.7
  * Uses event delegation for reliable button handling in Shadow DOM
  */
+
+const OMNIREMOTE_VERSION = "1.1.7";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -13,6 +15,7 @@ class OmniRemotePanel extends HTMLElement {
     this._modal = null;
     this._roomId = null;
     this._deviceId = null;
+    this._version = OMNIREMOTE_VERSION;
   }
 
   set hass(hass) {
@@ -84,6 +87,9 @@ class OmniRemotePanel extends HTMLElement {
         .sidebar { width:220px; background:#1a1a2e; border-right:1px solid #2a2a4a; display:flex; flex-direction:column; }
         .logo { padding:16px; font-weight:600; display:flex; align-items:center; gap:8px; border-bottom:1px solid #2a2a4a; }
         .logo ha-icon { color:#03a9f4; }
+        .logo-text { display:flex; flex-direction:column; }
+        .logo-title { font-size:14px; }
+        .logo-version { font-size:10px; color:#888; font-weight:400; }
         .nav { flex:1; padding:8px 0; overflow-y:auto; }
         .nav-item { display:flex; align-items:center; gap:10px; padding:10px 16px; cursor:pointer; border-left:3px solid transparent; }
         .nav-item:hover { background:#252545; }
@@ -160,7 +166,13 @@ class OmniRemotePanel extends HTMLElement {
       
       <div class="app">
         <aside class="sidebar">
-          <div class="logo"><ha-icon icon="mdi:remote-tv"></ha-icon>OmniRemote</div>
+          <div class="logo">
+            <ha-icon icon="mdi:remote-tv"></ha-icon>
+            <div class="logo-text">
+              <span class="logo-title">OmniRemote Manager</span>
+              <span class="logo-version">v${this._version}</span>
+            </div>
+          </div>
           <nav class="nav">
             <div class="nav-item ${this._view === 'dashboard' ? 'active' : ''}" data-nav="dashboard">
               <ha-icon icon="mdi:view-dashboard"></ha-icon>Dashboard
@@ -356,6 +368,7 @@ class OmniRemotePanel extends HTMLElement {
         <div class="stat"><div class="stat-val">${this._data.rooms.length}</div><div class="stat-lbl">Rooms</div></div>
         <div class="stat"><div class="stat-val">${this._data.blasters.length + this._data.haBlasters.length}</div><div class="stat-lbl">Blasters</div></div>
         <div class="stat"><div class="stat-val">${this._data.scenes.length}</div><div class="stat-lbl">Scenes</div></div>
+        <div class="stat" style="border-color:#03a9f4;"><div class="stat-val" style="font-size:18px;">v${this._version}</div><div class="stat-lbl">Version</div></div>
       </div>
       <h3 style="margin-bottom:16px;">Quick Actions</h3>
       <div class="grid">
