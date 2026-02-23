@@ -1,0 +1,33 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  release:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Update manifest version
+        run: |
+          sed -i 's/"version": "[^"]*"/"version": "${{ steps.get_version.outputs.VERSION }}"/' \
+            custom_components/omniremote/manifest.json
+
+      - name: Create release zip
+        run: |
+          cd custom_components/omniremote
+          zip -r ../../omniremote.zip .
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v1
+        with:
+          files: omniremote.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

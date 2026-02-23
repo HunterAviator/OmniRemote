@@ -50,10 +50,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Discover blasters
     await database.async_discover_blasters()
     
+    # Set up Bluetooth remote manager
+    bluetooth_manager = None
+    try:
+        from .bluetooth_remote import async_setup_bluetooth_remotes
+        bluetooth_manager = await async_setup_bluetooth_remotes(hass, database)
+    except Exception as e:
+        _LOGGER.warning("Bluetooth remote support not available: %s", e)
+    
+    # Set up area remote manager
+    area_manager = None
+    try:
+        from .area_remotes import async_setup_area_remotes
+        area_manager = await async_setup_area_remotes(hass, database)
+    except Exception as e:
+        _LOGGER.warning("Area remote support not available: %s", e)
+    
     # Store in hass.data
     hass.data[DOMAIN][entry.entry_id] = {
         "database": database,
         "entry": entry,
+        "bluetooth_manager": bluetooth_manager,
+        "area_manager": area_manager,
     }
     
     # Register services
@@ -62,10 +80,33 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register the panel (sidebar GUI)
     await async_register_panel(hass)
     
+    # Register the Lovelace card resource
+    await _async_register_card_resource(hass)
+    
     # Forward to platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     
     return True
+
+
+async def _async_register_card_resource(hass: HomeAssistant) -> None:
+    """Register the OmniRemote Lovelace card as a frontend resource."""
+    # Register the card JS file for Lovelace
+    hass.http.register_static_path(
+        "/local/omniremote/omniremote-card.js",
+        hass.config.path("custom_components/omniremote/www/omniremote-card.js"),
+        cache_headers=False,
+    )
+    
+    # Add the resource to Lovelace
+    from homeassistant.components.lovelace import DOMAIN as LOVELACE_DOMAIN
+    from homeassistant.components.lovelace.resources import ResourceStorageCollection
+    
+    # Try to add as a resource (user may need to add manually)
+    _LOGGER.info(
+        "OmniRemote card available at /local/omniremote/omniremote-card.js - "
+        "Add this as a Lovelace resource to use the card"
+    )
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

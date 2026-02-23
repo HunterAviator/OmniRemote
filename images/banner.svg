@@ -1,0 +1,121 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" width="1200" height="300">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#0f0f1a"/>
+      <stop offset="100%" style="stop-color:#1a1a2e"/>
+    </linearGradient>
+    <linearGradient id="purpleGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#6366f1"/>
+      <stop offset="50%" style="stop-color:#8b5cf6"/>
+      <stop offset="100%" style="stop-color:#a855f7"/>
+    </linearGradient>
+    <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#22d3ee"/>
+      <stop offset="100%" style="stop-color:#06b6d4"/>
+    </linearGradient>
+    <linearGradient id="remoteGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1"/>
+      <stop offset="100%" style="stop-color:#a855f7"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="1200" height="300" fill="url(#bgGrad)"/>
+  
+  <!-- Decorative grid lines -->
+  <g opacity="0.1" stroke="#6366f1" stroke-width="1">
+    <line x1="0" y1="50" x2="1200" y2="50"/>
+    <line x1="0" y1="100" x2="1200" y2="100"/>
+    <line x1="0" y1="150" x2="1200" y2="150"/>
+    <line x1="0" y1="200" x2="1200" y2="200"/>
+    <line x1="0" y1="250" x2="1200" y2="250"/>
+    <line x1="100" y1="0" x2="100" y2="300"/>
+    <line x1="200" y1="0" x2="200" y2="300"/>
+    <line x1="300" y1="0" x2="300" y2="300"/>
+  </g>
+  
+  <!-- Signal waves background decoration -->
+  <g opacity="0.15" filter="url(#glow)">
+    <circle cx="150" cy="150" r="80" fill="none" stroke="#22d3ee" stroke-width="1"/>
+    <circle cx="150" cy="150" r="110" fill="none" stroke="#22d3ee" stroke-width="1"/>
+    <circle cx="150" cy="150" r="140" fill="none" stroke="#22d3ee" stroke-width="1"/>
+    <circle cx="150" cy="150" r="170" fill="none" stroke="#22d3ee" stroke-width="1"/>
+  </g>
+  
+  <!-- Main icon -->
+  <g transform="translate(80, 60)">
+    <!-- Background circle -->
+    <circle cx="90" cy="90" r="85" fill="#1a1a2e" opacity="0.9"/>
+    <circle cx="90" cy="90" r="80" fill="none" stroke="url(#purpleGrad)" stroke-width="2" opacity="0.5"/>
+    
+    <!-- Remote body -->
+    <rect x="62" y="30" width="56" height="120" rx="14" fill="url(#remoteGrad)"/>
+    <rect x="66" y="34" width="48" height="112" rx="11" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+    
+    <!-- Power button -->
+    <circle cx="90" cy="52" r="10" fill="#1a1a2e"/>
+    <circle cx="90" cy="52" r="7" fill="none" stroke="#22d3ee" stroke-width="2"/>
+    <path d="M90 46 L90 52" stroke="#22d3ee" stroke-width="2" stroke-linecap="round"/>
+    
+    <!-- D-pad -->
+    <circle cx="90" cy="90" r="24" fill="#1a1a2e"/>
+    <polygon points="90,72 84,82 96,82" fill="#22d3ee"/>
+    <polygon points="90,108 84,98 96,98" fill="#22d3ee"/>
+    <polygon points="72,90 82,84 82,96" fill="#22d3ee"/>
+    <polygon points="108,90 98,84 98,96" fill="#22d3ee"/>
+    <circle cx="90" cy="90" r="9" fill="#22d3ee"/>
+    <circle cx="90" cy="90" r="6" fill="#1a1a2e"/>
+    
+    <!-- Bottom buttons -->
+    <circle cx="74" cy="125" r="7" fill="#1a1a2e"/>
+    <circle cx="90" cy="125" r="7" fill="#1a1a2e"/>
+    <circle cx="106" cy="125" r="7" fill="#1a1a2e"/>
+    
+    <!-- Home icon -->
+    <path d="M90 121 L86 125 L86 129 L94 129 L94 125 Z" fill="#22d3ee"/>
+    
+    <!-- Signal waves -->
+    <g filter="url(#glow)" opacity="0.8">
+      <path d="M30 90 Q18 90 18 76 Q18 62 30 62" fill="none" stroke="#22d3ee" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M20 90 Q4 90 4 70 Q4 50 20 50" fill="none" stroke="#22d3ee" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+      
+      <path d="M150 90 Q162 90 162 104 Q162 118 150 118" fill="none" stroke="#22d3ee" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M160 90 Q176 90 176 110 Q176 130 160 130" fill="none" stroke="#22d3ee" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+    </g>
+  </g>
+  
+  <!-- Text -->
+  <text x="340" y="135" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="72" font-weight="700" fill="url(#purpleGrad)">Omni</text>
+  <text x="565" y="135" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="72" font-weight="300" fill="url(#cyanGrad)">Remote</text>
+  
+  <!-- Tagline -->
+  <text x="340" y="175" font-family="system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="18" font-weight="400" fill="#888" letter-spacing="3">UNIVERSAL REMOTE CONTROL FOR HOME ASSISTANT</text>
+  
+  <!-- Feature badges -->
+  <g transform="translate(340, 200)">
+    <rect x="0" y="0" width="90" height="28" rx="14" fill="rgba(99, 102, 241, 0.2)" stroke="#6366f1" stroke-width="1"/>
+    <text x="45" y="19" font-family="system-ui, sans-serif" font-size="11" fill="#a5b4fc" text-anchor="middle">IR Control</text>
+    
+    <rect x="100" y="0" width="90" height="28" rx="14" fill="rgba(34, 211, 238, 0.2)" stroke="#22d3ee" stroke-width="1"/>
+    <text x="145" y="19" font-family="system-ui, sans-serif" font-size="11" fill="#67e8f9" text-anchor="middle">Bluetooth</text>
+    
+    <rect x="200" y="0" width="90" height="28" rx="14" fill="rgba(168, 85, 247, 0.2)" stroke="#a855f7" stroke-width="1"/>
+    <text x="245" y="19" font-family="system-ui, sans-serif" font-size="11" fill="#d8b4fe" text-anchor="middle">Network</text>
+    
+    <rect x="300" y="0" width="90" height="28" rx="14" fill="rgba(34, 211, 238, 0.2)" stroke="#22d3ee" stroke-width="1"/>
+    <text x="345" y="19" font-family="system-ui, sans-serif" font-size="11" fill="#67e8f9" text-anchor="middle">RF 433MHz</text>
+  </g>
+  
+  <!-- Version badge -->
+  <g transform="translate(1050, 20)">
+    <rect x="0" y="0" width="80" height="24" rx="12" fill="rgba(34, 211, 238, 0.3)"/>
+    <text x="40" y="16" font-family="system-ui, sans-serif" font-size="12" font-weight="600" fill="#22d3ee" text-anchor="middle">v1.2.0</text>
+  </g>
+</svg>

@@ -1,26 +1,47 @@
 # OmniRemote for Home Assistant
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-[![GitHub Release](https://img.shields.io/github/release/HunterAviator/omniremote.svg)](https://github.com/HunterAviator/omniremote/releases)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+<p align="center">
+  <img src="https://raw.githubusercontent.com/HunterAviator/omniremote/main/images/banner.svg" alt="OmniRemote Banner" width="100%">
+</p>
 
-A comprehensive Home Assistant integration for universal remote control. Manage IR, RF, Network, and Bluetooth devices with a beautiful sidebar GUI, pre-built device catalog, and powerful activity macros.
+<p align="center">
+  <a href="https://github.com/hacs/integration"><img src="https://img.shields.io/badge/HACS-Custom-41BDF5.svg" alt="HACS"></a>
+  <a href="https://github.com/HunterAviator/omniremote/releases"><img src="https://img.shields.io/github/release/HunterAviator/omniremote.svg" alt="Release"></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
+</p>
 
-![OmniRemote Dashboard](https://img.shields.io/badge/GUI-Sidebar%20Panel-blue)
+A comprehensive Home Assistant integration for universal remote control. Manage IR, RF, Network, and Bluetooth devices with a beautiful sidebar GUI, customizable Lovelace cards, pre-built device catalog, and powerful activity macros.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/HunterAviator/omniremote/main/images/logo.svg" alt="OmniRemote Logo" width="200">
+</p>
 
 ## ✨ Features
 
+### Core Features
 - 🖥️ **Full Web GUI** - Beautiful sidebar panel for visual device management
 - 📚 **Device Catalog** - Pre-built codes for Samsung, Philips, Roku, Fire TV, Xbox, PlayStation, BenQ, and more
 - 🎬 **Activities** - Complex macros like "Watch Roku" or "Movie Night" with timing and app launching
 - 📺 **Multi-Protocol** - IR, RF 433MHz, Network (Roku ECP, Fire TV ADB, Onkyo eISCP), Bluetooth
-- 🏠 **Room Organization** - Group devices by room with room-specific scenes
-- 📱 **App Launching** - Launch Netflix, YouTube, Disney+ by name on Roku/Fire TV
-- 📡 **Channel Tuning** - Tune TV channels via IR digits or Roku ECP
-- ⚡ **State Tracking** - Track power state, current input, volume for each device
-- 📽️ **Projector Support** - Lamp hours, lens position, warm-up delays
-- 🔄 **Flipper Zero Import** - Import .ir and .sub files from Flipper Zero
-- 💾 **Broadlink Integration** - Use Broadlink RM devices as IR/RF blasters
+
+### NEW: Customizable Remote Cards
+- 🎛️ **Lovelace Remote Card** - Fully customizable remote control card for your dashboards
+- 🎨 **Multiple Themes** - Default, Dark, Glass, Retro, Neon themes
+- 📐 **Template Layouts** - Pre-built layouts for TV, Streaming, Receiver, Projector, Fan
+- ✏️ **Visual Editor** - Drag-and-drop button arrangement in edit mode
+- 📱 **Touch Optimized** - Haptic feedback, hold-to-repeat, double-tap support
+
+### NEW: Bluetooth Remote Support
+- 🎮 **Physical Remote Pairing** - Pair Bluetooth remotes (Fire TV, Roku, Apple TV remotes)
+- 🔗 **Button Mapping** - Map physical buttons to any OmniRemote command
+- 📍 **Area Registration** - Assign remotes to specific rooms/areas
+- 🔄 **Learning Mode** - Capture unknown button codes
+
+### NEW: Area-Based Organization
+- 🏠 **Room Assignment** - Register remotes to specific Home Assistant areas
+- 🎯 **Smart Targeting** - Volume goes to receiver, navigation to streaming device
+- 📊 **Device Mapping** - Set default TV, receiver, streaming device per area
+- 📋 **Dashboard Generation** - Auto-generate Lovelace dashboards per area
 
 ## 📦 Installation
 
@@ -46,56 +67,140 @@ A comprehensive Home Assistant integration for universal remote control. Manage 
 3. Complete setup
 4. Access the **OmniRemote** panel in your sidebar
 
-## 🎮 Device Catalog
+## 🎛️ Remote Card Usage
 
-Pre-built IR/RF codes included for:
+### Add the Card Resource
 
-| Device | Brand | Control Methods | Features |
-|--------|-------|-----------------|----------|
-| Samsung TV | Samsung | IR, Network | 45+ commands, SmartThings |
-| Philips TV | Philips | IR, Network | Ambilight, JointSpace API |
-| Roku TV/Device | Roku | IR, Network | ECP API, 19 apps pre-configured |
-| Amazon Fire TV | Amazon | IR, ADB, BT | 18 apps, text input |
-| Onkyo Receiver | Onkyo | IR, eISCP | All inputs, listening modes |
-| Xbox Series X/S | Microsoft | IR, SmartGlass | Controller buttons, media |
-| PlayStation 5 | Sony | Network, BT, CEC | Streaming app IDs |
-| BenQ Projector | BenQ | IR, RS232 | Lens, keystone, lamp hours |
-| Shelly Shade | Shelly | HTTP, RF | Position control |
-| Jensen Radio | Jensen | IR | Tuner, presets, EQ |
-| LED Strip | Generic | IR, RF | Colors, modes, DIY |
-| LEMOISTAR Fan | LEMOISTAR | IR, RF | Speed, timer, light |
+Add to your Lovelace resources:
+```yaml
+url: /local/omniremote/omniremote-card.js
+type: module
+```
 
-### Pre-Configured Streaming Apps
+### Basic Card Configuration
 
-**Roku:** Netflix, YouTube, Prime Video, Disney+, Hulu, HBO Max, Apple TV+, Peacock, Paramount+, Spotify, Plex, Tubi, Pluto TV, and more
+```yaml
+type: custom:omniremote-card
+device: "Living Room TV"
+template: tv
+theme: dark
+```
 
-**Fire TV:** Netflix, YouTube, Prime Video, Disney+, Hulu, HBO Max, Spotify, Plex, Twitch, Kodi, VLC, and more
+### Full Configuration Options
+
+```yaml
+type: custom:omniremote-card
+device: "Living Room TV"           # OmniRemote device name
+entity: remote.living_room         # Or use a remote entity
+area: "Living Room"                # Area assignment
+name: "Main Remote"                # Display name
+template: streaming                # tv, streaming, receiver, projector, fan, minimal, custom
+theme: glass                       # default, dark, glass, retro, neon
+button_size: 48                    # Button size in pixels
+button_gap: 8                      # Gap between buttons
+border_radius: 12                  # Card corner radius
+show_name: true                    # Show remote name
+show_device_state: true            # Show power state
+haptic: true                       # Enable haptic feedback
+bluetooth_remote: "abc123"         # Link to BT remote
+activities:                        # Quick activity buttons
+  - id: watch_roku
+    name: "Watch Roku"
+    icon: mdi:television
+custom_buttons:                    # Override button definitions
+  netflix:
+    icon: mdi:netflix
+    color: "#E50914"
+    command: app_netflix
+```
+
+### Available Templates
+
+| Template | Description | Best For |
+|----------|-------------|----------|
+| `tv` | Full TV remote with number pad | Cable/Antenna TV |
+| `streaming` | Navigation + streaming apps | Roku, Fire TV, Apple TV |
+| `receiver` | Volume, inputs, sound modes | AV Receivers |
+| `projector` | Lens, keystone, inputs | Projectors |
+| `fan` | Speed, timer, modes | Fans and AC units |
+| `minimal` | Just navigation + power | Simple control |
+| `custom` | Build your own layout | Advanced users |
+
+## 🎮 Bluetooth Remote Setup
+
+### Pairing a Remote
+
+1. Go to **OmniRemote** → **Bluetooth Remotes**
+2. Click **Discover Remotes**
+3. Put your remote in pairing mode
+4. Select the discovered remote
+5. Assign to an area and device
+
+### Supported Remotes
+
+- Amazon Fire TV Remote
+- Roku Remote
+- Apple TV Remote (Siri Remote)
+- Generic Bluetooth HID remotes
+
+### Button Mapping
+
+```yaml
+# Example custom mapping
+button_mappings:
+  0x42:  # Menu Up HID code
+    command: up
+    device_id: living_room_tv
+    hold_command: page_up
+    double_tap_command: home
+```
+
+## 🏠 Area Registration
+
+### Setting Up Areas
+
+1. Go to **OmniRemote** → **Areas**
+2. Select an area (from Home Assistant)
+3. Click **Add Remote**
+4. Configure device mappings:
+   - Primary TV
+   - Receiver/Soundbar
+   - Streaming Device
+   - Projector
+
+### Smart Command Routing
+
+When a button is pressed:
+- **Volume commands** → Receiver or Soundbar
+- **Navigation commands** → Streaming device
+- **Channel commands** → Cable box or TV
+- **Power commands** → Primary TV
+
+### Generate Dashboard
+
+Click **Generate Dashboard** to create a Lovelace view with all your area remotes automatically configured.
 
 ## 🎬 Activities
 
 Activities are powerful macros that control multiple devices with timing:
 
 ### Example: "Watch Roku"
-1. Power on TV (wait 3s)
-2. Power on receiver (wait 2s)
-3. Set receiver to streaming input (wait 1s)
-4. Set TV to HDMI 1 (wait 2s)
-5. Launch Netflix on Roku
-
-### Example: "Movie Night" (Projector)
-1. Lower motorized screen (wait 5s)
-2. Power on projector (wait 30s for warm-up)
-3. Set projector to HDMI 1
-4. Power on receiver
-5. Dim lights (via HA service call)
-
-### Activity Features
-- **App Launching** - Launch apps by name
-- **Channel Tuning** - Enter channel numbers
-- **Timed Delays** - Wait for devices to warm up
-- **Conditional Actions** - Check HA entity states
-- **HA Service Calls** - Control lights, scenes, etc.
-- **End Activities** - Automatic cleanup/power off
+```yaml
+actions:
+  - type: power_on
+    device: Living Room TV
+    delay_after: 3
+  - type: power_on
+    device: Onkyo Receiver
+    delay_after: 2
+  - type: set_input
+    device: Onkyo Receiver
+    input: streaming
+    delay_after: 1
+  - type: launch_app
+    device: Roku
+    app_id: "12"  # Netflix
+```
 
 ## 🔧 Services
 
@@ -106,10 +211,10 @@ data:
   device: "Samsung TV"
   command: "power"
 
-# Run a scene
-service: omniremote.run_scene
+# Run an activity
+service: omniremote.run_activity
 data:
-  scene: "Watch Roku"
+  activity: "watch_roku"
 
 # Learn a new code
 service: omniremote.learn_code
@@ -117,25 +222,7 @@ data:
   device: "Samsung TV"
   command: "input_game"
   timeout: 15
-
-# Import Flipper files
-service: omniremote.import_flipper
-data:
-  path: "/config/flipper/infrared"
 ```
-
-## 🖼️ GUI Panel
-
-The sidebar panel provides:
-
-- **Dashboard** - Quick stats, scene buttons, device overview
-- **Devices** - Full remote control with navigation pad
-- **Activities** - Create and run complex macros
-- **Device Catalog** - Browse and add pre-built devices
-- **Rooms** - Organize devices by location
-- **Scenes** - Simple command sequences
-- **Blasters** - Manage Broadlink devices
-- **Import/Export** - Flipper Zero file support
 
 ## 📡 Supported Hardware
 
@@ -151,6 +238,12 @@ The sidebar panel provides:
 - Shelly devices (HTTP)
 - BenQ Projectors (RS232-over-IP)
 
+### Bluetooth Remotes
+- Amazon Fire TV Remote
+- Roku Remote
+- Apple TV Remote
+- Generic HID remotes
+
 ### Import Sources
 - Flipper Zero .ir files
 - Flipper Zero .sub files (SubGHz)
@@ -159,25 +252,6 @@ The sidebar panel provides:
 ## 🤝 Contributing
 
 Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-### Adding Device Codes
-
-To add codes for a new device, edit `catalog.py`:
-
-```python
-MY_DEVICE = CatalogDevice(
-    id="my_device",
-    name="My Device",
-    brand="Brand",
-    category=DeviceCategory.TV,
-    control_methods=[ControlMethod.IR],
-    ir_codes={
-        "power": _nec_code(0x04, 0x08, "power"),
-        "volume_up": _nec_code(0x04, 0x02, "volume_up"),
-        # ... more codes
-    },
-)
-```
 
 ## 📝 License
 
@@ -191,4 +265,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## ⚠️ Disclaimer
 
-This integration is not affiliated with or endorsed by any of the device manufacturers mentioned. All trademarks are property of their respective owners.
+This integration is not affiliated with or endorsed by any of the device manufacturers mentioned.

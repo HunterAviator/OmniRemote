@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1"/>
+      <stop offset="100%" style="stop-color:#a855f7"/>
+    </linearGradient>
+    <linearGradient id="g2" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#22d3ee"/>
+      <stop offset="100%" style="stop-color:#06b6d4"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="256" height="256" rx="48" fill="#1a1a2e"/>
+  
+  <!-- Remote body -->
+  <rect x="88" y="40" width="80" height="176" rx="20" fill="url(#g1)"/>
+  <rect x="94" y="46" width="68" height="164" rx="16" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="2"/>
+  
+  <!-- Power button -->
+  <circle cx="128" cy="72" r="16" fill="#1a1a2e"/>
+  <circle cx="128" cy="72" r="11" fill="none" stroke="#22d3ee" stroke-width="3"/>
+  <path d="M128 64 L128 72" stroke="#22d3ee" stroke-width="3" stroke-linecap="round"/>
+  
+  <!-- D-pad -->
+  <circle cx="128" cy="128" r="36" fill="#1a1a2e"/>
+  <polygon points="128,100 118,116 138,116" fill="#22d3ee"/>
+  <polygon points="128,156 118,140 138,140" fill="#22d3ee"/>
+  <polygon points="100,128 116,118 116,138" fill="#22d3ee"/>
+  <polygon points="156,128 140,118 140,138" fill="#22d3ee"/>
+  <circle cx="128" cy="128" r="12" fill="#22d3ee"/>
+  <circle cx="128" cy="128" r="7" fill="#1a1a2e"/>
+  
+  <!-- Bottom buttons -->
+  <circle cx="104" cy="180" r="10" fill="#1a1a2e"/>
+  <circle cx="128" cy="180" r="10" fill="#1a1a2e"/>
+  <circle cx="152" cy="180" r="10" fill="#1a1a2e"/>
+  
+  <!-- Home icon -->
+  <path d="M128 174 L122 180 L122 186 L134 186 L134 180 Z" fill="#22d3ee"/>
+  
+  <!-- Signal waves left -->
+  <path d="M56 128 Q42 128 42 112 Q42 96 56 96" fill="none" stroke="#22d3ee" stroke-width="4" stroke-linecap="round" opacity="0.8"/>
+  <path d="M44 128 Q26 128 26 106 Q26 84 44 84" fill="none" stroke="#22d3ee" stroke-width="3" stroke-linecap="round" opacity="0.5"/>
+  
+  <!-- Signal waves right -->
+  <path d="M200 128 Q214 128 214 144 Q214 160 200 160" fill="none" stroke="#22d3ee" stroke-width="4" stroke-linecap="round" opacity="0.8"/>
+  <path d="M212 128 Q230 128 230 150 Q230 172 212 172" fill="none" stroke="#22d3ee" stroke-width="3" stroke-linecap="round" opacity="0.5"/>
+</svg>

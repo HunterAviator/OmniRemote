@@ -1,6 +1,7 @@
 """Panel and API for OmniRemote GUI."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -12,7 +13,7 @@ from homeassistant.components import frontend, panel_custom
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN, DeviceCategory, SceneAction
+from .const import DOMAIN, DeviceCategory, SceneAction, Blaster
 from .database import RemoteDatabase
 from .catalog import DEVICE_CATALOG, CATALOG_BY_BRAND, CATALOG_BY_CATEGORY, get_catalog_device, search_catalog, list_catalog
 from .activities import Activity, ActivityAction, ActionType, ActivityRunner
@@ -20,7 +21,7 @@ from .activities import Activity, ActivityAction, ActionType, ActivityRunner
 _LOGGER = logging.getLogger(__name__)
 
 PANEL_URL = "/omniremote"
-PANEL_TITLE = "Remote Manager"
+PANEL_TITLE = "OmniRemote Manager"
 PANEL_ICON = "mdi:remote-tv"
 
 
@@ -37,6 +38,9 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     hass.http.register_view(OmniApiCatalog(hass))
     hass.http.register_view(OmniApiActivities(hass))
     hass.http.register_view(OmniApiNetworkDevices(hass))
+    hass.http.register_view(OmniApiBluetoothRemotes(hass))
+    hass.http.register_view(OmniApiAreaRemotes(hass))
+    hass.http.register_view(OmniRemoteCardResource(hass))
     
     # Register the panel
     await panel_custom.async_register_panel(
@@ -99,27 +103,48 @@ class OmniApiRooms(HomeAssistantView):
     
     async def get(self, request: web.Request) -> web.Response:
         """Get all rooms."""
+        import logging
+        _LOGGER = logging.getLogger(__name__)
+        
         database = _get_database(self.hass)
         if not database:
-            return web.json_response({"error": "Database not found"}, status=500)
+            _LOGGER.warning("OmniRemote database not found for rooms GET")
+            return web.json_response({"rooms": [], "error": "Integration not configured"})
         
         rooms = [r.to_dict() for r in database.rooms.values()]
         return web.json_response({"rooms": rooms})
     
     async def post(self, request: web.Request) -> web.Response:
         """Create a new room."""
+        import logging
+        _LOGGER = logging.getLogger(__name__)
+        
         database = _get_database(self.hass)
         if not database:
-            return web.json_response({"error": "Database not found"}, status=500)
+            _LOGGER.error("OmniRemote database not found for rooms POST")
+            return web.json_response({
+                "error": "Integration not configured. Go to Settings > Devices & Services > Add Integration > OmniRemote"
+            }, status=500)
         
-        data = await request.json()
-        room = database.add_room(
-            name=data.get("name", "New Room"),
-            icon=data.get("icon", "mdi:sofa"),
-        )
-        await database.async_save()
+        try:
+            data = await request.json()
+            _LOGGER.info("Creating room: %s", data)
+        except Exception as ex:
+            _LOGGER.error("Failed to parse room data: %s", ex)
+            return web.json_response({"error": f"Invalid request data: {ex}"}, status=400)
         
-        return web.json_response({"room": room.to_dict()})
+        try:
+            room = database.add_room(
+                name=data.get("name", "New Room"),
+                icon=data.get("icon", "mdi:sofa"),
+            )
+            await database.async_save()
+            _LOGGER.info("Created room: %s", room.name)
+            
+            return web.json_response({"room": room.to_dict(), "success": True})
+        except Exception as ex:
+            _LOGGER.error("Failed to create room: %s", ex)
+            return web.json_response({"error": str(ex)}, status=500)
 
 
 class OmniApiDevices(HomeAssistantView):
@@ -337,26 +362,98 @@ class OmniApiBlasters(HomeAssistantView):
         self.hass = hass
     
     async def get(self, request: web.Request) -> web.Response:
-        """Get all blasters."""
+        """Get all blasters including HA Broadlink entities."""
         database = _get_database(self.hass)
-        if not database:
-            return web.json_response({"error": "Database not found"}, status=500)
         
-        blasters = [b.to_dict() for b in database.blasters.values()]
-        return web.json_response({"blasters": blasters})
-    
-    async def post(self, request: web.Request) -> web.Response:
-        """Discover blasters."""
-        database = _get_database(self.hass)
-        if not database:
-            return web.json_response({"error": "Database not found"}, status=500)
+        blasters = []
         
-        blasters = await database.async_discover_blasters()
-        await database.async_save()
+        # Get blasters from our database
+        if database:
+            blasters = [b.to_dict() for b in database.blasters.values()]
+        
+        # Also look for HA's existing Broadlink remote entities
+        ha_blasters = []
+        for entity_id, state in self.hass.states.async_all("remote"):
+            # Check if it's a Broadlink device
+            if "broadlink" in entity_id.lower():
+                ha_blasters.append({
+                    "id": entity_id,
+                    "name": state.attributes.get("friendly_name", entity_id),
+                    "host": state.attributes.get("host", "Unknown"),
+                    "mac": state.attributes.get("mac", ""),
+                    "device_type": "ha_broadlink",
+                    "entity_id": entity_id,
+                })
         
         return web.json_response({
-            "blasters": [b.to_dict() for b in blasters]
+            "blasters": blasters,
+            "ha_blasters": ha_blasters,
+            "database_available": database is not None
         })
+    
+    async def post(self, request: web.Request) -> web.Response:
+        """Discover or manually add blasters."""
+        import logging
+        _LOGGER = logging.getLogger(__name__)
+        
+        database = _get_database(self.hass)
+        if not database:
+            _LOGGER.error("OmniRemote database not found - is the integration configured?")
+            return web.json_response({
+                "error": "Database not found. Please configure OmniRemote integration first via Settings > Devices & Services > Add Integration > OmniRemote",
+                "blasters": [],
+                "discovered_count": 0
+            })
+        
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        
+        _LOGGER.info("Blaster API POST request: %s", data)
+        
+        # Manual add by IP
+        if data.get("action") == "add" and data.get("host"):
+            try:
+                _LOGGER.info("Adding blaster by IP: %s", data["host"])
+                blaster = await database.async_add_blaster_by_ip(
+                    host=data["host"],
+                    name=data.get("name")
+                )
+                await database.async_save()
+                _LOGGER.info("Successfully added blaster: %s", blaster.name if blaster else "None")
+                
+                return web.json_response({
+                    "success": True,
+                    "blaster": blaster.to_dict() if blaster else None
+                })
+            except Exception as ex:
+                _LOGGER.error("Failed to add blaster: %s", ex)
+                return web.json_response({
+                    "success": False,
+                    "error": str(ex)
+                })
+        
+        # Auto-discover
+        _LOGGER.info("Starting Broadlink discovery...")
+        try:
+            blasters = await database.async_discover_blasters()
+            await database.async_save()
+            _LOGGER.info("Discovery complete, found %d blasters", len(blasters))
+            
+            return web.json_response({
+                "blasters": [b.to_dict() for b in blasters],
+                "discovered_count": len(blasters),
+                "success": True
+            })
+        except Exception as ex:
+            _LOGGER.error("Discovery failed: %s", ex)
+            return web.json_response({
+                "blasters": [],
+                "discovered_count": 0,
+                "success": False,
+                "error": str(ex)
+            })
 
 
 class OmniApiCommands(HomeAssistantView):
@@ -702,3 +799,207 @@ class OmniApiNetworkDevices(HomeAssistantView):
         
         return web.json_response({"error": "Unknown action"}, status=400)
 
+
+
+# === Bluetooth Remote API ===
+class OmniApiBluetoothRemotes(HomeAssistantView):
+    """API for Bluetooth remote management."""
+    
+    url = "/api/omniremote/bluetooth_remotes"
+    name = "api:omniremote:bluetooth_remotes"
+    requires_auth = True
+    
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+    
+    async def get(self, request):
+        """List all Bluetooth remotes."""
+        data = self.hass.data.get(DOMAIN, {})
+        entry_data = list(data.values())[0] if data else {}
+        bt_manager = entry_data.get("bluetooth_manager")
+        
+        if not bt_manager:
+            return self.json({"remotes": [], "error": "Bluetooth manager not initialized"})
+        
+        remotes = bt_manager.list_remotes()
+        return self.json({
+            "remotes": [r.to_dict() for r in remotes],
+        })
+    
+    async def post(self, request):
+        """Register or manage Bluetooth remotes."""
+        data = await request.json()
+        action = data.get("action")
+        
+        entry_data = list(self.hass.data.get(DOMAIN, {}).values())[0] if self.hass.data.get(DOMAIN) else {}
+        bt_manager = entry_data.get("bluetooth_manager")
+        
+        if not bt_manager:
+            return self.json({"success": False, "error": "Bluetooth manager not initialized"})
+        
+        if action == "register":
+            remote = await bt_manager.async_register_remote(
+                address=data["address"],
+                name=data["name"],
+                remote_type=data.get("remote_type", "Generic HID Remote"),
+                area_id=data.get("area_id"),
+                device_id=data.get("device_id"),
+            )
+            return self.json({"success": True, "remote": remote.to_dict()})
+        
+        elif action == "unregister":
+            success = await bt_manager.async_unregister_remote(data["remote_id"])
+            return self.json({"success": success})
+        
+        elif action == "update_mapping":
+            success = await bt_manager.async_update_mapping(
+                remote_id=data["remote_id"],
+                hid_code=data["hid_code"],
+                command=data["command"],
+                device_id=data.get("device_id"),
+                hold_command=data.get("hold_command"),
+                double_tap_command=data.get("double_tap_command"),
+            )
+            return self.json({"success": success})
+        
+        elif action == "set_area":
+            success = await bt_manager.async_set_remote_area(
+                remote_id=data["remote_id"],
+                area_id=data.get("area_id"),
+            )
+            return self.json({"success": success})
+        
+        elif action == "discover":
+            # Start discovery
+            discovered = []
+            def on_discover(service_info):
+                discovered.append({
+                    "address": service_info.address,
+                    "name": service_info.name,
+                    "rssi": service_info.rssi,
+                    "remote_type": bt_manager.identify_remote_type(service_info),
+                })
+            
+            await bt_manager.async_start_discovery(on_discover, timeout=data.get("timeout", 15))
+            await asyncio.sleep(data.get("timeout", 15))
+            
+            return self.json({"success": True, "discovered": discovered})
+        
+        elif action == "start_learning":
+            learned_buttons = []
+            def on_button(hid_code, button_name):
+                learned_buttons.append({"hid_code": hid_code, "name": button_name})
+            
+            bt_manager.start_learning_mode(on_button)
+            return self.json({"success": True, "message": "Learning mode started"})
+        
+        elif action == "stop_learning":
+            bt_manager.stop_learning_mode()
+            return self.json({"success": True})
+        
+        return self.json({"success": False, "error": "Unknown action"})
+
+
+# === Area Remotes API ===
+class OmniApiAreaRemotes(HomeAssistantView):
+    """API for area-based remote management."""
+    
+    url = "/api/omniremote/area_remotes"
+    name = "api:omniremote:area_remotes"
+    requires_auth = True
+    
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+    
+    async def get(self, request):
+        """Get areas and their remote configurations."""
+        data = self.hass.data.get(DOMAIN, {})
+        entry_data = list(data.values())[0] if data else {}
+        area_manager = entry_data.get("area_manager")
+        
+        if not area_manager:
+            return self.json({"areas": [], "error": "Area manager not initialized"})
+        
+        areas = area_manager.get_areas()
+        return self.json({"areas": areas})
+    
+    async def post(self, request):
+        """Manage area remotes."""
+        data = await request.json()
+        action = data.get("action")
+        
+        entry_data = list(self.hass.data.get(DOMAIN, {}).values())[0] if self.hass.data.get(DOMAIN) else {}
+        area_manager = entry_data.get("area_manager")
+        
+        if not area_manager:
+            return self.json({"success": False, "error": "Area manager not initialized"})
+        
+        if action == "register":
+            remote = await area_manager.async_register_remote(
+                area_id=data["area_id"],
+                name=data["name"],
+                remote_type=data.get("remote_type", "card"),
+                card_template=data.get("card_template", "tv"),
+                card_theme=data.get("card_theme", "default"),
+                bluetooth_remote_id=data.get("bluetooth_remote_id"),
+                is_primary=data.get("is_primary", False),
+            )
+            return self.json({"success": True, "remote": remote.to_dict()})
+        
+        elif action == "unregister":
+            success = await area_manager.async_unregister_remote(data["remote_id"])
+            return self.json({"success": success})
+        
+        elif action == "update":
+            remote = await area_manager.async_update_remote(
+                remote_id=data["remote_id"],
+                **{k: v for k, v in data.items() if k not in ["action", "remote_id"]}
+            )
+            return self.json({"success": bool(remote), "remote": remote.to_dict() if remote else None})
+        
+        elif action == "set_device_mapping":
+            success = await area_manager.async_set_device_mapping(
+                area_id=data["area_id"],
+                category=data["category"],
+                device_id=data.get("device_id"),
+            )
+            return self.json({"success": success})
+        
+        elif action == "generate_card":
+            config = area_manager.generate_card_config(data["remote_id"])
+            return self.json({"success": True, "config": config})
+        
+        elif action == "generate_dashboard":
+            yaml_content = area_manager.generate_dashboard_yaml(data.get("area_id"))
+            return self.json({"success": True, "yaml": yaml_content})
+        
+        return self.json({"success": False, "error": "Unknown action"})
+
+
+# === Remote Card Resources ===
+class OmniRemoteCardResource(HomeAssistantView):
+    """Serve the OmniRemote card JavaScript."""
+    
+    url = "/omniremote/omniremote-card.js"
+    name = "omniremote:card:js"
+    requires_auth = False
+    
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+    
+    async def get(self, request):
+        """Serve the card JS file."""
+        import os
+        
+        js_path = os.path.join(os.path.dirname(__file__), "www", "omniremote-card.js")
+        
+        if os.path.exists(js_path):
+            with open(js_path, "r") as f:
+                content = f.read()
+            return web.Response(
+                body=content,
+                content_type="application/javascript",
+                headers={"Cache-Control": "no-cache"},
+            )
+        
+        return web.Response(status=404, text="Card not found")

@@ -231,13 +231,53 @@ class RemoteDatabase:
         discovered = []
         
         try:
-            devices = await self.hass.async_add_executor_job(
-                broadlink.discover, 5
-            )
+            import socket
+            
+            # Try to get local IP for better discovery
+            local_ip = None
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.connect(("8.8.8.8", 80))
+                local_ip = s.getsockname()[0]
+                s.close()
+                _LOGGER.info("Discovering Broadlink devices from local IP: %s", local_ip)
+            except Exception as e:
+                _LOGGER.warning("Could not determine local IP: %s", e)
+            
+            # Method 1: Standard discovery with local IP
+            _LOGGER.info("Starting Broadlink discovery (timeout=10s)...")
+            try:
+                if local_ip:
+                    devices = await self.hass.async_add_executor_job(
+                        lambda: broadlink.discover(timeout=10, local_ip_address=local_ip)
+                    )
+                else:
+                    devices = await self.hass.async_add_executor_job(
+                        lambda: broadlink.discover(timeout=10)
+                    )
+                _LOGGER.info("Discovery found %d devices", len(devices))
+            except Exception as e:
+                _LOGGER.error("Discovery failed: %s", e)
+                devices = []
+            
+            # Method 2: If no devices found, try without local_ip
+            if not devices and local_ip:
+                _LOGGER.info("Retrying discovery without local_ip restriction...")
+                try:
+                    devices = await self.hass.async_add_executor_job(
+                        lambda: broadlink.discover(timeout=10)
+                    )
+                    _LOGGER.info("Second discovery found %d devices", len(devices))
+                except Exception as e:
+                    _LOGGER.error("Second discovery failed: %s", e)
             
             for device in devices:
                 try:
+                    _LOGGER.info("Found device: %s at %s (type: 0x%x)", 
+                                 device.model, device.host[0], device.devtype)
+                    
                     await self.hass.async_add_executor_job(device.auth)
+                    _LOGGER.info("Successfully authenticated with %s", device.host[0])
                     
                     mac = ":".join(f"{b:02x}" for b in device.mac)
                     
@@ -249,9 +289,9 @@ class RemoteDatabase:
                             break
                     
                     if existing:
-                        # Update host in case it changed
                         existing.host = device.host[0]
                         discovered.append(existing)
+                        _LOGGER.info("Updated existing blaster: %s", existing.name)
                     else:
                         blaster = Blaster(
                             name=f"{device.model} ({device.host[0]})",
@@ -261,17 +301,61 @@ class RemoteDatabase:
                         )
                         self.blasters[blaster.id] = blaster
                         discovered.append(blaster)
+                        _LOGGER.info("Added new blaster: %s (MAC: %s)", blaster.name, mac)
                     
-                    # Store connection
                     self._blaster_connections[mac] = device
                     
                 except Exception as ex:
-                    _LOGGER.warning("Error authenticating device: %s", ex)
+                    _LOGGER.warning("Error authenticating device %s: %s", device.host, ex)
             
         except Exception as ex:
-            _LOGGER.error("Error discovering devices: %s", ex)
+            _LOGGER.error("Error in discovery process: %s", ex)
         
+        _LOGGER.info("Discovery complete. Found %d blaster(s)", len(discovered))
         return discovered
+    
+    async def async_add_blaster_by_ip(self, host: str, name: str = None) -> Blaster | None:
+        """Add a blaster by IP address (manual add)."""
+        try:
+            _LOGGER.info("Attempting to connect to Broadlink device at %s", host)
+            
+            # Try hello first
+            device = await self.hass.async_add_executor_job(
+                lambda: broadlink.hello(host)
+            )
+            
+            _LOGGER.info("Found device: %s (type: 0x%x)", device.model, device.devtype)
+            
+            # Authenticate
+            await self.hass.async_add_executor_job(device.auth)
+            _LOGGER.info("Successfully authenticated with %s", host)
+            
+            mac = ":".join(f"{b:02x}" for b in device.mac)
+            
+            # Check if already exists
+            for b in self.blasters.values():
+                if b.mac == mac:
+                    _LOGGER.info("Device already registered: %s", b.name)
+                    b.host = host  # Update IP
+                    self._blaster_connections[mac] = device
+                    return b
+            
+            # Create new blaster
+            blaster = Blaster(
+                name=name or f"{device.model} ({host})",
+                host=host,
+                mac=mac,
+                device_type=hex(device.devtype),
+            )
+            self.blasters[blaster.id] = blaster
+            self._blaster_connections[mac] = device
+            
+            _LOGGER.info("Added blaster: %s (MAC: %s)", blaster.name, mac)
+            return blaster
+            
+        except Exception as ex:
+            _LOGGER.error("Failed to add blaster at %s: %s", host, ex)
+            raise
 
     async def async_connect_blaster(self, blaster_id: str) -> bool:
         """Connect to a specific blaster."""
@@ -521,3 +605,51 @@ class RemoteDatabase:
             "total_commands": sum(len(d.commands) for d in self.devices.values()),
             "connected_blasters": len(self._blaster_connections),
         }
+
+
+    # === Bluetooth Remote Storage ===
+    async def async_load_bluetooth_remotes(self) -> list[dict]:
+        """Load Bluetooth remote configurations."""
+        store = Store(self.hass, 1, f"{DOMAIN}_bluetooth_remotes")
+        data = await store.async_load()
+        return data.get("remotes", []) if data else []
+    
+    async def async_save_bluetooth_remotes(self, remotes: list[dict]) -> None:
+        """Save Bluetooth remote configurations."""
+        store = Store(self.hass, 1, f"{DOMAIN}_bluetooth_remotes")
+        await store.async_save({"remotes": remotes})
+    
+    # === Area Remote Storage ===
+    async def async_load_area_remotes(self) -> dict:
+        """Load area remote configurations."""
+        store = Store(self.hass, 1, f"{DOMAIN}_area_remotes")
+        data = await store.async_load()
+        return data or {"remotes": [], "device_mappings": []}
+    
+    async def async_save_area_remotes(self, data: dict) -> None:
+        """Save area remote configurations."""
+        store = Store(self.hass, 1, f"{DOMAIN}_area_remotes")
+        await store.async_save(data)
+    
+    def get_devices_by_area(self, area_id: str) -> list:
+        """Get all devices in a specific area/room."""
+        # Try to match by room name to area
+        from homeassistant.helpers import area_registry as ar
+        area_registry = ar.async_get(self.hass)
+        area = area_registry.async_get_area(area_id)
+        
+        if not area:
+            return []
+        
+        result = []
+        for device in self.devices.values():
+            if device.room_id:
+                room = self.rooms.get(device.room_id)
+                if room and room.name.lower() == area.name.lower():
+                    result.append(device)
+        
+        return result
+    
+    def get_activity(self, activity_id: str):
+        """Get an activity by ID."""
+        return self.activities.get(activity_id) if hasattr(self, 'activities') else None
