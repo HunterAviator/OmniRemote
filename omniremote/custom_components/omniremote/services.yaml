@@ -1,0 +1,193 @@
+import_flipper:
+  name: Import Flipper Files
+  description: Import IR/RF codes from Flipper Zero .ir and .sub files
+  fields:
+    path:
+      name: Path
+      description: Path to Flipper files directory (e.g., /config/flipper/infrared)
+      required: true
+      example: "/config/flipper/infrared"
+      selector:
+        text:
+
+export_flipper:
+  name: Export to Flipper
+  description: Export devices to Flipper Zero .ir files
+  fields:
+    output_path:
+      name: Output Path
+      description: Directory to save Flipper files
+      required: true
+      example: "/config/flipper_export"
+      selector:
+        text:
+
+learn_code:
+  name: Learn Code
+  description: Learn a new IR/RF code from a remote
+  fields:
+    device:
+      name: Device
+      description: Name of the device (creates new if doesn't exist)
+      required: true
+      example: "Living Room TV"
+      selector:
+        text:
+    command:
+      name: Command
+      description: Name for this command
+      required: true
+      example: "power"
+      selector:
+        text:
+    blaster_id:
+      name: Blaster ID
+      description: Specific blaster to use (optional)
+      selector:
+        text:
+    timeout:
+      name: Timeout
+      description: Seconds to wait for button press
+      default: 15
+      selector:
+        number:
+          min: 5
+          max: 60
+          unit_of_measurement: seconds
+
+send_code:
+  name: Send Code
+  description: Send an IR/RF command
+  fields:
+    device:
+      name: Device
+      description: Device name
+      required: true
+      example: "Living Room TV"
+      selector:
+        text:
+    command:
+      name: Command
+      description: Command name
+      required: true
+      example: "power"
+      selector:
+        text:
+    blaster_id:
+      name: Blaster ID
+      description: Specific blaster to use (optional)
+      selector:
+        text:
+
+run_scene:
+  name: Run Scene
+  description: Execute a saved scene
+  fields:
+    scene:
+      name: Scene
+      description: Scene name to run
+      required: true
+      example: "Watch Roku"
+      selector:
+        text:
+
+create_scene:
+  name: Create Scene
+  description: Create a new scene with multiple actions
+  fields:
+    name:
+      name: Scene Name
+      description: Name for the scene
+      required: true
+      example: "Watch Antenna TV"
+      selector:
+        text:
+    actions:
+      name: Actions
+      description: List of device commands to execute
+      required: true
+      example:
+        - device: "TV"
+          command: "power"
+          delay: 2
+        - device: "TV"
+          command: "input_antenna"
+      selector:
+        object:
+    room:
+      name: Room
+      description: Room to associate scene with (optional)
+      selector:
+        text:
+    icon:
+      name: Icon
+      description: MDI icon for the scene
+      default: "mdi:play"
+      selector:
+        icon:
+
+add_room:
+  name: Add Room
+  description: Add a new room
+  fields:
+    name:
+      name: Room Name
+      description: Name for the room
+      required: true
+      example: "Living Room"
+      selector:
+        text:
+    icon:
+      name: Icon
+      description: MDI icon for the room
+      default: "mdi:sofa"
+      selector:
+        icon:
+
+add_device:
+  name: Add Device
+  description: Add a new controllable device
+  fields:
+    name:
+      name: Device Name
+      description: Name for the device
+      required: true
+      example: "Samsung TV"
+      selector:
+        text:
+    category:
+      name: Category
+      description: Device category
+      default: "other"
+      selector:
+        select:
+          options:
+            - tv
+            - receiver
+            - soundbar
+            - streaming
+            - cable_box
+            - antenna
+            - projector
+            - ac
+            - fan
+            - light
+            - blind
+            - gate
+            - garage
+            - other
+    brand:
+      name: Brand
+      description: Device brand
+      selector:
+        text:
+    model:
+      name: Model
+      description: Device model
+      selector:
+        text:
+    room:
+      name: Room
+      description: Room the device is in
+      selector:
+        text:

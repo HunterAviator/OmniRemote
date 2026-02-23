@@ -1,7 +1,7 @@
 # OmniRemote for Home Assistant
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-[![GitHub Release](https://img.shields.io/github/release/HunterAviator/omniremote.svg)](https://github.com/HunterAviator/omniremote/releases)
+[![GitHub Release](https://img.shields.io/github/release/YOUR_USERNAME/omniremote.svg)](https://github.com/YOUR_USERNAME/omniremote/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A comprehensive Home Assistant integration for universal remote control. Manage IR, RF, Network, and Bluetooth devices with a beautiful sidebar GUI, pre-built device catalog, and powerful activity macros.
@@ -28,14 +28,14 @@ A comprehensive Home Assistant integration for universal remote control. Manage 
 
 1. Open HACS in Home Assistant
 2. Click the three dots menu → **Custom repositories**
-3. Add: `https://github.com/HunterAviator/omniremote`
+3. Add: `https://github.com/YOUR_USERNAME/omniremote`
 4. Category: **Integration**
 5. Click **Add** → Search for "OmniRemote" → **Download**
 6. Restart Home Assistant
 
 ### Manual Installation
 
-1. Download the latest release from [Releases](https://github.com/HunterAviator/omniremote/releases)
+1. Download the latest release from [Releases](https://github.com/YOUR_USERNAME/omniremote/releases)
 2. Extract and copy `custom_components/omniremote` to your `config/custom_components/`
 3. Restart Home Assistant
 

@@ -1,0 +1,12 @@
+{
+  "domain": "omniremote",
+  "name": "OmniRemote",
+  "codeowners": ["@HunterAviator"],
+  "config_flow": true,
+  "dependencies": ["http"],
+  "documentation": "https://github.com/HunterAviator/omniremote",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/HunterAviator/omniremote/issues",
+  "requirements": ["broadlink>=0.18.3"],
+  "version": "1.1.0"
+}
