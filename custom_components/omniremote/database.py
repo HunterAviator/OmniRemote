@@ -192,18 +192,40 @@ class RemoteDatabase:
     def add_scene(
         self,
         name: str,
-        actions: list[SceneAction],
         room_id: str | None = None,
         icon: str = "mdi:play",
+        blaster_id: str | None = None,
+        on_actions: list[SceneAction] | None = None,
+        off_actions: list[SceneAction] | None = None,
+        controlled_device_ids: list[str] | None = None,
+        controlled_entity_ids: list[str] | None = None,
+        actions: list[SceneAction] | None = None,  # Legacy
     ) -> Scene:
         """Add a new scene."""
         scene = Scene(
             name=name,
             icon=icon,
             room_id=room_id,
-            actions=actions,
+            blaster_id=blaster_id,
+            on_actions=on_actions or [],
+            off_actions=off_actions or [],
+            controlled_device_ids=controlled_device_ids or [],
+            controlled_entity_ids=controlled_entity_ids or [],
+            actions=actions or [],
         )
         self.scenes[scene.id] = scene
+        return scene
+
+    def update_scene(self, scene_id: str, **kwargs) -> Scene | None:
+        """Update a scene."""
+        scene = self.scenes.get(scene_id)
+        if not scene:
+            return None
+        
+        for key, value in kwargs.items():
+            if hasattr(scene, key):
+                setattr(scene, key, value)
+        
         return scene
 
     def get_scene(self, scene_id: str) -> Scene | None:
@@ -223,6 +245,201 @@ class RemoteDatabase:
             del self.scenes[scene_id]
             return True
         return False
+
+    def get_active_scenes(self) -> list[Scene]:
+        """Get all currently active scenes."""
+        return [s for s in self.scenes.values() if s.is_active]
+
+    def get_devices_in_use(self) -> set[str]:
+        """Get device IDs currently in use by active scenes."""
+        device_ids = set()
+        for scene in self.get_active_scenes():
+            device_ids.update(scene.controlled_device_ids)
+        return device_ids
+
+    def get_entities_in_use(self) -> set[str]:
+        """Get entity IDs currently in use by active scenes."""
+        entity_ids = set()
+        for scene in self.get_active_scenes():
+            entity_ids.update(scene.controlled_entity_ids)
+        return entity_ids
+
+    async def async_activate_scene(self, scene_id: str) -> bool:
+        """Activate a scene, running its ON sequence with smart device handling."""
+        scene = self.get_scene(scene_id)
+        if not scene:
+            _LOGGER.error("Scene not found: %s", scene_id)
+            return False
+        
+        _LOGGER.info("Activating scene: %s", scene.name)
+        
+        # Get devices already in use by other active scenes
+        devices_in_use = self.get_devices_in_use()
+        entities_in_use = self.get_entities_in_use()
+        
+        # Deactivate other scenes in the same room that share devices
+        if scene.room_id:
+            for other_scene in self.scenes.values():
+                if (other_scene.id != scene_id and 
+                    other_scene.room_id == scene.room_id and 
+                    other_scene.is_active):
+                    # Check if they share devices
+                    shared_devices = set(scene.controlled_device_ids) & set(other_scene.controlled_device_ids)
+                    shared_entities = set(scene.controlled_entity_ids) & set(other_scene.controlled_entity_ids)
+                    
+                    if shared_devices or shared_entities:
+                        _LOGGER.info("Scene %s shares devices with %s, marking as inactive but not running OFF sequence",
+                                    scene.name, other_scene.name)
+                        other_scene.is_active = False
+        
+        # Run ON actions
+        for action in sorted(scene.on_actions, key=lambda a: a.order):
+            try:
+                # Check if we should skip this action
+                if action.skip_if_on:
+                    if action.device_id and action.device_id in devices_in_use:
+                        _LOGGER.info("Skipping action for device %s - already on from another scene", action.device_id)
+                        continue
+                    if action.entity_id and action.entity_id in entities_in_use:
+                        _LOGGER.info("Skipping action for entity %s - already on from another scene", action.entity_id)
+                        continue
+                
+                await self._execute_action(action, scene.blaster_id)
+                
+                # Wait after action
+                if action.delay_seconds > 0:
+                    await asyncio.sleep(action.delay_seconds)
+                    
+            except Exception as ex:
+                _LOGGER.error("Error executing action in scene %s: %s", scene.name, ex)
+        
+        scene.is_active = True
+        await self.async_save()
+        return True
+
+    async def async_deactivate_scene(self, scene_id: str) -> bool:
+        """Deactivate a scene, running its OFF sequence."""
+        scene = self.get_scene(scene_id)
+        if not scene:
+            _LOGGER.error("Scene not found: %s", scene_id)
+            return False
+        
+        if not scene.is_active:
+            _LOGGER.info("Scene %s is not active", scene.name)
+            return True
+        
+        _LOGGER.info("Deactivating scene: %s", scene.name)
+        
+        # Check which devices are still needed by other active scenes
+        other_active_scenes = [s for s in self.get_active_scenes() if s.id != scene_id]
+        devices_still_needed = set()
+        entities_still_needed = set()
+        
+        for other_scene in other_active_scenes:
+            devices_still_needed.update(other_scene.controlled_device_ids)
+            entities_still_needed.update(other_scene.controlled_entity_ids)
+        
+        # Run OFF actions, but skip devices still in use
+        for action in sorted(scene.off_actions, key=lambda a: a.order):
+            try:
+                # Skip if device/entity is still needed by another scene
+                if action.device_id and action.device_id in devices_still_needed:
+                    _LOGGER.info("Skipping OFF for device %s - still needed by another scene", action.device_id)
+                    continue
+                if action.entity_id and action.entity_id in entities_still_needed:
+                    _LOGGER.info("Skipping OFF for entity %s - still needed by another scene", action.entity_id)
+                    continue
+                
+                await self._execute_action(action, scene.blaster_id)
+                
+                if action.delay_seconds > 0:
+                    await asyncio.sleep(action.delay_seconds)
+                    
+            except Exception as ex:
+                _LOGGER.error("Error executing OFF action in scene %s: %s", scene.name, ex)
+        
+        scene.is_active = False
+        await self.async_save()
+        return True
+
+    async def async_toggle_scene(self, scene_id: str) -> bool:
+        """Toggle a scene on/off."""
+        scene = self.get_scene(scene_id)
+        if not scene:
+            return False
+        
+        if scene.is_active:
+            return await self.async_deactivate_scene(scene_id)
+        else:
+            return await self.async_activate_scene(scene_id)
+
+    async def _execute_action(self, action: SceneAction, default_blaster_id: str | None = None) -> bool:
+        """Execute a single scene action."""
+        _LOGGER.debug("Executing action: type=%s", action.action_type)
+        
+        if action.action_type == "delay":
+            # Just a delay - handled by caller
+            return True
+        
+        elif action.action_type == "ir_command":
+            # Send IR command via blaster
+            device = self.devices.get(action.device_id) if action.device_id else None
+            if not device:
+                _LOGGER.warning("Device not found for action: %s", action.device_id)
+                return False
+            
+            code = None
+            for c in device.codes:
+                if c.name == action.command_name:
+                    code = c
+                    break
+            
+            if not code:
+                _LOGGER.warning("Command not found: %s for device %s", action.command_name, device.name)
+                return False
+            
+            blaster_id = action.blaster_id or default_blaster_id
+            return await self.async_send_code(code, blaster_id)
+        
+        elif action.action_type == "ha_service":
+            # Call Home Assistant service
+            if not action.ha_service or not action.entity_id:
+                _LOGGER.warning("Missing ha_service or entity_id for HA action")
+                return False
+            
+            try:
+                domain, service = action.ha_service.split(".", 1)
+                service_data = dict(action.service_data) if action.service_data else {}
+                service_data["entity_id"] = action.entity_id
+                
+                await self.hass.services.async_call(domain, service, service_data)
+                _LOGGER.info("Called HA service: %s.%s for %s", domain, service, action.entity_id)
+                return True
+            except Exception as ex:
+                _LOGGER.error("Failed to call HA service: %s", ex)
+                return False
+        
+        elif action.action_type == "network_command":
+            # Send network command (Roku, Fire TV, etc.)
+            from .network_devices import get_network_device_manager
+            
+            manager = get_network_device_manager(self.hass)
+            if not manager:
+                _LOGGER.warning("Network device manager not available")
+                return False
+            
+            try:
+                return await manager.async_send_command(
+                    action.network_device_id,
+                    action.network_command
+                )
+            except Exception as ex:
+                _LOGGER.error("Failed to send network command: %s", ex)
+                return False
+        
+        else:
+            _LOGGER.warning("Unknown action type: %s", action.action_type)
+            return False
 
     # === Blaster Management ===
 
@@ -312,6 +529,76 @@ class RemoteDatabase:
             _LOGGER.error("Error in discovery process: %s", ex)
         
         _LOGGER.info("Discovery complete. Found %d blaster(s)", len(discovered))
+        return discovered
+    
+    async def async_discover_blasters_mdns(self) -> list[Blaster]:
+        """Discover Broadlink devices via mDNS (works across VLANs if mDNS is relayed)."""
+        discovered = []
+        
+        try:
+            from homeassistant.components import zeroconf
+            
+            # Get zeroconf instance
+            zc = await zeroconf.async_get_instance(self.hass)
+            
+            # Service types for Broadlink devices
+            service_types = ["_broadlink._tcp.local."]
+            
+            from zeroconf import ServiceBrowser, ServiceListener
+            import socket
+            
+            found_hosts = []
+            
+            class BroadlinkListener(ServiceListener):
+                def add_service(self, zc, service_type, name):
+                    info = zc.get_service_info(service_type, name)
+                    if info and info.addresses:
+                        ip = socket.inet_ntoa(info.addresses[0])
+                        found_hosts.append((ip, name))
+                        _LOGGER.info("mDNS found Broadlink: %s at %s", name, ip)
+                
+                def remove_service(self, zc, service_type, name):
+                    pass
+                
+                def update_service(self, zc, service_type, name):
+                    pass
+            
+            listener = BroadlinkListener()
+            browsers = []
+            
+            for svc in service_types:
+                try:
+                    browser = ServiceBrowser(zc.zeroconf, svc, listener)
+                    browsers.append(browser)
+                except Exception as e:
+                    _LOGGER.debug("Could not browse %s: %s", svc, e)
+            
+            # Wait for discovery
+            await asyncio.sleep(5)
+            
+            # Cancel browsers
+            for browser in browsers:
+                try:
+                    browser.cancel()
+                except:
+                    pass
+            
+            _LOGGER.info("mDNS discovery found %d hosts", len(found_hosts))
+            
+            # Connect to each found host
+            for host, mdns_name in found_hosts:
+                try:
+                    blaster = await self.async_add_blaster_by_ip(host, mdns_name.split('.')[0])
+                    if blaster:
+                        discovered.append(blaster)
+                except Exception as e:
+                    _LOGGER.warning("Failed to connect to mDNS host %s: %s", host, e)
+            
+        except ImportError:
+            _LOGGER.warning("Zeroconf not available for mDNS discovery")
+        except Exception as ex:
+            _LOGGER.error("mDNS discovery error: %s", ex)
+        
         return discovered
     
     async def async_add_blaster_by_ip(self, host: str, name: str = None) -> Blaster | None:

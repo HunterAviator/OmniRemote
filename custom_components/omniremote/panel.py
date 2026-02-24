@@ -119,6 +119,7 @@ class OmniApiRooms(HomeAssistantView):
     
     url = "/api/omniremote/rooms"
     name = "api:omniremote:rooms"
+    requires_auth = False
     
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the view."""
@@ -175,6 +176,7 @@ class OmniApiDevices(HomeAssistantView):
     
     url = "/api/omniremote/devices"
     name = "api:omniremote:devices"
+    requires_auth = False
     
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the view."""
@@ -286,41 +288,84 @@ class OmniApiScenes(HomeAssistantView):
     
     url = "/api/omniremote/scenes"
     name = "api:omniremote:scenes"
+    requires_auth = False
     
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the view."""
         self.hass = hass
     
     async def get(self, request: web.Request) -> web.Response:
-        """Get all scenes."""
+        """Get all scenes and available HA entities."""
         database = _get_database(self.hass)
         if not database:
             return web.json_response({"error": "Database not found"}, status=500)
         
         scenes = [s.to_dict() for s in database.scenes.values()]
-        return web.json_response({"scenes": scenes})
+        
+        # Get available HA media players, switches, etc.
+        ha_entities = []
+        for state in self.hass.states.async_all():
+            domain = state.entity_id.split(".")[0]
+            if domain in ["media_player", "switch", "light", "fan", "remote", "input_boolean"]:
+                ha_entities.append({
+                    "entity_id": state.entity_id,
+                    "name": state.attributes.get("friendly_name", state.entity_id),
+                    "domain": domain,
+                    "state": state.state,
+                })
+        
+        return web.json_response({
+            "scenes": scenes,
+            "ha_entities": ha_entities,
+        })
     
     async def post(self, request: web.Request) -> web.Response:
-        """Create a new scene."""
+        """Create a new scene or perform scene action."""
         database = _get_database(self.hass)
         if not database:
             return web.json_response({"error": "Database not found"}, status=500)
         
         data = await request.json()
+        action = data.get("action")
         
-        actions = []
-        for action_data in data.get("actions", []):
-            actions.append(SceneAction(
-                device_id=action_data.get("device_id", ""),
-                command_name=action_data.get("command_name", ""),
-                delay_after=action_data.get("delay_after", 0.5),
-            ))
+        # Scene activation/deactivation
+        if action == "activate":
+            scene_id = data.get("scene_id")
+            success = await database.async_activate_scene(scene_id)
+            return web.json_response({"success": success})
+        
+        if action == "deactivate":
+            scene_id = data.get("scene_id")
+            success = await database.async_deactivate_scene(scene_id)
+            return web.json_response({"success": success})
+        
+        if action == "toggle":
+            scene_id = data.get("scene_id")
+            success = await database.async_toggle_scene(scene_id)
+            scene = database.get_scene(scene_id)
+            return web.json_response({
+                "success": success,
+                "is_active": scene.is_active if scene else False
+            })
+        
+        # Create new scene
+        on_actions = []
+        for action_data in data.get("on_actions", []):
+            on_actions.append(SceneAction.from_dict(action_data))
+        
+        off_actions = []
+        for action_data in data.get("off_actions", []):
+            off_actions.append(SceneAction.from_dict(action_data))
         
         scene = database.add_scene(
             name=data.get("name", "New Scene"),
-            actions=actions,
             room_id=data.get("room_id"),
             icon=data.get("icon", "mdi:play"),
+            blaster_id=data.get("blaster_id"),
+            on_actions=on_actions,
+            off_actions=off_actions,
+            controlled_device_ids=data.get("controlled_device_ids", []),
+            controlled_entity_ids=data.get("controlled_entity_ids", []),
         )
         await database.async_save()
         
@@ -346,14 +391,17 @@ class OmniApiScenes(HomeAssistantView):
             scene.icon = data["icon"]
         if "room_id" in data:
             scene.room_id = data["room_id"]
-        if "actions" in data:
-            scene.actions = []
-            for action_data in data["actions"]:
-                scene.actions.append(SceneAction(
-                    device_id=action_data.get("device_id", ""),
-                    command_name=action_data.get("command_name", ""),
-                    delay_after=action_data.get("delay_after", 0.5),
-                ))
+        if "blaster_id" in data:
+            scene.blaster_id = data["blaster_id"]
+        if "controlled_device_ids" in data:
+            scene.controlled_device_ids = data["controlled_device_ids"]
+        if "controlled_entity_ids" in data:
+            scene.controlled_entity_ids = data["controlled_entity_ids"]
+        
+        if "on_actions" in data:
+            scene.on_actions = [SceneAction.from_dict(a) for a in data["on_actions"]]
+        if "off_actions" in data:
+            scene.off_actions = [SceneAction.from_dict(a) for a in data["off_actions"]]
         
         await database.async_save()
         return web.json_response({"scene": scene.to_dict()})
@@ -462,7 +510,30 @@ class OmniApiBlasters(HomeAssistantView):
                     "error": str(ex)
                 })
         
-        # Auto-discover
+        # mDNS discovery (works across VLANs)
+        if data.get("action") == "mdns":
+            _LOGGER.info("Starting mDNS Broadlink discovery...")
+            try:
+                blasters = await database.async_discover_blasters_mdns()
+                await database.async_save()
+                _LOGGER.info("mDNS discovery complete, found %d blasters", len(blasters))
+                
+                return web.json_response({
+                    "blasters": [b.to_dict() for b in blasters],
+                    "discovered_count": len(blasters),
+                    "success": True,
+                    "method": "mdns"
+                })
+            except Exception as ex:
+                _LOGGER.error("mDNS discovery failed: %s", ex)
+                return web.json_response({
+                    "blasters": [],
+                    "discovered_count": 0,
+                    "success": False,
+                    "error": str(ex)
+                })
+        
+        # Auto-discover (broadcast - same subnet only)
         _LOGGER.info("Starting Broadlink discovery...")
         try:
             blasters = await database.async_discover_blasters()

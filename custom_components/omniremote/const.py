@@ -7,7 +7,7 @@ from typing import Any
 import uuid
 
 DOMAIN = "omniremote"
-VERSION = "1.2.9"
+VERSION = "1.3.0"
 
 # Storage
 STORAGE_VERSION = 1
@@ -261,35 +261,91 @@ class Room:
 
 @dataclass
 class SceneAction:
-    """A single action within a scene."""
-    device_id: str = ""
-    command_name: str = ""
-    delay_after: float = 0.5  # seconds to wait after this action
+    """A single action within a scene sequence."""
+    id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
+    order: int = 0
+    action_type: str = "ir_command"  # ir_command, ha_service, network_command, delay, condition
+    
+    # For IR commands (via OmniRemote devices/blasters)
+    device_id: str | None = None
+    command_name: str | None = None
+    blaster_id: str | None = None
+    
+    # For Home Assistant services
+    entity_id: str | None = None
+    ha_service: str | None = None  # e.g., "media_player.turn_on"
+    service_data: dict[str, Any] = field(default_factory=dict)
+    
+    # For network devices (Roku, Fire TV, etc.)
+    network_device_id: str | None = None
+    network_command: str | None = None
+    
+    # Delay (in seconds)
+    delay_seconds: float = 0.5
+    
+    # Condition - skip if device already in state
+    skip_if_on: bool = False  # Skip power on if device already on from another scene
     
     def to_dict(self) -> dict[str, Any]:
         return {
+            "id": self.id,
+            "order": self.order,
+            "action_type": self.action_type,
             "device_id": self.device_id,
             "command_name": self.command_name,
-            "delay_after": self.delay_after,
+            "blaster_id": self.blaster_id,
+            "entity_id": self.entity_id,
+            "ha_service": self.ha_service,
+            "service_data": self.service_data,
+            "network_device_id": self.network_device_id,
+            "network_command": self.network_command,
+            "delay_seconds": self.delay_seconds,
+            "skip_if_on": self.skip_if_on,
         }
     
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "SceneAction":
         return cls(
-            device_id=data.get("device_id", ""),
-            command_name=data.get("command_name", ""),
-            delay_after=data.get("delay_after", 0.5),
+            id=data.get("id", str(uuid.uuid4())[:8]),
+            order=data.get("order", 0),
+            action_type=data.get("action_type", "ir_command"),
+            device_id=data.get("device_id"),
+            command_name=data.get("command_name"),
+            blaster_id=data.get("blaster_id"),
+            entity_id=data.get("entity_id"),
+            ha_service=data.get("ha_service"),
+            service_data=data.get("service_data", {}),
+            network_device_id=data.get("network_device_id"),
+            network_command=data.get("network_command"),
+            delay_seconds=data.get("delay_seconds", data.get("delay_after", 0.5)),
+            skip_if_on=data.get("skip_if_on", False),
         )
 
 
 @dataclass
 class Scene:
-    """A scene that runs multiple actions."""
+    """A scene with ON and OFF sequences that manages device states."""
     id: str = field(default_factory=lambda: str(uuid.uuid4())[:8])
     name: str = ""
     icon: str = "mdi:play"
     room_id: str | None = None
+    
+    # Linked blaster for IR commands
+    blaster_id: str | None = None
+    
+    # Device IDs this scene controls (for state tracking)
+    controlled_device_ids: list[str] = field(default_factory=list)
+    controlled_entity_ids: list[str] = field(default_factory=list)
+    
+    # Action sequences
+    on_actions: list[SceneAction] = field(default_factory=list)
+    off_actions: list[SceneAction] = field(default_factory=list)
+    
+    # Legacy support
     actions: list[SceneAction] = field(default_factory=list)
+    
+    # Runtime state
+    is_active: bool = False
     
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -297,18 +353,37 @@ class Scene:
             "name": self.name,
             "icon": self.icon,
             "room_id": self.room_id,
+            "blaster_id": self.blaster_id,
+            "controlled_device_ids": self.controlled_device_ids,
+            "controlled_entity_ids": self.controlled_entity_ids,
+            "on_actions": [a.to_dict() for a in self.on_actions],
+            "off_actions": [a.to_dict() for a in self.off_actions],
             "actions": [a.to_dict() for a in self.actions],
+            "is_active": self.is_active,
         }
     
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Scene":
+        on_actions = [SceneAction.from_dict(a) for a in data.get("on_actions", [])]
+        off_actions = [SceneAction.from_dict(a) for a in data.get("off_actions", [])]
         actions = [SceneAction.from_dict(a) for a in data.get("actions", [])]
+        
+        # Migrate legacy actions to on_actions if needed
+        if not on_actions and actions:
+            on_actions = actions
+        
         return cls(
             id=data.get("id", str(uuid.uuid4())[:8]),
             name=data.get("name", ""),
             icon=data.get("icon", "mdi:play"),
             room_id=data.get("room_id"),
+            blaster_id=data.get("blaster_id"),
+            controlled_device_ids=data.get("controlled_device_ids", []),
+            controlled_entity_ids=data.get("controlled_entity_ids", []),
+            on_actions=on_actions,
+            off_actions=off_actions,
             actions=actions,
+            is_active=data.get("is_active", False),
         )
 
 

@@ -1,9 +1,9 @@
 /**
- * OmniRemote Manager Panel v1.2.8
+ * OmniRemote Manager Panel v1.3.0
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.2.8";
+const OMNIREMOTE_VERSION = "1.3.0";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -42,6 +42,7 @@ class OmniRemotePanel extends HTMLElement {
         rooms: results[0]?.rooms || [],
         devices: results[1]?.devices || [],
         scenes: results[2]?.scenes || [],
+        haEntities: results[2]?.ha_entities || [],
         blasters: results[3]?.blasters || [],
         haBlasters: results[3]?.ha_blasters || [],
         catalog: results[4]?.devices || [],
@@ -75,24 +76,23 @@ class OmniRemotePanel extends HTMLElement {
     try {
       const res = await fetch(url, opts);
       
+      // Check if response is OK
       if (!res.ok) {
         console.error(`[OmniRemote] API error status: ${res.status}`);
         return { error: `HTTP ${res.status}: ${res.statusText}` };
       }
       
+      // Get response text first to handle non-JSON responses
       const text = await res.text();
       
-      if (!text || text.trim() === '') {
-        return {};
-      }
-      
+      // Try to parse as JSON
       try {
         const json = JSON.parse(text);
         console.log(`[OmniRemote] API response:`, json);
         return json;
       } catch (parseError) {
-        console.error(`[OmniRemote] JSON parse error:`, parseError, 'Response:', text.substring(0, 200));
-        return { error: `Invalid JSON: ${text.substring(0, 100)}` };
+        console.error(`[OmniRemote] JSON parse error:`, parseError, 'Response text:', text.substring(0, 200));
+        return { error: `Invalid JSON response: ${text.substring(0, 100)}` };
       }
     } catch (e) {
       console.error(`[OmniRemote] API fetch error:`, e);
@@ -297,13 +297,25 @@ class OmniRemotePanel extends HTMLElement {
         await this._saveDevice();
         break;
       case 'show-add-scene':
-        this._showAddSceneModal();
+        this._showSceneEditor();
+        break;
+      case 'edit-scene':
+        this._showSceneEditor(data.sceneId);
         break;
       case 'save-scene':
         await this._saveScene();
         break;
+      case 'activate-scene':
+        await this._activateScene(data.sceneId);
+        break;
+      case 'deactivate-scene':
+        await this._deactivateScene(data.sceneId);
+        break;
       case 'discover':
         await this._discover();
+        break;
+      case 'discover-mdns':
+        await this._discoverMdns();
         break;
       case 'show-add-blaster':
         this._showAddBlasterModal();
@@ -320,6 +332,27 @@ class OmniRemotePanel extends HTMLElement {
         break;
       case 'delete-scene':
         await this._deleteScene(data.sceneId);
+        break;
+      case 'add-on-action':
+        this._showActionEditor('on');
+        break;
+      case 'add-off-action':
+        this._showActionEditor('off');
+        break;
+      case 'edit-action':
+        this._showActionEditor(data.type, parseInt(data.idx));
+        break;
+      case 'remove-action':
+        this._removeAction(data.type, parseInt(data.idx));
+        break;
+      case 'cancel-action-edit':
+        this._showSceneEditor(this._editingScene?.id);
+        break;
+      case 'save-action':
+        this._saveAction();
+        break;
+      case 'save-scene-full':
+        await this._saveSceneFull(data.sceneId);
         break;
       case 'add-catalog':
         await this._addFromCatalog(data.catalogId);
@@ -354,6 +387,7 @@ class OmniRemotePanel extends HTMLElement {
       case 'blasters':
         return `
           <button class="btn btn-p" data-action="discover"><ha-icon icon="mdi:magnify"></ha-icon>Discover</button>
+          <button class="btn btn-s" data-action="discover-mdns" style="margin-left:8px;"><ha-icon icon="mdi:access-point-network"></ha-icon>mDNS</button>
           <button class="btn btn-s" data-action="show-add-blaster" style="margin-left:8px;"><ha-icon icon="mdi:plus"></ha-icon>Add by IP</button>
         `;
       default:
@@ -380,7 +414,7 @@ class OmniRemotePanel extends HTMLElement {
         <ha-icon icon="mdi:alert"></ha-icon>
         <div class="warning-text">
           <div class="warning-title">Integration Not Configured</div>
-          <div class="warning-sub">Go to Settings â†’ Devices & Services â†’ Add Integration â†’ OmniRemote</div>
+          <div class="warning-sub">Go to Settings → Devices & Services → Add Integration → OmniRemote</div>
         </div>
       </div>
     ` : '';
@@ -436,23 +470,73 @@ class OmniRemotePanel extends HTMLElement {
 
   _scenesView() {
     if (!this._data.scenes.length) {
-      return `<div class="empty"><ha-icon icon="mdi:play-box-multiple"></ha-icon><h3>No Scenes</h3><p>Create scenes to control multiple devices</p><button class="btn btn-p" data-action="show-add-scene">Add Scene</button></div>`;
+      return `<div class="empty"><ha-icon icon="mdi:play-box-multiple"></ha-icon><h3>No Scenes</h3><p>Create scenes to control multiple devices with ON and OFF sequences</p><button class="btn btn-p" data-action="show-add-scene">Add Scene</button></div>`;
     }
-    return `<div class="grid">${this._data.scenes.map(s => `
-      <div class="card">
+    
+    // Group scenes by room
+    const byRoom = {};
+    const noRoom = [];
+    
+    this._data.scenes.forEach(s => {
+      if (s.room_id) {
+        if (!byRoom[s.room_id]) byRoom[s.room_id] = [];
+        byRoom[s.room_id].push(s);
+      } else {
+        noRoom.push(s);
+      }
+    });
+    
+    let html = '';
+    
+    // Scenes grouped by room
+    for (const roomId of Object.keys(byRoom)) {
+      const room = this._data.rooms.find(r => r.id === roomId);
+      const roomName = room ? room.name : 'Unknown Room';
+      
+      html += `<h3 style="margin:16px 0 8px;color:var(--primary-text-color)">${roomName}</h3>`;
+      html += `<div class="grid">${byRoom[roomId].map(s => this._sceneCard(s)).join('')}</div>`;
+    }
+    
+    // Scenes without room
+    if (noRoom.length) {
+      html += `<h3 style="margin:16px 0 8px;color:var(--primary-text-color)">Unassigned</h3>`;
+      html += `<div class="grid">${noRoom.map(s => this._sceneCard(s)).join('')}</div>`;
+    }
+    
+    return html;
+  }
+  
+  _sceneCard(s) {
+    const onCount = s.on_actions?.length || s.actions?.length || 0;
+    const offCount = s.off_actions?.length || 0;
+    const isActive = s.is_active;
+    const room = s.room_id ? this._data.rooms.find(r => r.id === s.room_id) : null;
+    const blaster = s.blaster_id ? this._data.blasters.find(b => b.id === s.blaster_id) : null;
+    
+    return `
+      <div class="card ${isActive ? 'card-active' : ''}">
         <div class="card-head">
-          <div class="card-icon"><ha-icon icon="${s.icon || 'mdi:play'}"></ha-icon></div>
+          <div class="card-icon" style="${isActive ? 'background:var(--success-color);' : ''}">
+            <ha-icon icon="${s.icon || 'mdi:play'}"></ha-icon>
+          </div>
           <div class="card-info">
             <div class="card-title">${s.name}</div>
-            <div class="card-sub">${s.actions?.length || 0} actions</div>
+            <div class="card-sub">
+              ${onCount} ON / ${offCount} OFF actions
+              ${blaster ? ` • ${blaster.name}` : ''}
+            </div>
           </div>
         </div>
         <div class="card-btns">
-          <button class="btn btn-p" data-action="run-scene" data-scene-id="${s.id}"><ha-icon icon="mdi:play"></ha-icon>Run</button>
+          ${isActive 
+            ? `<button class="btn" style="background:var(--error-color);color:white;" data-action="deactivate-scene" data-scene-id="${s.id}"><ha-icon icon="mdi:stop"></ha-icon>OFF</button>`
+            : `<button class="btn btn-p" data-action="activate-scene" data-scene-id="${s.id}"><ha-icon icon="mdi:play"></ha-icon>ON</button>`
+          }
+          <button class="btn btn-s" data-action="edit-scene" data-scene-id="${s.id}"><ha-icon icon="mdi:pencil"></ha-icon></button>
           <button class="btn btn-d" data-action="delete-scene" data-scene-id="${s.id}"><ha-icon icon="mdi:delete"></ha-icon></button>
         </div>
       </div>
-    `).join('')}</div>`;
+    `;
   }
 
   _blastersView() {
@@ -464,6 +548,7 @@ class OmniRemotePanel extends HTMLElement {
           <h3>No Blasters Found</h3>
           <p>Click Discover to find Broadlink devices, or add one manually by IP address</p>
           <button class="btn btn-p" data-action="discover" style="margin-right:8px;"><ha-icon icon="mdi:magnify"></ha-icon>Discover</button>
+          <button class="btn btn-s" data-action="discover-mdns" style="margin-right:8px;"><ha-icon icon="mdi:access-point-network"></ha-icon>mDNS</button>
           <button class="btn btn-s" data-action="show-add-blaster"><ha-icon icon="mdi:plus"></ha-icon>Add by IP</button>
         </div>
       `;
@@ -475,7 +560,7 @@ class OmniRemotePanel extends HTMLElement {
             <div class="card-icon"><ha-icon icon="mdi:access-point"></ha-icon></div>
             <div class="card-info">
               <div class="card-title">${b.name}</div>
-              <div class="card-sub">${b.host} â€¢ ${b.mac}</div>
+              <div class="card-sub">${b.host} • ${b.mac}</div>
             </div>
           </div>
         </div>
@@ -502,7 +587,7 @@ class OmniRemotePanel extends HTMLElement {
           <div class="card-icon"><ha-icon icon="${this._catIcon(d.category)}"></ha-icon></div>
           <div class="card-info">
             <div class="card-title">${d.name}</div>
-            <div class="card-sub">${d.brand} â€¢ ${Object.keys(d.commands || {}).length} cmds</div>
+            <div class="card-sub">${d.brand} • ${Object.keys(d.commands || {}).length} cmds</div>
           </div>
         </div>
         <div class="card-btns">
@@ -754,7 +839,7 @@ class OmniRemotePanel extends HTMLElement {
     } else {
       const count = res.discovered_count || res.blasters?.length || 0;
       if (count === 0) {
-        alert('No Broadlink devices found.\n\nTips:\nâ€¢ Make sure device is on same network as HA\nâ€¢ Device must be set up in Broadlink app first\nâ€¢ Try "Add by IP" with device\'s IP address');
+        alert('No Broadlink devices found.\n\nTips:\n• Broadcast discovery only works on same subnet\n• Try "mDNS" for cross-VLAN discovery\n• Try "Add by IP" with device\'s IP address');
       } else {
         alert(`Found ${count} device(s)!`);
       }
@@ -763,15 +848,393 @@ class OmniRemotePanel extends HTMLElement {
     await this._loadData();
   }
 
+  async _discoverMdns() {
+    console.log('[OmniRemote] Starting mDNS discovery...');
+    
+    // Update button
+    const btn = this.shadowRoot.querySelector('[data-action="discover-mdns"]');
+    if (btn) btn.innerHTML = '<ha-icon icon="mdi:loading"></ha-icon>Scanning...';
+    
+    const res = await this._api('/api/omniremote/blasters', 'POST', { action: 'mdns' });
+    
+    console.log('[OmniRemote] mDNS discovery result:', res);
+    
+    if (res.error) {
+      alert('mDNS discovery error: ' + res.error);
+    } else {
+      const count = res.discovered_count || res.blasters?.length || 0;
+      if (count === 0) {
+        alert('No Broadlink devices found via mDNS.\n\nTips:\n• mDNS must be relayed across VLANs (Avahi/mDNS reflector)\n• Device must be advertising on _broadlink._tcp\n• Try "Add by IP" with device\'s IP address');
+      } else {
+        alert(`Found ${count} device(s) via mDNS!`);
+      }
+    }
+    
+    // Reset button
+    if (btn) btn.innerHTML = '<ha-icon icon="mdi:access-point-network"></ha-icon>mDNS';
+    
+    await this._loadData();
+  }
+
   async _runScene(id) {
     console.log('[OmniRemote] Running scene:', id);
-    await this._api('/api/omniremote/commands', 'POST', { scene_id: id });
+    await this._activateScene(id);
+  }
+
+  async _activateScene(id) {
+    console.log('[OmniRemote] Activating scene:', id);
+    const res = await this._api('/api/omniremote/scenes', 'POST', { action: 'activate', scene_id: id });
+    if (res.error) {
+      alert('Error activating scene: ' + res.error);
+    }
+    await this._loadData();
+  }
+
+  async _deactivateScene(id) {
+    console.log('[OmniRemote] Deactivating scene:', id);
+    const res = await this._api('/api/omniremote/scenes', 'POST', { action: 'deactivate', scene_id: id });
+    if (res.error) {
+      alert('Error deactivating scene: ' + res.error);
+    }
+    await this._loadData();
   }
 
   async _deleteScene(id) {
-    if (!confirm('Delete this scene?')) return;
+    if (!confirm('Delete this scene? This cannot be undone.')) return;
     await this._api('/api/omniremote/scenes', 'DELETE', { id });
     await this._loadData();
+  }
+
+  _showSceneEditor(sceneId = null) {
+    const scene = sceneId ? this._data.scenes.find(s => s.id === sceneId) : null;
+    const isEdit = !!scene;
+    
+    // Store current editing state
+    this._editingScene = scene ? JSON.parse(JSON.stringify(scene)) : {
+      name: '',
+      icon: 'mdi:television',
+      room_id: null,
+      blaster_id: null,
+      controlled_device_ids: [],
+      controlled_entity_ids: [],
+      on_actions: [],
+      off_actions: []
+    };
+    
+    this._modal = `
+      <div class="modal-content" style="max-width:800px;max-height:90vh;overflow-y:auto;">
+        <h3>${isEdit ? 'Edit' : 'Create'} Scene</h3>
+        
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+          <div>
+            <label class="fl">Scene Name</label>
+            <input type="text" class="fi" id="scene-name" value="${this._editingScene.name}" placeholder="Watch TV">
+          </div>
+          <div>
+            <label class="fl">Icon</label>
+            <input type="text" class="fi" id="scene-icon" value="${this._editingScene.icon || 'mdi:television'}">
+          </div>
+        </div>
+        
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+          <div>
+            <label class="fl">Room</label>
+            <select class="fi" id="scene-room">
+              <option value="">-- No Room --</option>
+              ${this._data.rooms.map(r => `<option value="${r.id}" ${this._editingScene.room_id === r.id ? 'selected' : ''}>${r.name}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label class="fl">Default Blaster</label>
+            <select class="fi" id="scene-blaster">
+              <option value="">-- Select Blaster --</option>
+              ${this._data.blasters.map(b => `<option value="${b.id}" ${this._editingScene.blaster_id === b.id ? 'selected' : ''}>${b.name}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        
+        <div style="display:flex;gap:16px;margin-bottom:16px;">
+          <div style="flex:1;">
+            <h4 style="margin:0 0 8px;display:flex;align-items:center;justify-content:space-between;">
+              <span><ha-icon icon="mdi:play" style="color:var(--success-color);"></ha-icon> ON Sequence</span>
+              <button class="btn btn-s btn-sm" data-action="add-on-action"><ha-icon icon="mdi:plus"></ha-icon>Add</button>
+            </h4>
+            <div id="on-actions-list" style="min-height:100px;border:1px solid var(--divider-color);border-radius:8px;padding:8px;">
+              ${this._renderActionsList(this._editingScene.on_actions, 'on')}
+            </div>
+          </div>
+          
+          <div style="flex:1;">
+            <h4 style="margin:0 0 8px;display:flex;align-items:center;justify-content:space-between;">
+              <span><ha-icon icon="mdi:stop" style="color:var(--error-color);"></ha-icon> OFF Sequence</span>
+              <button class="btn btn-s btn-sm" data-action="add-off-action"><ha-icon icon="mdi:plus"></ha-icon>Add</button>
+            </h4>
+            <div id="off-actions-list" style="min-height:100px;border:1px solid var(--divider-color);border-radius:8px;padding:8px;">
+              ${this._renderActionsList(this._editingScene.off_actions, 'off')}
+            </div>
+          </div>
+        </div>
+        
+        <div style="display:flex;gap:8px;justify-content:flex-end;">
+          <button class="btn btn-s" data-action="close-modal">Cancel</button>
+          <button class="btn btn-p" data-action="save-scene-full" data-scene-id="${sceneId || ''}">Save Scene</button>
+        </div>
+      </div>
+    `;
+    this._render();
+  }
+
+  _renderActionsList(actions, type) {
+    if (!actions || !actions.length) {
+      return `<div style="color:var(--secondary-text-color);text-align:center;padding:20px;">No actions yet. Click Add to create one.</div>`;
+    }
+    
+    return actions.map((action, idx) => {
+      let desc = '';
+      let icon = 'mdi:help';
+      
+      switch (action.action_type) {
+        case 'ir_command':
+          const device = this._data.devices.find(d => d.id === action.device_id);
+          desc = `IR: ${device?.name || action.device_id} → ${action.command_name || 'command'}`;
+          icon = 'mdi:remote';
+          break;
+        case 'ha_service':
+          desc = `HA: ${action.ha_service} on ${action.entity_id}`;
+          icon = 'mdi:home-assistant';
+          break;
+        case 'network_command':
+          desc = `Network: ${action.network_command}`;
+          icon = 'mdi:lan';
+          break;
+        case 'delay':
+          desc = `Delay: ${action.delay_seconds}s`;
+          icon = 'mdi:timer-sand';
+          break;
+        default:
+          desc = action.action_type;
+      }
+      
+      return `
+        <div class="action-item" style="display:flex;align-items:center;gap:8px;padding:8px;background:var(--card-background-color);border-radius:4px;margin-bottom:4px;">
+          <ha-icon icon="${icon}" style="opacity:0.7;"></ha-icon>
+          <span style="flex:1;font-size:13px;">${desc}</span>
+          <span style="color:var(--secondary-text-color);font-size:11px;">+${action.delay_seconds || 0}s</span>
+          <button class="btn btn-d btn-sm" data-action="edit-action" data-type="${type}" data-idx="${idx}"><ha-icon icon="mdi:pencil"></ha-icon></button>
+          <button class="btn btn-d btn-sm" data-action="remove-action" data-type="${type}" data-idx="${idx}"><ha-icon icon="mdi:delete"></ha-icon></button>
+        </div>
+      `;
+    }).join('');
+  }
+
+  _showActionEditor(type, idx = null) {
+    const actions = type === 'on' ? this._editingScene.on_actions : this._editingScene.off_actions;
+    const action = idx !== null ? actions[idx] : {
+      action_type: 'ir_command',
+      device_id: null,
+      command_name: null,
+      entity_id: null,
+      ha_service: null,
+      network_command: null,
+      delay_seconds: 0.5,
+      skip_if_on: type === 'on'
+    };
+    
+    this._editingAction = { type, idx, action: JSON.parse(JSON.stringify(action)) };
+    
+    this._modal = `
+      <div class="modal-content" style="max-width:500px;">
+        <h3>${idx !== null ? 'Edit' : 'Add'} Action</h3>
+        
+        <label class="fl">Action Type</label>
+        <select class="fi" id="action-type" onchange="this.getRootNode().host._updateActionTypeUI()">
+          <option value="ir_command" ${action.action_type === 'ir_command' ? 'selected' : ''}>IR/RF Command</option>
+          <option value="ha_service" ${action.action_type === 'ha_service' ? 'selected' : ''}>Home Assistant Service</option>
+          <option value="network_command" ${action.action_type === 'network_command' ? 'selected' : ''}>Network Device</option>
+          <option value="delay" ${action.action_type === 'delay' ? 'selected' : ''}>Delay Only</option>
+        </select>
+        
+        <div id="action-fields" style="margin-top:16px;">
+          ${this._getActionFields(action)}
+        </div>
+        
+        <div style="margin-top:16px;">
+          <label class="fl">Delay After (seconds)</label>
+          <input type="number" class="fi" id="action-delay" value="${action.delay_seconds || 0.5}" min="0" step="0.1">
+        </div>
+        
+        ${type === 'on' ? `
+          <div style="margin-top:12px;">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+              <input type="checkbox" id="action-skip-if-on" ${action.skip_if_on ? 'checked' : ''}>
+              Skip if device already on from another scene
+            </label>
+          </div>
+        ` : ''}
+        
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+          <button class="btn btn-s" data-action="cancel-action-edit">Cancel</button>
+          <button class="btn btn-p" data-action="save-action">Save Action</button>
+        </div>
+      </div>
+    `;
+    this._render();
+  }
+
+  _getActionFields(action) {
+    switch (action.action_type) {
+      case 'ir_command':
+        const selectedDevice = action.device_id ? this._data.devices.find(d => d.id === action.device_id) : null;
+        const commands = selectedDevice?.codes?.map(c => c.name) || [];
+        
+        return `
+          <label class="fl">Device</label>
+          <select class="fi" id="action-device">
+            <option value="">-- Select Device --</option>
+            ${this._data.devices.map(d => `<option value="${d.id}" ${action.device_id === d.id ? 'selected' : ''}>${d.name}</option>`).join('')}
+          </select>
+          
+          <label class="fl" style="margin-top:12px;">Command</label>
+          <select class="fi" id="action-command">
+            <option value="">-- Select Command --</option>
+            ${commands.map(c => `<option value="${c}" ${action.command_name === c ? 'selected' : ''}>${c}</option>`).join('')}
+          </select>
+        `;
+        
+      case 'ha_service':
+        return `
+          <label class="fl">Entity</label>
+          <select class="fi" id="action-entity">
+            <option value="">-- Select Entity --</option>
+            ${(this._data.haEntities || []).map(e => `<option value="${e.entity_id}" ${action.entity_id === e.entity_id ? 'selected' : ''}>${e.name} (${e.domain})</option>`).join('')}
+          </select>
+          
+          <label class="fl" style="margin-top:12px;">Service</label>
+          <select class="fi" id="action-service">
+            <option value="">-- Select Service --</option>
+            <option value="turn_on" ${action.ha_service?.includes('turn_on') ? 'selected' : ''}>Turn On</option>
+            <option value="turn_off" ${action.ha_service?.includes('turn_off') ? 'selected' : ''}>Turn Off</option>
+            <option value="toggle" ${action.ha_service?.includes('toggle') ? 'selected' : ''}>Toggle</option>
+            <option value="select_source" ${action.ha_service?.includes('select_source') ? 'selected' : ''}>Select Source</option>
+            <option value="volume_set" ${action.ha_service?.includes('volume_set') ? 'selected' : ''}>Set Volume</option>
+          </select>
+        `;
+        
+      case 'network_command':
+        return `
+          <label class="fl">Network Device</label>
+          <select class="fi" id="action-network-device">
+            <option value="">-- Select Device --</option>
+            ${(this._data.networkDevices || []).map(d => `<option value="${d.id}" ${action.network_device_id === d.id ? 'selected' : ''}>${d.name}</option>`).join('')}
+          </select>
+          
+          <label class="fl" style="margin-top:12px;">Command</label>
+          <input type="text" class="fi" id="action-network-cmd" value="${action.network_command || ''}" placeholder="e.g., power, home, select">
+        `;
+        
+      case 'delay':
+        return `<p style="color:var(--secondary-text-color);">This action only adds a delay. Set the delay time below.</p>`;
+        
+      default:
+        return '';
+    }
+  }
+
+  _removeAction(type, idx) {
+    const actions = type === 'on' ? this._editingScene.on_actions : this._editingScene.off_actions;
+    actions.splice(idx, 1);
+    this._showSceneEditor(this._editingScene.id);
+  }
+
+  _saveAction() {
+    const actionType = this.shadowRoot.getElementById('action-type')?.value;
+    const delay = parseFloat(this.shadowRoot.getElementById('action-delay')?.value) || 0.5;
+    const skipIfOn = this.shadowRoot.getElementById('action-skip-if-on')?.checked || false;
+    
+    const action = {
+      id: this._editingAction?.action?.id || this._generateId(),
+      order: this._editingAction?.idx ?? (this._editingAction?.type === 'on' ? this._editingScene.on_actions.length : this._editingScene.off_actions.length),
+      action_type: actionType,
+      delay_seconds: delay,
+      skip_if_on: skipIfOn,
+    };
+    
+    // Get type-specific fields
+    switch (actionType) {
+      case 'ir_command':
+        action.device_id = this.shadowRoot.getElementById('action-device')?.value;
+        action.command_name = this.shadowRoot.getElementById('action-command')?.value;
+        break;
+      case 'ha_service':
+        action.entity_id = this.shadowRoot.getElementById('action-entity')?.value;
+        const service = this.shadowRoot.getElementById('action-service')?.value;
+        const domain = action.entity_id?.split('.')[0] || 'homeassistant';
+        action.ha_service = `${domain}.${service}`;
+        break;
+      case 'network_command':
+        action.network_device_id = this.shadowRoot.getElementById('action-network-device')?.value;
+        action.network_command = this.shadowRoot.getElementById('action-network-cmd')?.value;
+        break;
+    }
+    
+    // Add or update action
+    const actions = this._editingAction.type === 'on' ? this._editingScene.on_actions : this._editingScene.off_actions;
+    if (this._editingAction.idx !== null) {
+      actions[this._editingAction.idx] = action;
+    } else {
+      actions.push(action);
+    }
+    
+    // Return to scene editor
+    this._showSceneEditor(this._editingScene.id);
+  }
+
+  async _saveSceneFull(sceneId) {
+    const name = this.shadowRoot.getElementById('scene-name')?.value?.trim();
+    const icon = this.shadowRoot.getElementById('scene-icon')?.value?.trim() || 'mdi:television';
+    const roomId = this.shadowRoot.getElementById('scene-room')?.value || null;
+    const blasterId = this.shadowRoot.getElementById('scene-blaster')?.value || null;
+    
+    if (!name) {
+      alert('Please enter a scene name');
+      return;
+    }
+    
+    const sceneData = {
+      name,
+      icon,
+      room_id: roomId,
+      blaster_id: blasterId,
+      on_actions: this._editingScene.on_actions,
+      off_actions: this._editingScene.off_actions,
+      controlled_device_ids: this._editingScene.on_actions
+        .filter(a => a.action_type === 'ir_command' && a.device_id)
+        .map(a => a.device_id),
+      controlled_entity_ids: this._editingScene.on_actions
+        .filter(a => a.action_type === 'ha_service' && a.entity_id)
+        .map(a => a.entity_id),
+    };
+    
+    let res;
+    if (sceneId) {
+      sceneData.id = sceneId;
+      res = await this._api('/api/omniremote/scenes', 'PUT', sceneData);
+    } else {
+      res = await this._api('/api/omniremote/scenes', 'POST', sceneData);
+    }
+    
+    if (res.error) {
+      alert('Error saving scene: ' + res.error);
+      return;
+    }
+    
+    this._modal = null;
+    this._editingScene = null;
+    await this._loadData();
+  }
+
+  _generateId() {
+    return Math.random().toString(36).substring(2, 10);
   }
 
   async _addFromCatalog(id) {
