@@ -43,12 +43,17 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up OmniRemote from a config entry."""
+    _LOGGER.info("Setting up OmniRemote integration")
+    
     # Create database
     database = RemoteDatabase(hass)
     await database.async_load()
     
-    # Discover blasters
-    await database.async_discover_blasters()
+    # Discover blasters (don't fail if this errors)
+    try:
+        await database.async_discover_blasters()
+    except Exception as ex:
+        _LOGGER.warning("Blaster discovery failed: %s", ex)
     
     # Set up Bluetooth remote manager
     bluetooth_manager = None
@@ -75,10 +80,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     }
     
     # Register services
-    await _async_register_services(hass, database)
+    try:
+        await _async_register_services(hass, database)
+    except Exception as ex:
+        _LOGGER.error("Failed to register services: %s", ex)
     
-    # Register the panel (sidebar GUI)
-    await async_register_panel(hass)
+    # Register the panel (sidebar GUI) - this is critical
+    try:
+        await async_register_panel(hass)
+        _LOGGER.info("OmniRemote panel registered successfully")
+    except Exception as ex:
+        _LOGGER.error("Failed to register panel: %s", ex)
     
     # Register the Lovelace card resource
     await _async_register_card_resource(hass)
@@ -86,27 +98,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Forward to platforms
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     
+    _LOGGER.info("OmniRemote setup complete")
     return True
 
 
 async def _async_register_card_resource(hass: HomeAssistant) -> None:
     """Register the OmniRemote Lovelace card as a frontend resource."""
-    # Register the card JS file for Lovelace
-    hass.http.register_static_path(
-        "/local/omniremote/omniremote-card.js",
-        hass.config.path("custom_components/omniremote/www/omniremote-card.js"),
-        cache_headers=False,
-    )
-    
-    # Add the resource to Lovelace
-    from homeassistant.components.lovelace import DOMAIN as LOVELACE_DOMAIN
-    from homeassistant.components.lovelace.resources import ResourceStorageCollection
-    
-    # Try to add as a resource (user may need to add manually)
-    _LOGGER.info(
-        "OmniRemote card available at /local/omniremote/omniremote-card.js - "
-        "Add this as a Lovelace resource to use the card"
-    )
+    try:
+        # Register the card JS file for Lovelace
+        hass.http.register_static_path(
+            "/local/omniremote/omniremote-card.js",
+            hass.config.path("custom_components/omniremote/www/omniremote-card.js"),
+            cache_headers=False,
+        )
+        
+        _LOGGER.info(
+            "OmniRemote card available at /local/omniremote/omniremote-card.js - "
+            "Add this as a Lovelace resource to use the card"
+        )
+    except Exception as ex:
+        _LOGGER.warning("Could not register card resource: %s", ex)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
