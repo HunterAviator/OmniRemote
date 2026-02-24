@@ -6,7 +6,8 @@ from typing import Any
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResult
 
-from .const import DOMAIN
+# Hardcode domain to avoid import chain issues
+DOMAIN = "omniremote"
 
 
 class OmniRemoteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -18,6 +19,7 @@ class OmniRemoteConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Handle the initial step."""
+        # Check if already configured
         if self._async_current_entries():
             return self.async_abort(reason="single_instance_allowed")
 

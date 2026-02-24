@@ -1,5 +1,5 @@
 /**
- * OmniRemote Manager Panel v1.4.1
+ * OmniRemote Manager Panel v1.4.3
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 

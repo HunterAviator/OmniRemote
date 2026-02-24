@@ -3,24 +3,11 @@
     "step": {
       "user": {
         "title": "OmniRemote",
-        "description": "Set up OmniRemote to control IR/RF devices using Flipper Zero files and Broadlink blasters.",
-        "data": {
-          "import_path": "Flipper files import path (optional)"
-        }
+        "description": "Click submit to set up OmniRemote."
       }
     },
     "abort": {
-      "single_instance_allowed": "Only one instance of OmniRemote is allowed."
-    }
-  },
-  "options": {
-    "step": {
-      "init": {
-        "title": "OmniRemote Options",
-        "data": {
-          "import_path": "Flipper files import path"
-        }
-      }
+      "single_instance_allowed": "Already configured."
     }
   }
 }

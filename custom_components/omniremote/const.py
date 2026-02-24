@@ -7,7 +7,7 @@ from typing import Any
 import uuid
 
 DOMAIN = "omniremote"
-VERSION = "1.4.1"
+VERSION = "1.4.3"
 
 # Storage
 STORAGE_VERSION = 1
@@ -41,8 +41,13 @@ class DeviceCategory(str, Enum):
     TV = "tv"
     RECEIVER = "receiver"
     SOUNDBAR = "soundbar"
-    STREAMING = "streaming"  # Roku, Fire TV, Apple TV
+    STREAMING = "streaming"  # Roku, Fire TV, Apple TV (legacy)
+    STREAMER = "streamer"    # Roku, Fire TV, Apple TV
     CABLE_BOX = "cable_box"
+    CABLE = "cable"          # Alias for cable_box
+    DVR = "dvr"              # TiVo, DVRs
+    BLURAY = "bluray"        # Blu-ray/DVD players
+    GAME_CONSOLE = "game_console"  # Xbox, PlayStation, Switch
     ANTENNA = "antenna"
     PROJECTOR = "projector"
     AC = "ac"
