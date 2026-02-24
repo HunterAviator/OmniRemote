@@ -102,7 +102,8 @@ class OmniPanelView(HomeAssistantView):
         _LOGGER.debug("Serving panel.js from: %s (exists: %s)", panel_path, panel_path.exists())
         
         if panel_path.exists():
-            content = panel_path.read_text()
+            # Use async file read to avoid blocking
+            content = await self.hass.async_add_executor_job(panel_path.read_text)
             _LOGGER.debug("Panel.js loaded, size: %d bytes", len(content))
         else:
             _LOGGER.error("Panel.js not found at: %s", panel_path)

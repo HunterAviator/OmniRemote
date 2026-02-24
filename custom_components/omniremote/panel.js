@@ -1,9 +1,9 @@
 /**
- * OmniRemote Manager Panel v1.4.3
+ * OmniRemote Manager Panel v1.4.4
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.4.0";
+const OMNIREMOTE_VERSION = "1.4.4";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {

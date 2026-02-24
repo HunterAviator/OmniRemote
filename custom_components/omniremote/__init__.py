@@ -105,15 +105,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def _async_register_card_resource(hass: HomeAssistant) -> None:
     """Register the OmniRemote Lovelace card as a frontend resource."""
     try:
-        # Register the card JS file for Lovelace
-        hass.http.register_static_path(
-            "/local/omniremote/omniremote-card.js",
-            hass.config.path("custom_components/omniremote/www/omniremote-card.js"),
-            cache_headers=False,
-        )
-        
+        # The card JS is served via OmniRemoteCardResource view
+        # Users can add it as a Lovelace resource: /api/omniremote/card.js
         _LOGGER.info(
-            "OmniRemote card available at /local/omniremote/omniremote-card.js - "
+            "OmniRemote card available at /api/omniremote/card.js - "
             "Add this as a Lovelace resource to use the card"
         )
     except Exception as ex:
