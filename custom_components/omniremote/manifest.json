@@ -1,7 +1,7 @@
 {
   "domain": "omniremote",
   "name": "OmniRemote",
-  "version": "1.2.7",
+  "version": "1.2.8",
   "documentation": "https://github.com/HunterAviator/OmniRemote",
   "issue_tracker": "https://github.com/HunterAviator/OmniRemote/issues",
   "dependencies": ["http", "bluetooth"],

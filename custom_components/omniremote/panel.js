@@ -1,9 +1,9 @@
 /**
- * OmniRemote Manager Panel v1.2.7
+ * OmniRemote Manager Panel v1.2.8
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.2.7";
+const OMNIREMOTE_VERSION = "1.2.8";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -56,9 +56,16 @@ class OmniRemotePanel extends HTMLElement {
   }
 
   async _api(url, method = 'GET', body = null) {
+    const headers = { 'Content-Type': 'application/json' };
+    
+    // Add HA auth token if available
+    if (this._hass && this._hass.auth && this._hass.auth.data) {
+      headers['Authorization'] = `Bearer ${this._hass.auth.data.access_token}`;
+    }
+    
     const opts = { 
       method, 
-      headers: { 'Content-Type': 'application/json' }, 
+      headers,
       credentials: 'same-origin' 
     };
     if (body) opts.body = JSON.stringify(body);
