@@ -1,12 +1,12 @@
-﻿{
+{
   "domain": "omniremote",
   "name": "OmniRemote",
-  "codeowners": ["@HunterAviator"],
-  "config_flow": true,
+  "version": "1.2.7",
+  "documentation": "https://github.com/HunterAviator/OmniRemote",
+  "issue_tracker": "https://github.com/HunterAviator/OmniRemote/issues",
   "dependencies": ["http", "bluetooth"],
-  "documentation": "https://github.com/HunterAviator/omniremote",
-  "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/HunterAviator/omniremote/issues",
+  "codeowners": ["@HunterAviator"],
   "requirements": ["broadlink>=0.18.3"],
-  "version": "1.2.6"
+  "config_flow": true,
+  "iot_class": "local_push"
 }

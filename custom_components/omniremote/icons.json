@@ -1,12 +1,7 @@
-﻿{
+{
   "services": {
-    "import_flipper": "mdi:file-import",
-    "export_flipper": "mdi:file-export",
-    "learn_code": "mdi:access-point",
-    "send_code": "mdi:access-point-network",
-    "run_scene": "mdi:play",
-    "create_scene": "mdi:playlist-plus",
-    "add_room": "mdi:home-plus",
-    "add_device": "mdi:devices"
+    "send_command": "mdi:remote",
+    "learn_command": "mdi:record-circle",
+    "delete_command": "mdi:delete"
   }
 }

@@ -1,4 +1,4 @@
-﻿"""Constants and data models for OmniRemote."""
+"""Constants and data models for OmniRemote."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -7,7 +7,7 @@ from typing import Any
 import uuid
 
 DOMAIN = "omniremote"
-VERSION = "1.2.6"
+VERSION = "1.2.7"
 
 # Storage
 STORAGE_VERSION = 1
