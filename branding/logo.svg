@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <!-- Gradient for the main icon -->
+    <linearGradient id="mainGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#6366f1"/>
+      <stop offset="50%" style="stop-color:#8b5cf6"/>
+      <stop offset="100%" style="stop-color:#a855f7"/>
+    </linearGradient>
+    
+    <!-- Gradient for accent -->
+    <linearGradient id="accentGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#22d3ee"/>
+      <stop offset="100%" style="stop-color:#06b6d4"/>
+    </linearGradient>
+    
+    <!-- Glow effect -->
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="8" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    
+    <!-- Shadow -->
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#000" flood-opacity="0.3"/>
+    </filter>
+  </defs>
+  
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="240" fill="#1a1a2e" filter="url(#shadow)"/>
+  <circle cx="256" cy="256" r="235" fill="none" stroke="url(#mainGradient)" stroke-width="3" opacity="0.5"/>
+  
+  <!-- Signal waves (representing "Omni" - all directions) -->
+  <g opacity="0.6" filter="url(#glow)">
+    <!-- Top wave -->
+    <path d="M256 80 Q256 60 276 60 Q296 60 296 80" fill="none" stroke="url(#accentGradient)" stroke-width="4" stroke-linecap="round"/>
+    <path d="M256 100 Q256 70 290 70 Q324 70 324 100" fill="none" stroke="url(#accentGradient)" stroke-width="3" stroke-linecap="round" opacity="0.7"/>
+    <path d="M256 120 Q256 80 310 80 Q364 80 364 120" fill="none" stroke="url(#accentGradient)" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
+    
+    <!-- Bottom wave -->
+    <path d="M256 432 Q256 452 236 452 Q216 452 216 432" fill="none" stroke="url(#accentGradient)" stroke-width="4" stroke-linecap="round"/>
+    <path d="M256 412 Q256 442 222 442 Q188 442 188 412" fill="none" stroke="url(#accentGradient)" stroke-width="3" stroke-linecap="round" opacity="0.7"/>
+    <path d="M256 392 Q256 432 202 432 Q148 432 148 392" fill="none" stroke="url(#accentGradient)" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
+    
+    <!-- Left wave -->
+    <path d="M80 256 Q60 256 60 236 Q60 216 80 216" fill="none" stroke="url(#accentGradient)" stroke-width="4" stroke-linecap="round"/>
+    <path d="M100 256 Q70 256 70 222 Q70 188 100 188" fill="none" stroke="url(#accentGradient)" stroke-width="3" stroke-linecap="round" opacity="0.7"/>
+    <path d="M120 256 Q80 256 80 202 Q80 148 120 148" fill="none" stroke="url(#accentGradient)" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
+    
+    <!-- Right wave -->
+    <path d="M432 256 Q452 256 452 276 Q452 296 432 296" fill="none" stroke="url(#accentGradient)" stroke-width="4" stroke-linecap="round"/>
+    <path d="M412 256 Q442 256 442 290 Q442 324 412 324" fill="none" stroke="url(#accentGradient)" stroke-width="3" stroke-linecap="round" opacity="0.7"/>
+    <path d="M392 256 Q432 256 432 310 Q432 364 392 364" fill="none" stroke="url(#accentGradient)" stroke-width="2" stroke-linecap="round" opacity="0.4"/>
+  </g>
+  
+  <!-- Remote control body -->
+  <g filter="url(#shadow)">
+    <!-- Main remote shape -->
+    <rect x="186" y="140" width="140" height="232" rx="24" ry="24" fill="url(#mainGradient)"/>
+    
+    <!-- Remote inner border -->
+    <rect x="192" y="146" width="128" height="220" rx="20" ry="20" fill="none" stroke="rgba(255,255,255,0.2)" stroke-width="2"/>
+    
+    <!-- Power button (top) -->
+    <circle cx="256" cy="175" r="18" fill="#1a1a2e"/>
+    <circle cx="256" cy="175" r="14" fill="none" stroke="#22d3ee" stroke-width="3"/>
+    <path d="M256 165 L256 175 M256 168 Q256 162 252 162 M256 168 Q256 162 260 162" fill="none" stroke="#22d3ee" stroke-width="2.5" stroke-linecap="round"/>
+    
+    <!-- D-pad / Navigation circle -->
+    <circle cx="256" cy="256" r="45" fill="#1a1a2e"/>
+    <circle cx="256" cy="256" r="42" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="2"/>
+    
+    <!-- D-pad arrows -->
+    <polygon points="256,222 248,238 264,238" fill="#22d3ee"/>
+    <polygon points="256,290 248,274 264,274" fill="#22d3ee"/>
+    <polygon points="222,256 238,248 238,264" fill="#22d3ee"/>
+    <polygon points="290,256 274,248 274,264" fill="#22d3ee"/>
+    
+    <!-- Center OK button -->
+    <circle cx="256" cy="256" r="16" fill="#22d3ee"/>
+    <circle cx="256" cy="256" r="12" fill="#1a1a2e"/>
+    
+    <!-- Bottom buttons row 1 -->
+    <circle cx="226" cy="320" r="12" fill="#1a1a2e"/>
+    <circle cx="256" cy="320" r="12" fill="#1a1a2e"/>
+    <circle cx="286" cy="320" r="12" fill="#1a1a2e"/>
+    
+    <!-- Home icon in middle bottom button -->
+    <path d="M256 314 L250 320 L250 325 L253 325 L253 322 L259 322 L259 325 L262 325 L262 320 Z" fill="#22d3ee"/>
+    
+    <!-- Back arrow in left bottom button -->
+    <path d="M222 320 L230 320 M222 320 L226 316 M222 320 L226 324" fill="none" stroke="#22d3ee" stroke-width="2" stroke-linecap="round"/>
+    
+    <!-- Menu icon in right bottom button -->
+    <line x1="282" y1="316" x2="290" y2="316" stroke="#22d3ee" stroke-width="2" stroke-linecap="round"/>
+    <line x1="282" y1="320" x2="290" y2="320" stroke="#22d3ee" stroke-width="2" stroke-linecap="round"/>
+    <line x1="282" y1="324" x2="290" y2="324" stroke="#22d3ee" stroke-width="2" stroke-linecap="round"/>
+    
+    <!-- Volume/Channel buttons -->
+    <rect x="206" y="345" width="24" height="16" rx="4" fill="#1a1a2e"/>
+    <rect x="282" y="345" width="24" height="16" rx="4" fill="#1a1a2e"/>
+    
+    <!-- Plus/minus symbols -->
+    <line x1="214" y1="353" x2="222" y2="353" stroke="#22d3ee" stroke-width="2" stroke-linecap="round"/>
+    <line x1="218" y1="349" x2="218" y2="357" stroke="#22d3ee" stroke-width="2" stroke-linecap="round"/>
+    <line x1="290" y1="353" x2="298" y2="353" stroke="#22d3ee" stroke-width="2" stroke-linecap="round"/>
+  </g>
+  
+  <!-- "O" ring accent around remote -->
+  <ellipse cx="256" cy="256" rx="100" ry="145" fill="none" stroke="url(#accentGradient)" stroke-width="2" stroke-dasharray="8 4" opacity="0.4"/>
+</svg>
