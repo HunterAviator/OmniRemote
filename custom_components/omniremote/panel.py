@@ -89,6 +89,7 @@ class OmniPanelView(HomeAssistantView):
     
     url = "/api/omniremote/panel.js"
     name = "api:omniremote:panel"
+    requires_auth = False
     
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the view."""
@@ -98,10 +99,14 @@ class OmniPanelView(HomeAssistantView):
         """Return the panel JavaScript."""
         panel_path = Path(__file__).parent / "panel.js"
         
+        _LOGGER.debug("Serving panel.js from: %s (exists: %s)", panel_path, panel_path.exists())
+        
         if panel_path.exists():
             content = panel_path.read_text()
+            _LOGGER.debug("Panel.js loaded, size: %d bytes", len(content))
         else:
-            content = "console.error('Panel not found');"
+            _LOGGER.error("Panel.js not found at: %s", panel_path)
+            content = "console.error('OmniRemote panel.js not found at " + str(panel_path) + "');"
         
         return web.Response(
             text=content,
