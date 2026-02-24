@@ -1,9 +1,9 @@
 /**
- * OmniRemote Manager Panel v1.3.0
+ * OmniRemote Manager Panel v1.3.1
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.3.0";
+const OMNIREMOTE_VERSION = "1.3.1";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -24,6 +24,20 @@ class OmniRemotePanel extends HTMLElement {
     if (firstTime) {
       this._render();
       this._loadData();
+      this._checkVersion();
+    }
+  }
+
+  async _checkVersion() {
+    try {
+      const res = await this._api('/api/omniremote/version');
+      if (res.version && res.version !== this._version) {
+        console.warn(`[OmniRemote] Version mismatch! Panel: ${this._version}, Server: ${res.version}`);
+        this._versionMismatch = res.version;
+        this._render();
+      }
+    } catch (e) {
+      console.debug('[OmniRemote] Version check failed:', e);
     }
   }
 
@@ -164,6 +178,11 @@ class OmniRemotePanel extends HTMLElement {
         
         /* Warning */
         .warning { background:#3d2e00; border:1px solid #ff9800; border-radius:12px; padding:16px; margin-bottom:24px; display:flex; align-items:center; gap:12px; }
+        
+        /* Version Banner */
+        .version-banner { background:#1a3d1a; border:1px solid #4caf50; padding:12px 24px; display:flex; align-items:center; gap:12px; color:#a5d6a7; }
+        .version-banner ha-icon { color:#4caf50; }
+        .version-banner a { color:#81c784; font-weight:500; }
         .warning ha-icon { color:#ff9800; --mdc-icon-size:24px; }
         .warning-text { flex:1; }
         .warning-title { color:#ff9800; font-weight:500; }
@@ -234,6 +253,12 @@ class OmniRemotePanel extends HTMLElement {
             <h2>${this._getTitle()}</h2>
             <div>${this._getHeaderButtons()}</div>
           </header>
+          ${this._versionMismatch ? `
+            <div class="version-banner">
+              <ha-icon icon="mdi:update"></ha-icon>
+              <span>A new version (${this._versionMismatch}) is available. Please <a href="#" onclick="location.reload(); return false;">reload the page</a> or clear your browser cache.</span>
+            </div>
+          ` : ''}
           <div class="content">${this._getContent()}</div>
         </main>
       </div>

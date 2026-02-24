@@ -55,14 +55,14 @@ async def async_register_panel(hass: HomeAssistant) -> None:
         return
     
     try:
-        # Register the panel
+        # Register the panel with version for cache-busting
         await panel_custom.async_register_panel(
             hass,
             webcomponent_name="omniremote-panel",
             frontend_url_path="omniremote",
             sidebar_title=PANEL_TITLE,
             sidebar_icon=PANEL_ICON,
-            module_url="/api/omniremote/panel.js",
+            module_url=f"/api/omniremote/panel.js?v={VERSION}",
             embed_iframe=False,
             require_admin=False,
         )
@@ -108,9 +108,16 @@ class OmniPanelView(HomeAssistantView):
             _LOGGER.error("Panel.js not found at: %s", panel_path)
             content = "console.error('OmniRemote panel.js not found at " + str(panel_path) + "');"
         
+        # Add cache-control headers to prevent browser caching
         return web.Response(
             text=content,
             content_type="application/javascript",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Pragma": "no-cache",
+                "Expires": "0",
+                "X-OmniRemote-Version": VERSION,
+            }
         )
 
 
@@ -141,23 +148,24 @@ class OmniApiRooms(HomeAssistantView):
     async def post(self, request: web.Request) -> web.Response:
         """Create a new room."""
         import logging
+        import traceback
         _LOGGER = logging.getLogger(__name__)
         
-        database = _get_database(self.hass)
-        if not database:
-            _LOGGER.error("OmniRemote database not found for rooms POST")
-            return web.json_response({
-                "error": "Integration not configured. Go to Settings > Devices & Services > Add Integration > OmniRemote"
-            }, status=500)
-        
         try:
-            data = await request.json()
-            _LOGGER.info("Creating room: %s", data)
-        except Exception as ex:
-            _LOGGER.error("Failed to parse room data: %s", ex)
-            return web.json_response({"error": f"Invalid request data: {ex}"}, status=400)
-        
-        try:
+            database = _get_database(self.hass)
+            if not database:
+                _LOGGER.error("OmniRemote database not found for rooms POST")
+                return web.json_response({
+                    "error": "Integration not configured. Go to Settings > Devices & Services > Add Integration > OmniRemote"
+                }, status=500)
+            
+            try:
+                data = await request.json()
+                _LOGGER.info("Creating room: %s", data)
+            except Exception as ex:
+                _LOGGER.error("Failed to parse room data: %s", ex)
+                return web.json_response({"error": f"Invalid request data: {ex}"}, status=400)
+            
             room = database.add_room(
                 name=data.get("name", "New Room"),
                 icon=data.get("icon", "mdi:sofa"),
@@ -167,7 +175,7 @@ class OmniApiRooms(HomeAssistantView):
             
             return web.json_response({"room": room.to_dict(), "success": True})
         except Exception as ex:
-            _LOGGER.error("Failed to create room: %s", ex)
+            _LOGGER.error("Failed to create room: %s\n%s", ex, traceback.format_exc())
             return web.json_response({"error": str(ex)}, status=500)
 
 
