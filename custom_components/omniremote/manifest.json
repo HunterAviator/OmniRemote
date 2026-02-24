@@ -1,10 +1,10 @@
 {
   "domain": "omniremote",
   "name": "OmniRemote",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "documentation": "https://github.com/HunterAviator/OmniRemote",
   "issue_tracker": "https://github.com/HunterAviator/OmniRemote/issues",
-  "dependencies": ["http", "bluetooth"],
+  "dependencies": ["http"],
   "codeowners": ["@HunterAviator"],
   "requirements": ["broadlink>=0.18.3"],
   "config_flow": true,
