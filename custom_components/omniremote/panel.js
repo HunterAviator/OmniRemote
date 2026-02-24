@@ -1,9 +1,9 @@
 /**
- * OmniRemote Manager Panel v1.3.1
+ * OmniRemote Manager Panel v1.4.0
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.3.1";
+const OMNIREMOTE_VERSION = "1.4.0";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -302,6 +302,22 @@ class OmniRemotePanel extends HTMLElement {
     const modal = root.querySelector('[data-stop-propagation]');
     if (modal) {
       modal.addEventListener('click', (e) => e.stopPropagation());
+    }
+    
+    // Dynamic dropdown handlers for action editor
+    const deviceSelect = root.getElementById('action-device');
+    if (deviceSelect) {
+      deviceSelect.addEventListener('change', () => this._onDeviceChange());
+    }
+    
+    const entitySelect = root.getElementById('action-entity');
+    if (entitySelect) {
+      entitySelect.addEventListener('change', () => this._onEntityChange());
+    }
+    
+    const actionTypeSelect = root.getElementById('action-type');
+    if (actionTypeSelect) {
+      actionTypeSelect.addEventListener('change', () => this._updateActionTypeUI());
     }
   }
 
@@ -1072,7 +1088,7 @@ class OmniRemotePanel extends HTMLElement {
         <h3>${idx !== null ? 'Edit' : 'Add'} Action</h3>
         
         <label class="fl">Action Type</label>
-        <select class="fi" id="action-type" onchange="this.getRootNode().host._updateActionTypeUI()">
+        <select class="fi" id="action-type">
           <option value="ir_command" ${action.action_type === 'ir_command' ? 'selected' : ''}>IR/RF Command</option>
           <option value="ha_service" ${action.action_type === 'ha_service' ? 'selected' : ''}>Home Assistant Service</option>
           <option value="network_command" ${action.action_type === 'network_command' ? 'selected' : ''}>Network Device</option>
@@ -1110,13 +1126,17 @@ class OmniRemotePanel extends HTMLElement {
     switch (action.action_type) {
       case 'ir_command':
         const selectedDevice = action.device_id ? this._data.devices.find(d => d.id === action.device_id) : null;
-        const commands = selectedDevice?.codes?.map(c => c.name) || [];
+        // Commands are stored as a dict with command name as key
+        const commands = selectedDevice?.commands ? Object.keys(selectedDevice.commands) : [];
         
         return `
           <label class="fl">Device</label>
-          <select class="fi" id="action-device">
+          <select class="fi" id="action-device" onchange="this.getRootNode().host._onDeviceChange()">
             <option value="">-- Select Device --</option>
-            ${this._data.devices.map(d => `<option value="${d.id}" ${action.device_id === d.id ? 'selected' : ''}>${d.name}</option>`).join('')}
+            ${this._data.devices.map(d => {
+              const cmdCount = d.commands ? Object.keys(d.commands).length : 0;
+              return `<option value="${d.id}" ${action.device_id === d.id ? 'selected' : ''}>${d.name} (${cmdCount} cmds)</option>`;
+            }).join('')}
           </select>
           
           <label class="fl" style="margin-top:12px;">Command</label>
@@ -1124,26 +1144,12 @@ class OmniRemotePanel extends HTMLElement {
             <option value="">-- Select Command --</option>
             ${commands.map(c => `<option value="${c}" ${action.command_name === c ? 'selected' : ''}>${c}</option>`).join('')}
           </select>
+          ${commands.length === 0 && selectedDevice ? '<p style="color:var(--warning-color);font-size:12px;margin-top:4px;">⚠️ No commands found. Add commands in device editor first.</p>' : ''}
+          ${!selectedDevice ? '<p style="color:var(--secondary-text-color);font-size:12px;margin-top:4px;">Select a device to see available commands.</p>' : ''}
         `;
         
       case 'ha_service':
-        return `
-          <label class="fl">Entity</label>
-          <select class="fi" id="action-entity">
-            <option value="">-- Select Entity --</option>
-            ${(this._data.haEntities || []).map(e => `<option value="${e.entity_id}" ${action.entity_id === e.entity_id ? 'selected' : ''}>${e.name} (${e.domain})</option>`).join('')}
-          </select>
-          
-          <label class="fl" style="margin-top:12px;">Service</label>
-          <select class="fi" id="action-service">
-            <option value="">-- Select Service --</option>
-            <option value="turn_on" ${action.ha_service?.includes('turn_on') ? 'selected' : ''}>Turn On</option>
-            <option value="turn_off" ${action.ha_service?.includes('turn_off') ? 'selected' : ''}>Turn Off</option>
-            <option value="toggle" ${action.ha_service?.includes('toggle') ? 'selected' : ''}>Toggle</option>
-            <option value="select_source" ${action.ha_service?.includes('select_source') ? 'selected' : ''}>Select Source</option>
-            <option value="volume_set" ${action.ha_service?.includes('volume_set') ? 'selected' : ''}>Set Volume</option>
-          </select>
-        `;
+        return this._getHaServiceFields(action);
         
       case 'network_command':
         return `
@@ -1162,6 +1168,393 @@ class OmniRemotePanel extends HTMLElement {
         
       default:
         return '';
+    }
+  }
+
+  _getHaServiceFields(action) {
+    const entities = this._data.haEntities || [];
+    
+    // Group entities by domain for better organization
+    const groups = {
+      'Media & Entertainment': entities.filter(e => ['media_player', 'remote'].includes(e.domain)),
+      'Lighting': entities.filter(e => e.domain === 'light'),
+      'Switches & Plugs': entities.filter(e => ['switch', 'input_boolean'].includes(e.domain)),
+      'Climate & Comfort': entities.filter(e => ['climate', 'fan', 'humidifier'].includes(e.domain)),
+      'Covers & Blinds': entities.filter(e => e.domain === 'cover'),
+      'Scenes & Scripts': entities.filter(e => ['scene', 'script', 'automation'].includes(e.domain)),
+      'Inputs': entities.filter(e => ['input_number', 'input_select'].includes(e.domain)),
+      'Other': entities.filter(e => ['vacuum', 'lock', 'siren'].includes(e.domain)),
+    };
+    
+    const selectedEntity = action.entity_id ? entities.find(e => e.entity_id === action.entity_id) : null;
+    const domain = selectedEntity?.domain || '';
+    
+    // Build entity options with grouped dropdowns
+    let entityOptions = '<option value="">-- Select Entity --</option>';
+    for (const [groupName, groupEntities] of Object.entries(groups)) {
+      if (groupEntities.length > 0) {
+        entityOptions += `<optgroup label="${groupName}">`;
+        entityOptions += groupEntities.map(e => 
+          `<option value="${e.entity_id}" ${action.entity_id === e.entity_id ? 'selected' : ''}>${e.name}</option>`
+        ).join('');
+        entityOptions += '</optgroup>';
+      }
+    }
+    
+    // Get services for the selected domain
+    const services = this._getServicesForDomain(domain, action.ha_service);
+    
+    return `
+      <label class="fl">Entity</label>
+      <select class="fi" id="action-entity" onchange="this.getRootNode().host._onEntityChange()">
+        ${entityOptions}
+      </select>
+      
+      <label class="fl" style="margin-top:12px;">Service</label>
+      <select class="fi" id="action-service" onchange="this.getRootNode().host._onServiceChange()">
+        ${services}
+      </select>
+      
+      <div id="service-data-fields" style="margin-top:12px;">
+        ${this._getServiceDataFields(action, selectedEntity)}
+      </div>
+    `;
+  }
+
+  _getServicesForDomain(domain, currentService) {
+    const isSelected = (svc) => currentService?.includes(svc) ? 'selected' : '';
+    
+    // Base services available to most domains
+    let services = `
+      <option value="">-- Select Service --</option>
+      <option value="turn_on" ${isSelected('turn_on')}>Turn On</option>
+      <option value="turn_off" ${isSelected('turn_off')}>Turn Off</option>
+      <option value="toggle" ${isSelected('toggle')}>Toggle</option>
+    `;
+    
+    // Domain-specific services
+    switch (domain) {
+      case 'media_player':
+        services += `
+          <optgroup label="Input/Source">
+            <option value="select_source" ${isSelected('select_source')}>Select Source/Input</option>
+          </optgroup>
+          <optgroup label="Volume">
+            <option value="volume_set" ${isSelected('volume_set')}>Set Volume</option>
+            <option value="volume_up" ${isSelected('volume_up')}>Volume Up</option>
+            <option value="volume_down" ${isSelected('volume_down')}>Volume Down</option>
+            <option value="volume_mute" ${isSelected('volume_mute')}>Mute/Unmute</option>
+          </optgroup>
+          <optgroup label="Playback">
+            <option value="media_play" ${isSelected('media_play')}>Play</option>
+            <option value="media_pause" ${isSelected('media_pause')}>Pause</option>
+            <option value="media_play_pause" ${isSelected('media_play_pause')}>Play/Pause</option>
+            <option value="media_stop" ${isSelected('media_stop')}>Stop</option>
+            <option value="media_next_track" ${isSelected('media_next_track')}>Next Track</option>
+            <option value="media_previous_track" ${isSelected('media_previous_track')}>Previous Track</option>
+          </optgroup>
+        `;
+        break;
+        
+      case 'light':
+        services += `
+          <optgroup label="Brightness">
+            <option value="brightness_set" ${isSelected('brightness_set')}>Set Brightness</option>
+          </optgroup>
+          <optgroup label="Color">
+            <option value="color_temp_set" ${isSelected('color_temp_set')}>Set Color Temperature</option>
+          </optgroup>
+        `;
+        break;
+        
+      case 'climate':
+        services += `
+          <optgroup label="Mode">
+            <option value="set_hvac_mode" ${isSelected('set_hvac_mode')}>Set HVAC Mode</option>
+            <option value="set_preset_mode" ${isSelected('set_preset_mode')}>Set Preset Mode</option>
+          </optgroup>
+          <optgroup label="Temperature">
+            <option value="set_temperature" ${isSelected('set_temperature')}>Set Temperature</option>
+          </optgroup>
+        `;
+        break;
+        
+      case 'cover':
+        services += `
+          <optgroup label="Position">
+            <option value="open_cover" ${isSelected('open_cover')}>Open</option>
+            <option value="close_cover" ${isSelected('close_cover')}>Close</option>
+            <option value="stop_cover" ${isSelected('stop_cover')}>Stop</option>
+            <option value="set_cover_position" ${isSelected('set_cover_position')}>Set Position</option>
+          </optgroup>
+        `;
+        break;
+        
+      case 'fan':
+        services += `
+          <optgroup label="Speed">
+            <option value="set_percentage" ${isSelected('set_percentage')}>Set Speed %</option>
+            <option value="set_preset_mode" ${isSelected('set_preset_mode')}>Set Preset Mode</option>
+          </optgroup>
+        `;
+        break;
+        
+      case 'scene':
+        // Scenes only have turn_on
+        services = `
+          <option value="">-- Select Service --</option>
+          <option value="turn_on" ${isSelected('turn_on')}>Activate Scene</option>
+        `;
+        break;
+        
+      case 'script':
+        services = `
+          <option value="">-- Select Service --</option>
+          <option value="turn_on" ${isSelected('turn_on')}>Run Script</option>
+          <option value="turn_off" ${isSelected('turn_off')}>Stop Script</option>
+        `;
+        break;
+        
+      case 'automation':
+        services += `
+          <option value="trigger" ${isSelected('trigger')}>Trigger</option>
+        `;
+        break;
+        
+      case 'input_number':
+        services = `
+          <option value="">-- Select Service --</option>
+          <option value="set_value" ${isSelected('set_value')}>Set Value</option>
+          <option value="increment" ${isSelected('increment')}>Increment</option>
+          <option value="decrement" ${isSelected('decrement')}>Decrement</option>
+        `;
+        break;
+        
+      case 'input_select':
+        services = `
+          <option value="">-- Select Service --</option>
+          <option value="select_option" ${isSelected('select_option')}>Select Option</option>
+          <option value="select_next" ${isSelected('select_next')}>Next Option</option>
+          <option value="select_previous" ${isSelected('select_previous')}>Previous Option</option>
+        `;
+        break;
+        
+      case 'lock':
+        services = `
+          <option value="">-- Select Service --</option>
+          <option value="lock" ${isSelected('lock')}>Lock</option>
+          <option value="unlock" ${isSelected('unlock')}>Unlock</option>
+        `;
+        break;
+        
+      case 'vacuum':
+        services += `
+          <option value="start" ${isSelected('start')}>Start</option>
+          <option value="pause" ${isSelected('pause')}>Pause</option>
+          <option value="stop" ${isSelected('stop')}>Stop</option>
+          <option value="return_to_base" ${isSelected('return_to_base')}>Return to Base</option>
+        `;
+        break;
+    }
+    
+    return services;
+  }
+
+  _getServiceDataFields(action, entity) {
+    if (!action.ha_service) return '';
+    
+    const service = action.ha_service.split('.').pop();
+    const serviceData = action.service_data || {};
+    const domain = entity?.domain || '';
+    
+    switch (service) {
+      case 'select_source':
+        const sources = entity?.sources || [];
+        return `
+          <label class="fl">Source/Input</label>
+          ${sources.length ? `
+            <select class="fi" id="service-data-source">
+              <option value="">-- Select Source --</option>
+              ${sources.map(s => `<option value="${s}" ${serviceData.source === s ? 'selected' : ''}>${s}</option>`).join('')}
+            </select>
+          ` : `
+            <input type="text" class="fi" id="service-data-source" value="${serviceData.source || ''}" placeholder="e.g., HDMI 1, TV, Roku">
+          `}
+        `;
+        
+      case 'volume_set':
+        return `
+          <label class="fl">Volume Level (0-1)</label>
+          <input type="number" class="fi" id="service-data-volume" value="${serviceData.volume_level || 0.5}" min="0" max="1" step="0.05">
+        `;
+        
+      case 'volume_mute':
+        return `
+          <label class="fl">Mute</label>
+          <select class="fi" id="service-data-mute">
+            <option value="true" ${serviceData.is_volume_muted === true ? 'selected' : ''}>Mute</option>
+            <option value="false" ${serviceData.is_volume_muted === false ? 'selected' : ''}>Unmute</option>
+          </select>
+        `;
+        
+      case 'brightness_set':
+        return `
+          <label class="fl">Brightness (0-255)</label>
+          <input type="number" class="fi" id="service-data-brightness" value="${serviceData.brightness || 255}" min="0" max="255" step="1">
+        `;
+        
+      case 'set_temperature':
+        return `
+          <label class="fl">Temperature</label>
+          <input type="number" class="fi" id="service-data-temperature" value="${serviceData.temperature || 72}" min="50" max="90" step="1">
+        `;
+        
+      case 'set_hvac_mode':
+        const hvacModes = entity?.hvac_modes || ['off', 'heat', 'cool', 'auto'];
+        return `
+          <label class="fl">HVAC Mode</label>
+          <select class="fi" id="service-data-hvac-mode">
+            ${hvacModes.map(m => `<option value="${m}" ${serviceData.hvac_mode === m ? 'selected' : ''}>${m}</option>`).join('')}
+          </select>
+        `;
+        
+      case 'set_preset_mode':
+        const presetModes = entity?.preset_modes || [];
+        return presetModes.length ? `
+          <label class="fl">Preset Mode</label>
+          <select class="fi" id="service-data-preset-mode">
+            ${presetModes.map(m => `<option value="${m}" ${serviceData.preset_mode === m ? 'selected' : ''}>${m}</option>`).join('')}
+          </select>
+        ` : '';
+        
+      case 'set_cover_position':
+        return `
+          <label class="fl">Position (0-100)</label>
+          <input type="number" class="fi" id="service-data-position" value="${serviceData.position || 50}" min="0" max="100" step="5">
+        `;
+        
+      case 'set_percentage':
+        return `
+          <label class="fl">Speed % (0-100)</label>
+          <input type="number" class="fi" id="service-data-percentage" value="${serviceData.percentage || 50}" min="0" max="100" step="10">
+        `;
+        
+      case 'set_value':
+        return `
+          <label class="fl">Value</label>
+          <input type="number" class="fi" id="service-data-value" value="${serviceData.value || 0}" step="any">
+        `;
+        
+      case 'select_option':
+        const options = entity?.options || [];
+        return options.length ? `
+          <label class="fl">Option</label>
+          <select class="fi" id="service-data-option">
+            ${options.map(o => `<option value="${o}" ${serviceData.option === o ? 'selected' : ''}>${o}</option>`).join('')}
+          </select>
+        ` : `
+          <label class="fl">Option</label>
+          <input type="text" class="fi" id="service-data-option" value="${serviceData.option || ''}" placeholder="Option name">
+        `;
+        
+      default:
+        return '';
+    }
+  }
+
+  _onDeviceChange() {
+    const deviceId = this.shadowRoot.getElementById('action-device')?.value;
+    if (!deviceId) return;
+    
+    const device = this._data.devices.find(d => d.id === deviceId);
+    if (!device) return;
+    
+    // Update command dropdown
+    const commandSelect = this.shadowRoot.getElementById('action-command');
+    if (commandSelect) {
+      const commands = device.commands ? Object.keys(device.commands) : [];
+      commandSelect.innerHTML = `
+        <option value="">-- Select Command --</option>
+        ${commands.map(c => `<option value="${c}">${c}</option>`).join('')}
+      `;
+    }
+  }
+
+  _onEntityChange() {
+    const entityId = this.shadowRoot.getElementById('action-entity')?.value;
+    if (!entityId) return;
+    
+    const entity = (this._data.haEntities || []).find(e => e.entity_id === entityId);
+    const domain = entity?.domain || '';
+    
+    // Update service dropdown with relevant options for domain
+    const serviceSelect = this.shadowRoot.getElementById('action-service');
+    if (serviceSelect) {
+      serviceSelect.innerHTML = this._getServicesForDomain(domain, '');
+    }
+    
+    // Clear service data fields
+    const serviceDataDiv = this.shadowRoot.getElementById('service-data-fields');
+    if (serviceDataDiv) {
+      serviceDataDiv.innerHTML = '';
+    }
+  }
+
+  _onServiceChange() {
+    const entityId = this.shadowRoot.getElementById('action-entity')?.value;
+    const service = this.shadowRoot.getElementById('action-service')?.value;
+    
+    if (!service) return;
+    
+    const entity = (this._data.haEntities || []).find(e => e.entity_id === entityId);
+    const domain = entity?.domain || '';
+    
+    // Update service data fields based on selected service
+    const serviceDataDiv = this.shadowRoot.getElementById('service-data-fields');
+    if (serviceDataDiv) {
+      const action = {
+        ha_service: `${domain}.${service}`,
+        service_data: {}
+      };
+      serviceDataDiv.innerHTML = this._getServiceDataFields(action, entity);
+    }
+  }
+        <option value="volume_mute">Mute</option>
+        <option value="media_play">Play</option>
+        <option value="media_pause">Pause</option>
+        <option value="media_stop">Stop</option>
+        <option value="media_next_track">Next Track</option>
+        <option value="media_previous_track">Previous Track</option>
+      `;
+      serviceSelect.value = currentValue;
+    }
+  }
+
+  _updateActionTypeUI() {
+    // Re-render the action fields when action type changes
+    const actionType = this.shadowRoot.getElementById('action-type')?.value;
+    if (!actionType) return;
+    
+    // Update the editing action with new type
+    if (this._editingAction) {
+      this._editingAction.action.action_type = actionType;
+    }
+    
+    // Get the action fields container
+    const fieldsDiv = this.shadowRoot.getElementById('action-fields');
+    if (fieldsDiv) {
+      fieldsDiv.innerHTML = this._getActionFields(this._editingAction?.action || { action_type: actionType });
+      
+      // Re-attach event listeners for new dropdowns
+      const deviceSelect = this.shadowRoot.getElementById('action-device');
+      if (deviceSelect) {
+        deviceSelect.addEventListener('change', () => this._onDeviceChange());
+      }
+      
+      const entitySelect = this.shadowRoot.getElementById('action-entity');
+      if (entitySelect) {
+        entitySelect.addEventListener('change', () => this._onEntityChange());
+      }
     }
   }
 
@@ -1195,6 +1588,54 @@ class OmniRemotePanel extends HTMLElement {
         const service = this.shadowRoot.getElementById('action-service')?.value;
         const domain = action.entity_id?.split('.')[0] || 'homeassistant';
         action.ha_service = `${domain}.${service}`;
+        
+        // Get service data based on service type
+        action.service_data = {};
+        
+        // Source/Input
+        const sourceInput = this.shadowRoot.getElementById('service-data-source');
+        if (sourceInput?.value) action.service_data.source = sourceInput.value;
+        
+        // Volume
+        const volumeInput = this.shadowRoot.getElementById('service-data-volume');
+        if (volumeInput?.value) action.service_data.volume_level = parseFloat(volumeInput.value);
+        
+        // Mute
+        const muteInput = this.shadowRoot.getElementById('service-data-mute');
+        if (muteInput?.value) action.service_data.is_volume_muted = muteInput.value === 'true';
+        
+        // Brightness
+        const brightnessInput = this.shadowRoot.getElementById('service-data-brightness');
+        if (brightnessInput?.value) action.service_data.brightness = parseInt(brightnessInput.value);
+        
+        // Temperature
+        const tempInput = this.shadowRoot.getElementById('service-data-temperature');
+        if (tempInput?.value) action.service_data.temperature = parseFloat(tempInput.value);
+        
+        // HVAC Mode
+        const hvacInput = this.shadowRoot.getElementById('service-data-hvac-mode');
+        if (hvacInput?.value) action.service_data.hvac_mode = hvacInput.value;
+        
+        // Preset Mode
+        const presetInput = this.shadowRoot.getElementById('service-data-preset-mode');
+        if (presetInput?.value) action.service_data.preset_mode = presetInput.value;
+        
+        // Cover Position
+        const positionInput = this.shadowRoot.getElementById('service-data-position');
+        if (positionInput?.value) action.service_data.position = parseInt(positionInput.value);
+        
+        // Fan Percentage
+        const percentageInput = this.shadowRoot.getElementById('service-data-percentage');
+        if (percentageInput?.value) action.service_data.percentage = parseInt(percentageInput.value);
+        
+        // Input Number Value
+        const valueInput = this.shadowRoot.getElementById('service-data-value');
+        if (valueInput?.value) action.service_data.value = parseFloat(valueInput.value);
+        
+        // Input Select Option
+        const optionInput = this.shadowRoot.getElementById('service-data-option');
+        if (optionInput?.value) action.service_data.option = optionInput.value;
+        
         break;
       case 'network_command':
         action.network_device_id = this.shadowRoot.getElementById('action-network-device')?.value;

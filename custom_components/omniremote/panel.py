@@ -310,17 +310,70 @@ class OmniApiScenes(HomeAssistantView):
         
         scenes = [s.to_dict() for s in database.scenes.values()]
         
-        # Get available HA media players, switches, etc.
+        # Get ALL controllable HA entities for scene actions
         ha_entities = []
+        
+        # Domains we want to include
+        controllable_domains = [
+            # Media/Entertainment
+            "media_player", "remote",
+            # Lighting
+            "light",
+            # Switches & Plugs
+            "switch", "input_boolean",
+            # Climate & Comfort
+            "climate", "fan", "humidifier",
+            # Covers & Blinds
+            "cover",
+            # Automation
+            "scene", "script", "automation",
+            # Inputs
+            "input_number", "input_select",
+            # Misc
+            "vacuum", "lock", "siren",
+        ]
+        
         for state in self.hass.states.async_all():
             domain = state.entity_id.split(".")[0]
-            if domain in ["media_player", "switch", "light", "fan", "remote", "input_boolean"]:
-                ha_entities.append({
+            if domain in controllable_domains:
+                entity_data = {
                     "entity_id": state.entity_id,
                     "name": state.attributes.get("friendly_name", state.entity_id),
                     "domain": domain,
                     "state": state.state,
-                })
+                }
+                
+                # Add domain-specific attributes
+                if domain == "media_player":
+                    sources = state.attributes.get("source_list", [])
+                    if sources:
+                        entity_data["sources"] = sources
+                    entity_data["current_source"] = state.attributes.get("source")
+                    entity_data["volume_level"] = state.attributes.get("volume_level")
+                    entity_data["is_volume_muted"] = state.attributes.get("is_volume_muted")
+                
+                elif domain == "light":
+                    entity_data["brightness"] = state.attributes.get("brightness")
+                    entity_data["color_mode"] = state.attributes.get("color_mode")
+                    entity_data["supported_color_modes"] = state.attributes.get("supported_color_modes", [])
+                
+                elif domain == "climate":
+                    entity_data["hvac_modes"] = state.attributes.get("hvac_modes", [])
+                    entity_data["current_temperature"] = state.attributes.get("current_temperature")
+                    entity_data["target_temperature"] = state.attributes.get("temperature")
+                    entity_data["preset_modes"] = state.attributes.get("preset_modes", [])
+                
+                elif domain == "cover":
+                    entity_data["current_position"] = state.attributes.get("current_position")
+                
+                elif domain == "fan":
+                    entity_data["percentage"] = state.attributes.get("percentage")
+                    entity_data["preset_modes"] = state.attributes.get("preset_modes", [])
+                
+                elif domain == "input_select":
+                    entity_data["options"] = state.attributes.get("options", [])
+                
+                ha_entities.append(entity_data)
         
         return web.json_response({
             "scenes": scenes,
