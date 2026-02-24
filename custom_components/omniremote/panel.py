@@ -394,17 +394,21 @@ class OmniApiBlasters(HomeAssistantView):
         
         # Also look for HA's existing Broadlink remote entities
         ha_blasters = []
-        for entity_id, state in self.hass.states.async_all("remote"):
-            # Check if it's a Broadlink device
-            if "broadlink" in entity_id.lower():
-                ha_blasters.append({
-                    "id": entity_id,
-                    "name": state.attributes.get("friendly_name", entity_id),
-                    "host": state.attributes.get("host", "Unknown"),
-                    "mac": state.attributes.get("mac", ""),
-                    "device_type": "ha_broadlink",
-                    "entity_id": entity_id,
-                })
+        try:
+            for state in self.hass.states.async_all("remote"):
+                entity_id = state.entity_id
+                # Check if it's a Broadlink device
+                if "broadlink" in entity_id.lower():
+                    ha_blasters.append({
+                        "id": entity_id,
+                        "name": state.attributes.get("friendly_name", entity_id),
+                        "host": state.attributes.get("host", "Unknown"),
+                        "mac": state.attributes.get("mac", ""),
+                        "device_type": "ha_broadlink",
+                        "entity_id": entity_id,
+                    })
+        except Exception as ex:
+            _LOGGER.warning("Error scanning for HA Broadlink entities: %s", ex)
         
         return web.json_response({
             "blasters": blasters,
