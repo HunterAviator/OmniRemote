@@ -47,6 +47,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     hass.http.register_view(OmniApiAreaRemotes(hass))
     hass.http.register_view(OmniRemoteCardResource(hass))
     hass.http.register_view(OmniApiVersion(hass))
+    hass.http.register_view(OmniApiTest(hass))
     hass.http.register_view(OmniIconView(hass))
     hass.http.register_view(OmniLogoView(hass))
     
@@ -740,6 +741,9 @@ class OmniApiCatalog(HomeAssistantView):
     
     async def post(self, request: web.Request) -> web.Response:
         """Add a device from the catalog to the database."""
+        from .ir_encoder import encode_ir_to_broadlink
+        from .const import RemoteCode
+        
         database = _get_database(self.hass)
         if not database:
             return web.json_response({"error": "Database not found"}, status=500)
@@ -748,6 +752,7 @@ class OmniApiCatalog(HomeAssistantView):
         catalog_id = data.get("catalog_id")
         device_name = data.get("name", "")
         room_id = data.get("room_id")
+        profile_variant = data.get("profile_variant")  # For selecting alternate profiles
         
         catalog_device = get_catalog_device(catalog_id)
         if not catalog_device:
@@ -762,19 +767,41 @@ class OmniApiCatalog(HomeAssistantView):
             room_id=room_id,
         )
         
-        # Copy IR codes
-        for cmd_name, code in catalog_device.ir_codes.items():
-            device.commands[cmd_name] = code
+        # Store catalog info for future reference
+        device.catalog_id = catalog_id
         
-        # Copy RF codes
-        for cmd_name, code in catalog_device.rf_codes.items():
-            device.commands[cmd_name] = code
+        converted_count = 0
+        failed_count = 0
+        
+        # Convert and copy IR codes
+        for cmd_name, ir_code in catalog_device.ir_codes.items():
+            broadlink_b64 = encode_ir_to_broadlink(ir_code)
+            if broadlink_b64:
+                device.commands[cmd_name] = RemoteCode(
+                    source="catalog",
+                    broadlink_code=broadlink_b64,
+                    protocol=ir_code.protocol.value if ir_code.protocol else None,
+                    address=ir_code.address,
+                    command=ir_code.command,
+                )
+                converted_count += 1
+            else:
+                _LOGGER.warning("Could not convert IR code: %s/%s", catalog_device.name, cmd_name)
+                failed_count += 1
+        
+        # Copy RF codes (these might already have broadlink format or need different handling)
+        for cmd_name, rf_code in catalog_device.rf_codes.items():
+            # RF codes in catalog typically have frequency and data
+            # For now, skip RF - would need protocol-specific handling
+            pass
         
         await database.async_save()
         
         return web.json_response({
             "device": device.to_dict(),
-            "commands_added": len(device.commands),
+            "commands_added": converted_count,
+            "commands_failed": failed_count,
+            "catalog_id": catalog_id,
         })
 
 
@@ -1171,6 +1198,161 @@ class OmniRemoteCardResource(HomeAssistantView):
             )
         
         return web.Response(status=404, text="Card not found")
+
+
+class OmniApiTest(HomeAssistantView):
+    """API for testing IR codes."""
+    
+    url = "/api/omniremote/test"
+    name = "api:omniremote:test"
+    requires_auth = False
+    
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+    
+    async def post(self, request: web.Request) -> web.Response:
+        """Test an IR code."""
+        from .ir_encoder import encode_ir_to_broadlink
+        from .catalog import get_profile
+        
+        database = _get_database(self.hass)
+        if not database:
+            return web.json_response({"error": "Database not found"}, status=500)
+        
+        data = await request.json()
+        action = data.get("action", "test_command")
+        
+        if action == "test_command":
+            # Test a specific command from a device
+            device_id = data.get("device_id")
+            command_name = data.get("command_name")
+            blaster_id = data.get("blaster_id")
+            
+            if not device_id or not command_name:
+                return web.json_response({"error": "device_id and command_name required"}, status=400)
+            
+            device = database.devices.get(device_id)
+            if not device:
+                return web.json_response({"error": f"Device not found: {device_id}"}, status=404)
+            
+            code = device.commands.get(command_name)
+            if not code:
+                return web.json_response({"error": f"Command not found: {command_name}"}, status=404)
+            
+            success = await database.async_send_code(code, blaster_id)
+            
+            return web.json_response({
+                "success": success,
+                "device": device.name,
+                "command": command_name,
+                "protocol": getattr(code, "protocol", None),
+                "has_broadlink_code": bool(code.broadlink_code),
+            })
+        
+        elif action == "test_catalog":
+            # Test a catalog code directly (without adding to device)
+            profile_id = data.get("profile_id")
+            command_name = data.get("command_name")
+            blaster_id = data.get("blaster_id")
+            
+            if not profile_id or not command_name:
+                return web.json_response({"error": "profile_id and command_name required"}, status=400)
+            
+            result = await database.async_test_catalog_code(profile_id, command_name, blaster_id)
+            return web.json_response(result)
+        
+        elif action == "list_profiles":
+            # List all profiles for a brand/category
+            brand = data.get("brand", "").lower()
+            category = data.get("category", "")
+            
+            profiles = []
+            for profile_id, profile in DEVICE_CATALOG.items():
+                if brand and profile.brand.lower() != brand:
+                    continue
+                if category and profile.category.value != category:
+                    continue
+                profiles.append({
+                    "id": profile_id,
+                    "name": profile.name,
+                    "brand": profile.brand,
+                    "category": profile.category.value,
+                    "commands": list(profile.ir_codes.keys())[:10],  # First 10 commands
+                    "command_count": len(profile.ir_codes),
+                })
+            
+            return web.json_response({"profiles": profiles})
+        
+        elif action == "get_profile_commands":
+            # Get all commands from a profile
+            profile_id = data.get("profile_id")
+            
+            profile = get_profile(profile_id)
+            if not profile:
+                return web.json_response({"error": f"Profile not found: {profile_id}"}, status=404)
+            
+            commands = []
+            for cmd_name, ir_code in profile.ir_codes.items():
+                broadlink_b64 = encode_ir_to_broadlink(ir_code)
+                commands.append({
+                    "name": cmd_name,
+                    "protocol": ir_code.protocol.value if ir_code.protocol else None,
+                    "address": ir_code.address,
+                    "command": ir_code.command,
+                    "can_encode": bool(broadlink_b64),
+                })
+            
+            return web.json_response({
+                "profile": profile_id,
+                "name": profile.name,
+                "brand": profile.brand,
+                "commands": commands,
+            })
+        
+        elif action == "switch_profile":
+            # Switch a device to use a different catalog profile
+            device_id = data.get("device_id")
+            new_profile_id = data.get("profile_id")
+            
+            if not device_id or not new_profile_id:
+                return web.json_response({"error": "device_id and profile_id required"}, status=400)
+            
+            device = database.devices.get(device_id)
+            if not device:
+                return web.json_response({"error": f"Device not found: {device_id}"}, status=404)
+            
+            profile = get_profile(new_profile_id)
+            if not profile:
+                return web.json_response({"error": f"Profile not found: {new_profile_id}"}, status=404)
+            
+            # Clear existing commands and reload from new profile
+            device.commands.clear()
+            device.catalog_id = new_profile_id
+            
+            converted_count = 0
+            for cmd_name, ir_code in profile.ir_codes.items():
+                broadlink_b64 = encode_ir_to_broadlink(ir_code)
+                if broadlink_b64:
+                    from .const import RemoteCode
+                    device.commands[cmd_name] = RemoteCode(
+                        source="catalog",
+                        broadlink_code=broadlink_b64,
+                        protocol=ir_code.protocol.value if ir_code.protocol else None,
+                        address=ir_code.address,
+                        command=ir_code.command,
+                    )
+                    converted_count += 1
+            
+            await database.async_save()
+            
+            return web.json_response({
+                "success": True,
+                "device": device.name,
+                "new_profile": new_profile_id,
+                "commands_loaded": converted_count,
+            })
+        
+        return web.json_response({"error": "Unknown action"}, status=400)
 
 
 class OmniApiVersion(HomeAssistantView):

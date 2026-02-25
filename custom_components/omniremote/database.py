@@ -727,6 +727,92 @@ class RemoteDatabase:
                 _LOGGER.error("Error sending code: %s", ex)
                 return False
 
+    async def async_send_catalog_code(
+        self,
+        ir_code: "IRCode",
+        blaster_id: str | None = None,
+    ) -> bool:
+        """Send a catalog IRCode using a blaster."""
+        from .ir_encoder import encode_ir_to_broadlink
+        
+        # Convert IRCode to Broadlink format
+        broadlink_b64 = encode_ir_to_broadlink(ir_code)
+        if not broadlink_b64:
+            _LOGGER.error("Could not encode IR code for protocol %s", ir_code.protocol)
+            return False
+        
+        async with self._lock:
+            # Find blaster to use
+            if blaster_id and blaster_id in self.blasters:
+                blaster = self.blasters[blaster_id]
+                if blaster.mac not in self._blaster_connections:
+                    await self.async_connect_blaster(blaster_id)
+                device = self._blaster_connections.get(blaster.mac)
+            else:
+                result = self.get_any_blaster()
+                if result:
+                    blaster, device = result
+                else:
+                    _LOGGER.error("No blaster available")
+                    return False
+            
+            if not device:
+                _LOGGER.error("Blaster not connected")
+                return False
+            
+            try:
+                code_bytes = base64.b64decode(broadlink_b64)
+                _LOGGER.debug("Sending %d bytes via %s", len(code_bytes), blaster.name)
+                await self.hass.async_add_executor_job(
+                    device.send_data, code_bytes
+                )
+                return True
+            except Exception as ex:
+                _LOGGER.error("Error sending catalog code: %s", ex)
+                return False
+
+    async def async_test_catalog_code(
+        self,
+        profile_id: str,
+        command_name: str,
+        blaster_id: str | None = None,
+    ) -> dict:
+        """Test a catalog code and return debug info."""
+        from .catalog import get_profile
+        from .ir_encoder import encode_ir_to_broadlink
+        
+        profile = get_profile(profile_id)
+        if not profile:
+            return {"success": False, "error": f"Profile not found: {profile_id}"}
+        
+        ir_code = profile.ir_codes.get(command_name)
+        if not ir_code:
+            return {"success": False, "error": f"Command not found: {command_name}"}
+        
+        # Get encoding info
+        broadlink_b64 = encode_ir_to_broadlink(ir_code)
+        if not broadlink_b64:
+            return {
+                "success": False, 
+                "error": f"Could not encode protocol: {ir_code.protocol.value}",
+                "protocol": ir_code.protocol.value,
+                "address": ir_code.address,
+                "command": ir_code.command,
+            }
+        
+        # Try to send
+        result = await self.async_send_catalog_code(ir_code, blaster_id)
+        
+        return {
+            "success": result,
+            "profile": profile_id,
+            "command": command_name,
+            "protocol": ir_code.protocol.value,
+            "address": ir_code.address,
+            "command_hex": ir_code.command,
+            "broadlink_length": len(base64.b64decode(broadlink_b64)),
+        }
+
     async def async_learn_code(
         self,
         blaster_id: str | None = None,

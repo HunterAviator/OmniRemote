@@ -3,7 +3,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.5.4";
+const OMNIREMOTE_VERSION = "1.5.5";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -205,6 +205,21 @@ class OmniRemotePanel extends HTMLElement {
         
         /* HA Blaster badge */
         .ha-badge { display:inline-block; background:#1b3d1b; color:#4caf50; padding:2px 8px; border-radius:4px; font-size:10px; margin-top:8px; }
+        
+        /* Spinner animation */
+        .spin { animation: spin 1s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        
+        /* Small buttons */
+        .btn-sm { padding:4px 8px; font-size:11px; }
+        .btn-sm ha-icon { --mdc-icon-size:14px; }
+        
+        /* Modal content area */
+        .modal-content { background:#1a1a2e; border:1px solid #2a2a4a; border-radius:12px; padding:20px; width:90%; max-width:450px; }
+        
+        /* Success/Error colors */
+        .success { color:#4caf50; }
+        .error { color:#f44336; }
       </style>
       
       <div class="app">
@@ -411,6 +426,24 @@ class OmniRemotePanel extends HTMLElement {
         this._deviceId = data.deviceId;
         this._render();
         break;
+      case 'send-cmd':
+        this._sendCommand(data.deviceId, data.cmd);
+        break;
+      case 'test-cmd':
+        this._testCommand(data.deviceId, data.cmd);
+        break;
+      case 'show-switch-profile':
+        this._showSwitchProfileModal(data.deviceId, data.brand);
+        break;
+      case 'switch-profile':
+        this._switchProfile(data.deviceId, data.profileId);
+        break;
+      case 'test-catalog-cmd':
+        this._testCatalogCommand(data.profileId, data.cmd);
+        break;
+      case 'learn-code':
+        this._showLearnCodeModal(data.deviceId);
+        break;
     }
   }
 
@@ -456,13 +489,16 @@ class OmniRemotePanel extends HTMLElement {
       </div>
       <p style="color:#888;margin-top:0;">${device.brand} • ${device.category} ${device.model_years ? '• ' + device.model_years : ''}</p>
       ${device.description ? `<p style="font-size:13px;margin-bottom:16px;">${device.description}</p>` : ''}
-      <h4>Commands (${cmdList.length})</h4>
+      <h4>Commands (${cmdList.length}) - Click to test before adding</h4>
       <div style="max-height:300px;overflow-y:auto;border:1px solid var(--divider-color);border-radius:4px;padding:8px;">
         ${cmdList.map(cmd => {
           const c = commands[cmd];
-          return `<div style="padding:4px 8px;border-bottom:1px solid var(--divider-color);display:flex;justify-content:space-between;">
+          return `<div style="padding:4px 8px;border-bottom:1px solid var(--divider-color);display:flex;justify-content:space-between;align-items:center;">
             <span><strong>${cmd}</strong></span>
-            <span style="color:#888;font-size:12px;">${c.type || c.protocol || 'ir'}</span>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <span style="color:#888;font-size:12px;">${c.type || c.protocol || 'ir'}</span>
+              <button class="btn btn-s btn-sm" data-action="test-catalog-cmd" data-profile-id="${device.id}" data-cmd="${cmd}">Test</button>
+            </div>
           </div>`;
         }).join('')}
       </div>
@@ -768,13 +804,41 @@ class OmniRemotePanel extends HTMLElement {
     const device = this._data.devices.find(d => d.id === this._deviceId);
     if (!device) return '<p>Device not found</p>';
     const cmds = Object.keys(device.commands || {});
+    const catalogId = device.catalog_id || '';
+    
     return `
-      <div class="card" style="max-width:600px;">
-        <h3 style="margin-top:0;">${device.name}</h3>
-        <p style="color:#888;">${device.brand || ''} ${device.model || ''}</p>
+      <div class="card" style="max-width:800px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+          <div>
+            <h3 style="margin-top:0;">${device.name}</h3>
+            <p style="color:#888;">${device.brand || ''} ${device.model || ''}</p>
+            ${catalogId ? `<p style="color:#666;font-size:12px;">Profile: ${catalogId}</p>` : ''}
+          </div>
+          <div style="display:flex;gap:8px;">
+            ${catalogId ? `<button class="btn btn-s" data-action="show-switch-profile" data-device-id="${device.id}" data-brand="${device.brand || ''}"><ha-icon icon="mdi:swap-horizontal"></ha-icon>Switch Profile</button>` : ''}
+            <button class="btn btn-s" data-action="learn-code" data-device-id="${device.id}"><ha-icon icon="mdi:record"></ha-icon>Learn Code</button>
+          </div>
+        </div>
+        
         <h4>Commands (${cmds.length})</h4>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;">
-          ${cmds.map(c => `<button class="btn btn-s" data-action="send-cmd" data-device-id="${device.id}" data-cmd="${c}">${c}</button>`).join('')}
+        <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(200px, 1fr));gap:8px;">
+          ${cmds.map(c => {
+            const code = device.commands[c];
+            const protocol = code?.protocol || '';
+            return `
+              <div style="display:flex;gap:4px;align-items:center;background:var(--card-background-color);padding:8px;border-radius:4px;border:1px solid var(--divider-color);">
+                <button class="btn btn-s" style="flex:1;" data-action="send-cmd" data-device-id="${device.id}" data-cmd="${c}">${c}</button>
+                <button class="btn btn-d btn-sm" data-action="test-cmd" data-device-id="${device.id}" data-cmd="${c}" title="Test (with debug)"><ha-icon icon="mdi:play-circle-outline"></ha-icon></button>
+              </div>
+            `;
+          }).join('')}
+        </div>
+        
+        <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--divider-color);">
+          <details>
+            <summary style="cursor:pointer;color:#888;">Debug Info</summary>
+            <pre style="font-size:11px;overflow-x:auto;background:#1a1a1a;padding:8px;border-radius:4px;">${JSON.stringify(device, null, 2)}</pre>
+          </details>
         </div>
       </div>
     `;
@@ -1839,8 +1903,221 @@ class OmniRemotePanel extends HTMLElement {
   async _addFromCatalog(id) {
     const res = await this._api('/api/omniremote/catalog', 'POST', { catalog_id: id });
     if (res.device) {
-      alert('Added: ' + res.device.name);
+      const msg = `Added: ${res.device.name}\nCommands loaded: ${res.commands_added}` + 
+        (res.commands_failed > 0 ? `\nFailed to convert: ${res.commands_failed}` : '');
+      alert(msg);
       await this._loadData();
+    } else {
+      alert('Failed to add device: ' + (res.error || 'Unknown error'));
+    }
+  }
+
+  async _sendCommand(deviceId, commandName) {
+    const res = await this._api('/api/omniremote/test', 'POST', {
+      action: 'test_command',
+      device_id: deviceId,
+      command_name: commandName
+    });
+    
+    if (!res.success) {
+      console.warn('[OmniRemote] Command may have failed:', res);
+    }
+  }
+
+  async _testCommand(deviceId, commandName) {
+    // Show loading indicator
+    const btn = event.target.closest('button');
+    const originalContent = btn.innerHTML;
+    btn.innerHTML = '<ha-icon icon="mdi:loading" class="spin"></ha-icon>';
+    
+    const res = await this._api('/api/omniremote/test', 'POST', {
+      action: 'test_command',
+      device_id: deviceId,
+      command_name: commandName
+    });
+    
+    // Restore button
+    btn.innerHTML = originalContent;
+    
+    // Show result
+    const resultHtml = `
+      <div class="modal-content" style="max-width:500px;">
+        <h3>Test Result</h3>
+        <div style="background:${res.success ? 'rgba(0,200,0,0.1)' : 'rgba(200,0,0,0.1)'};padding:16px;border-radius:8px;margin-bottom:16px;">
+          <p style="margin:0;font-size:18px;color:${res.success ? 'var(--success-color)' : 'var(--error-color)'};">
+            <ha-icon icon="${res.success ? 'mdi:check-circle' : 'mdi:alert-circle'}"></ha-icon>
+            ${res.success ? 'Command Sent Successfully' : 'Command Failed'}
+          </p>
+        </div>
+        <table style="width:100%;font-size:13px;">
+          <tr><td style="color:#888;">Device:</td><td>${res.device || deviceId}</td></tr>
+          <tr><td style="color:#888;">Command:</td><td>${commandName}</td></tr>
+          <tr><td style="color:#888;">Protocol:</td><td>${res.protocol || 'unknown'}</td></tr>
+          <tr><td style="color:#888;">Has Broadlink Code:</td><td>${res.has_broadlink_code ? 'Yes' : 'No'}</td></tr>
+          ${res.error ? `<tr><td style="color:#888;">Error:</td><td style="color:var(--error-color);">${res.error}</td></tr>` : ''}
+        </table>
+        <div style="margin-top:16px;text-align:right;">
+          <button class="btn btn-p" data-action="close-modal">Close</button>
+        </div>
+      </div>
+    `;
+    
+    this._modal = resultHtml;
+    this._render();
+  }
+
+  async _showSwitchProfileModal(deviceId, brand) {
+    // Get list of profiles for this brand
+    const res = await this._api('/api/omniremote/test', 'POST', {
+      action: 'list_profiles',
+      brand: brand
+    });
+    
+    const profiles = res.profiles || [];
+    const device = this._data.devices.find(d => d.id === deviceId);
+    const currentProfile = device?.catalog_id || '';
+    
+    this._modal = `
+      <div class="modal-content" style="max-width:600px;">
+        <h3>Switch IR Code Profile</h3>
+        <p style="color:#888;">Select a different profile if the current codes don't work with your device.</p>
+        
+        <div style="margin-bottom:16px;">
+          <label class="fl">Current Profile</label>
+          <input type="text" class="fi" value="${currentProfile || 'None'}" disabled>
+        </div>
+        
+        <div style="margin-bottom:16px;">
+          <label class="fl">Available Profiles for ${brand || 'this brand'}</label>
+          <div style="max-height:300px;overflow-y:auto;border:1px solid var(--divider-color);border-radius:4px;">
+            ${profiles.length === 0 ? '<p style="padding:16px;color:#888;">No alternate profiles found</p>' :
+              profiles.map(p => `
+                <div style="padding:12px;border-bottom:1px solid var(--divider-color);display:flex;justify-content:space-between;align-items:center;${p.id === currentProfile ? 'background:rgba(100,100,255,0.1);' : ''}">
+                  <div>
+                    <strong>${p.name}</strong>
+                    <p style="margin:0;font-size:12px;color:#888;">${p.command_count} commands • ${p.id}</p>
+                  </div>
+                  <div style="display:flex;gap:8px;">
+                    <button class="btn btn-s btn-sm" data-action="test-catalog-cmd" data-profile-id="${p.id}" data-cmd="power">Test</button>
+                    ${p.id !== currentProfile ? 
+                      `<button class="btn btn-p btn-sm" data-action="switch-profile" data-device-id="${deviceId}" data-profile-id="${p.id}">Use This</button>` 
+                      : '<span style="color:var(--success-color);font-size:12px;">Current</span>'}
+                  </div>
+                </div>
+              `).join('')
+            }
+          </div>
+        </div>
+        
+        <p style="font-size:12px;color:#888;margin-top:16px;">
+          <ha-icon icon="mdi:information-outline" style="font-size:14px;"></ha-icon>
+          Profiles differ by TV year, model series, or region. Try different profiles if commands don't work.
+        </p>
+        
+        <div style="margin-top:16px;text-align:right;">
+          <button class="btn btn-s" data-action="close-modal">Cancel</button>
+        </div>
+      </div>
+    `;
+    this._render();
+  }
+
+  async _switchProfile(deviceId, profileId) {
+    const res = await this._api('/api/omniremote/test', 'POST', {
+      action: 'switch_profile',
+      device_id: deviceId,
+      profile_id: profileId
+    });
+    
+    if (res.success) {
+      alert(`Switched to profile: ${profileId}\nCommands loaded: ${res.commands_loaded}`);
+      this._modal = null;
+      await this._loadData();
+      this._render();
+    } else {
+      alert('Failed to switch profile: ' + (res.error || 'Unknown error'));
+    }
+  }
+
+  async _testCatalogCommand(profileId, commandName) {
+    const res = await this._api('/api/omniremote/test', 'POST', {
+      action: 'test_catalog',
+      profile_id: profileId,
+      command_name: commandName
+    });
+    
+    if (res.success) {
+      alert('Command sent successfully!');
+    } else {
+      alert('Test failed: ' + (res.error || 'Unknown error'));
+    }
+  }
+
+  _showLearnCodeModal(deviceId) {
+    this._modal = `
+      <div class="modal-content" style="max-width:400px;">
+        <h3>Learn IR Code</h3>
+        <p>Point your remote at the IR blaster and press the button you want to learn.</p>
+        
+        <div class="fg">
+          <label class="fl">Command Name</label>
+          <input type="text" class="fi" id="learn-cmd-name" placeholder="e.g., volume_up">
+        </div>
+        
+        <div style="margin-top:16px;text-align:center;">
+          <button class="btn btn-p" id="start-learn" data-device-id="${deviceId}">
+            <ha-icon icon="mdi:record"></ha-icon> Start Learning
+          </button>
+        </div>
+        
+        <div id="learn-status" style="margin-top:16px;text-align:center;display:none;">
+          <ha-icon icon="mdi:loading" class="spin"></ha-icon>
+          <p>Waiting for IR signal...</p>
+        </div>
+        
+        <div style="margin-top:16px;text-align:right;">
+          <button class="btn btn-s" data-action="close-modal">Cancel</button>
+        </div>
+      </div>
+    `;
+    this._render();
+    
+    // Add learn button handler
+    setTimeout(() => {
+      const btn = this.shadowRoot.getElementById('start-learn');
+      if (btn) {
+        btn.addEventListener('click', () => this._startLearning(deviceId));
+      }
+    }, 100);
+  }
+
+  async _startLearning(deviceId) {
+    const cmdName = this.shadowRoot.getElementById('learn-cmd-name')?.value?.trim();
+    if (!cmdName) {
+      alert('Please enter a command name');
+      return;
+    }
+    
+    const status = this.shadowRoot.getElementById('learn-status');
+    const btn = this.shadowRoot.getElementById('start-learn');
+    if (status) status.style.display = 'block';
+    if (btn) btn.style.display = 'none';
+    
+    const res = await this._api('/api/omniremote/learn', 'POST', {
+      device_id: deviceId,
+      command_name: cmdName,
+      timeout: 15
+    });
+    
+    if (res.success) {
+      alert('Code learned successfully!');
+      this._modal = null;
+      await this._loadData();
+      this._render();
+    } else {
+      if (status) status.style.display = 'none';
+      if (btn) btn.style.display = 'inline-flex';
+      alert('Learning failed: ' + (res.error || 'No IR signal received'));
     }
   }
 }
