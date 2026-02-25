@@ -391,3 +391,24 @@ def _load_device_modules():
 
 # Load on import
 _load_device_modules()
+
+
+# =============================================================================
+# Legacy Compatibility Exports
+# =============================================================================
+# These aliases maintain backward compatibility with code that imports from
+# the old single-file catalog.py
+
+DEVICE_CATALOG = _CATALOG
+CATALOG_BY_CATEGORY = _CATALOG_BY_CATEGORY
+CATALOG_BY_BRAND = _CATALOG_BY_BRAND
+
+
+def get_catalog_device(device_id: str) -> DeviceProfile | None:
+    """Legacy alias for get_profile."""
+    return get_profile(device_id)
+
+
+def list_catalog() -> list[dict]:
+    """Legacy alias for list_all_profiles."""
+    return list_all_profiles()
