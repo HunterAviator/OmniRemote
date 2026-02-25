@@ -1,3 +1,5 @@
+NOTE:  THIS is Public and Production only because HACS requires it.  It is still being developed and so does not function yet.  I will be updating frequently until at least minimum functionality is there.  Please be patient as I have a day job and this is just a personal project that I will be sharing.
+
 # OmniRemote for Home Assistant
 
 <p align="center">
