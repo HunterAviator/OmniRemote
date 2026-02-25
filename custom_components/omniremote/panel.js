@@ -1,9 +1,9 @@
 /**
- * OmniRemote Manager Panel v1.5.1
+ * OmniRemote Manager Panel v1.5.3
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.5.2";
+const OMNIREMOTE_VERSION = "1.5.3";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -319,6 +319,11 @@ class OmniRemotePanel extends HTMLElement {
     if (actionTypeSelect) {
       actionTypeSelect.addEventListener('change', () => this._updateActionTypeUI());
     }
+    
+    // Catalog filter handlers
+    if (this._view === 'catalog') {
+      this._setupCatalogFilters();
+    }
   }
 
   async _handleAction(action, data) {
@@ -387,7 +392,7 @@ class OmniRemotePanel extends HTMLElement {
         this._removeAction(data.type, parseInt(data.idx));
         break;
       case 'cancel-action-edit':
-        this._showSceneEditor(this._editingScene?.id);
+        this._showSceneEditor(this._editingScene?.id, true);  // preserveState=true
         break;
       case 'save-action':
         this._saveAction();
@@ -398,12 +403,75 @@ class OmniRemotePanel extends HTMLElement {
       case 'add-catalog':
         await this._addFromCatalog(data.catalogId);
         break;
+      case 'preview-catalog':
+        this._showCatalogPreview(data.catalogId);
+        break;
       case 'open-device':
         this._view = 'device';
         this._deviceId = data.deviceId;
         this._render();
         break;
     }
+  }
+
+  _setupCatalogFilters() {
+    const search = this.shadowRoot.getElementById('catalog-search');
+    const category = this.shadowRoot.getElementById('catalog-category');
+    const brand = this.shadowRoot.getElementById('catalog-brand');
+    
+    if (search) {
+      search.addEventListener('input', () => {
+        this._catalogFilter = this._catalogFilter || {};
+        this._catalogFilter.search = search.value;
+        this._render();
+      });
+    }
+    if (category) {
+      category.addEventListener('change', () => {
+        this._catalogFilter = this._catalogFilter || {};
+        this._catalogFilter.category = category.value;
+        this._render();
+      });
+    }
+    if (brand) {
+      brand.addEventListener('change', () => {
+        this._catalogFilter = this._catalogFilter || {};
+        this._catalogFilter.brand = brand.value;
+        this._render();
+      });
+    }
+  }
+
+  _showCatalogPreview(catalogId) {
+    const device = this._data.catalog.find(d => d.id === catalogId);
+    if (!device) return;
+    
+    const commands = device.commands || device.ir_codes || {};
+    const cmdList = Object.keys(commands);
+    
+    this._modal = `
+      <div class="modal-head">
+        <h3>${device.name}</h3>
+        <button class="modal-close" data-action="close-modal">&times;</button>
+      </div>
+      <p style="color:#888;margin-top:0;">${device.brand} • ${device.category} ${device.model_years ? '• ' + device.model_years : ''}</p>
+      ${device.description ? `<p style="font-size:13px;margin-bottom:16px;">${device.description}</p>` : ''}
+      <h4>Commands (${cmdList.length})</h4>
+      <div style="max-height:300px;overflow-y:auto;border:1px solid var(--divider-color);border-radius:4px;padding:8px;">
+        ${cmdList.map(cmd => {
+          const c = commands[cmd];
+          return `<div style="padding:4px 8px;border-bottom:1px solid var(--divider-color);display:flex;justify-content:space-between;">
+            <span><strong>${cmd}</strong></span>
+            <span style="color:#888;font-size:12px;">${c.type || c.protocol || 'ir'}</span>
+          </div>`;
+        }).join('')}
+      </div>
+      <div style="margin-top:16px;display:flex;gap:8px;">
+        <button class="btn btn-p" data-action="add-catalog" data-catalog-id="${device.id}"><ha-icon icon="mdi:plus"></ha-icon>Add Device</button>
+        <button class="btn btn-s" data-action="close-modal">Close</button>
+      </div>
+    `;
+    this._render();
   }
 
   _getTitle() {
@@ -622,20 +690,59 @@ class OmniRemotePanel extends HTMLElement {
   }
 
   _catalogView() {
-    return `<div class="grid">${(this._data.catalog || []).slice(0, 20).map(d => `
-      <div class="card">
-        <div class="card-head">
-          <div class="card-icon"><ha-icon icon="${this._catIcon(d.category)}"></ha-icon></div>
-          <div class="card-info">
-            <div class="card-title">${d.name}</div>
-            <div class="card-sub">${d.brand} • ${Object.keys(d.commands || {}).length} cmds</div>
+    const catalog = this._data.catalog || [];
+    const categories = [...new Set(catalog.map(d => d.category))].sort();
+    const brands = [...new Set(catalog.map(d => d.brand))].sort();
+    
+    // Filter by selected category/brand
+    let filtered = catalog;
+    if (this._catalogFilter?.category) {
+      filtered = filtered.filter(d => d.category === this._catalogFilter.category);
+    }
+    if (this._catalogFilter?.brand) {
+      filtered = filtered.filter(d => d.brand === this._catalogFilter.brand);
+    }
+    if (this._catalogFilter?.search) {
+      const s = this._catalogFilter.search.toLowerCase();
+      filtered = filtered.filter(d => 
+        d.name.toLowerCase().includes(s) || 
+        d.brand.toLowerCase().includes(s) ||
+        (d.description || '').toLowerCase().includes(s)
+      );
+    }
+    
+    return `
+      <div class="catalog-filters" style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
+        <input type="text" class="fi" id="catalog-search" placeholder="Search devices..." 
+               value="${this._catalogFilter?.search || ''}" style="max-width:200px;">
+        <select class="fi" id="catalog-category" style="max-width:150px;">
+          <option value="">All Categories</option>
+          ${categories.map(c => `<option value="${c}" ${this._catalogFilter?.category === c ? 'selected' : ''}>${c}</option>`).join('')}
+        </select>
+        <select class="fi" id="catalog-brand" style="max-width:150px;">
+          <option value="">All Brands</option>
+          ${brands.map(b => `<option value="${b}" ${this._catalogFilter?.brand === b ? 'selected' : ''}>${b}</option>`).join('')}
+        </select>
+        <span style="color:#888;align-self:center;">${filtered.length} devices</span>
+      </div>
+      <div class="grid">${filtered.map(d => `
+        <div class="card">
+          <div class="card-head">
+            <div class="card-icon"><ha-icon icon="${this._catIcon(d.category)}"></ha-icon></div>
+            <div class="card-info">
+              <div class="card-title">${d.name}</div>
+              <div class="card-sub">${d.brand} • ${Object.keys(d.commands || d.ir_codes || {}).length} cmds</div>
+              ${d.model_years ? `<div class="card-sub">${d.model_years}</div>` : ''}
+            </div>
+          </div>
+          ${d.description ? `<p style="font-size:12px;color:#888;margin:8px 0;">${d.description}</p>` : ''}
+          <div class="card-btns">
+            <button class="btn btn-s" data-action="preview-catalog" data-catalog-id="${d.id}">Preview</button>
+            <button class="btn btn-p" data-action="add-catalog" data-catalog-id="${d.id}"><ha-icon icon="mdi:plus"></ha-icon>Add</button>
           </div>
         </div>
-        <div class="card-btns">
-          <button class="btn btn-p" data-action="add-catalog" data-catalog-id="${d.id}"><ha-icon icon="mdi:plus"></ha-icon>Add</button>
-        </div>
-      </div>
-    `).join('')}</div>`;
+      `).join('')}</div>
+    `;
   }
 
   _roomView() {
@@ -674,7 +781,24 @@ class OmniRemotePanel extends HTMLElement {
   }
 
   _catIcon(cat) {
-    const icons = { tv:'mdi:television', projector:'mdi:projector', receiver:'mdi:speaker', soundbar:'mdi:soundbar', streaming:'mdi:cast', cable_box:'mdi:set-top-box', ac:'mdi:air-conditioner', fan:'mdi:fan', light:'mdi:lightbulb' };
+    const icons = {
+      tv: 'mdi:television',
+      projector: 'mdi:projector',
+      receiver: 'mdi:speaker',
+      soundbar: 'mdi:soundbar',
+      streaming: 'mdi:cast',
+      streamer: 'mdi:cast',
+      cable_box: 'mdi:set-top-box',
+      cable: 'mdi:set-top-box',
+      ac: 'mdi:air-conditioner',
+      fan: 'mdi:fan',
+      light: 'mdi:lightbulb',
+      lighting: 'mdi:lightbulb',
+      bluray: 'mdi:disc-player',
+      game_console: 'mdi:gamepad-variant',
+      garage: 'mdi:garage',
+      dvr: 'mdi:record-rec',
+    };
     return icons[cat] || 'mdi:remote';
   }
 
@@ -946,21 +1070,28 @@ class OmniRemotePanel extends HTMLElement {
     await this._loadData();
   }
 
-  _showSceneEditor(sceneId = null) {
-    const scene = sceneId ? this._data.scenes.find(s => s.id === sceneId) : null;
-    const isEdit = !!scene;
+  _showSceneEditor(sceneId = null, preserveState = false) {
+    // If preserveState is true and we already have an editing scene, keep it
+    // This is used when returning from the action editor
+    if (preserveState && this._editingScene) {
+      // Just re-render with current state
+    } else {
+      // Load from saved data or create new
+      const scene = sceneId ? this._data.scenes.find(s => s.id === sceneId) : null;
+      this._editingScene = scene ? JSON.parse(JSON.stringify(scene)) : {
+        id: null,
+        name: '',
+        icon: 'mdi:television',
+        room_id: null,
+        blaster_id: null,
+        controlled_device_ids: [],
+        controlled_entity_ids: [],
+        on_actions: [],
+        off_actions: []
+      };
+    }
     
-    // Store current editing state
-    this._editingScene = scene ? JSON.parse(JSON.stringify(scene)) : {
-      name: '',
-      icon: 'mdi:television',
-      room_id: null,
-      blaster_id: null,
-      controlled_device_ids: [],
-      controlled_entity_ids: [],
-      on_actions: [],
-      off_actions: []
-    };
+    const isEdit = !!this._editingScene.id || (sceneId && this._data.scenes.find(s => s.id === sceneId));
     
     this._modal = `
       <div class="modal-content" style="max-width:800px;max-height:90vh;overflow-y:auto;">
@@ -1069,6 +1200,18 @@ class OmniRemotePanel extends HTMLElement {
   }
 
   _showActionEditor(type, idx = null) {
+    // First, capture current form values into _editingScene
+    // This preserves scene name, icon, etc. when navigating to action editor
+    const nameInput = this.shadowRoot.getElementById('scene-name');
+    const iconInput = this.shadowRoot.getElementById('scene-icon');
+    const roomInput = this.shadowRoot.getElementById('scene-room');
+    const blasterInput = this.shadowRoot.getElementById('scene-blaster');
+    
+    if (nameInput) this._editingScene.name = nameInput.value || '';
+    if (iconInput) this._editingScene.icon = iconInput.value || 'mdi:television';
+    if (roomInput) this._editingScene.room_id = roomInput.value || null;
+    if (blasterInput) this._editingScene.blaster_id = blasterInput.value || null;
+    
     const actions = type === 'on' ? this._editingScene.on_actions : this._editingScene.off_actions;
     const action = idx !== null ? actions[idx] : {
       action_type: 'ir_command',
@@ -1551,7 +1694,7 @@ class OmniRemotePanel extends HTMLElement {
   _removeAction(type, idx) {
     const actions = type === 'on' ? this._editingScene.on_actions : this._editingScene.off_actions;
     actions.splice(idx, 1);
-    this._showSceneEditor(this._editingScene.id);
+    this._showSceneEditor(this._editingScene.id, true);  // preserveState=true
   }
 
   _saveAction() {
@@ -1641,8 +1784,8 @@ class OmniRemotePanel extends HTMLElement {
       actions.push(action);
     }
     
-    // Return to scene editor
-    this._showSceneEditor(this._editingScene.id);
+    // Return to scene editor, preserving our edited state
+    this._showSceneEditor(this._editingScene.id, true);  // preserveState=true
   }
 
   async _saveSceneFull(sceneId) {

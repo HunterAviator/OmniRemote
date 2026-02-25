@@ -124,6 +124,15 @@ class DeviceProfile:
     apps: dict[str, str] = field(default_factory=dict)
     
     def to_dict(self) -> dict:
+        # Combine all commands for easy UI access
+        commands = {}
+        for k, v in self.ir_codes.items():
+            commands[k] = {"type": "ir", **v.to_dict()}
+        for k, v in self.rf_codes.items():
+            commands[k] = {"type": "rf", **v.to_dict()}
+        for k, v in self.network_commands.items():
+            commands[k] = {"type": "network", **v.to_dict()}
+        
         return {
             "id": self.id,
             "name": self.name,
@@ -132,6 +141,7 @@ class DeviceProfile:
             "model_years": self.model_years,
             "description": self.description,
             "control_methods": [m.value for m in self.control_methods],
+            "commands": commands,  # Combined commands for UI
             "ir_codes": {k: v.to_dict() for k, v in self.ir_codes.items()},
             "rf_codes": {k: v.to_dict() for k, v in self.rf_codes.items()},
             "network_commands": {k: v.to_dict() for k, v in self.network_commands.items()},

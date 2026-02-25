@@ -723,17 +723,17 @@ class OmniApiCatalog(HomeAssistantView):
         if query:
             results = search_catalog(query)
         elif category:
-            cat = DeviceCategory(category)
-            results = CATALOG_BY_CATEGORY.get(cat, [])
+            # CATALOG_BY_CATEGORY uses string keys
+            results = CATALOG_BY_CATEGORY.get(category, [])
         elif brand:
-            results = CATALOG_BY_BRAND.get(brand, [])
+            results = CATALOG_BY_BRAND.get(brand.lower(), [])
         else:
             results = list(DEVICE_CATALOG.values())
         
         return web.json_response({
             "devices": [d.to_dict() for d in results],
             "brands": list(CATALOG_BY_BRAND.keys()),
-            "categories": [c.value for c in DeviceCategory],
+            "categories": list(CATALOG_BY_CATEGORY.keys()),
         })
     
     async def post(self, request: web.Request) -> web.Response:
