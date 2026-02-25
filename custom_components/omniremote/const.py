@@ -7,7 +7,7 @@ from typing import Any
 import uuid
 
 DOMAIN = "omniremote"
-VERSION = "1.5.5"
+VERSION = "1.6.0"
 
 # Storage
 STORAGE_VERSION = 1

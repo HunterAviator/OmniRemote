@@ -40,6 +40,8 @@ class RemoteDatabase:
         self.devices: dict[str, Device] = {}
         self.scenes: dict[str, Scene] = {}
         self.blasters: dict[str, Blaster] = {}
+        self.physical_remotes: dict[str, "PhysicalRemote"] = {}
+        self.remote_bridges: dict[str, "RemoteBridge"] = {}
         
         self._blaster_connections: dict[str, broadlink.Device] = {}
         self._lock = asyncio.Lock()
@@ -69,12 +71,26 @@ class RemoteDatabase:
                 blaster = Blaster.from_dict(blaster_data)
                 self.blasters[blaster.id] = blaster
             
+            # Load physical remotes
+            for remote_data in data.get("physical_remotes", {}).values():
+                from .physical_remotes import PhysicalRemote
+                remote = PhysicalRemote.from_dict(remote_data)
+                self.physical_remotes[remote.id] = remote
+            
+            # Load remote bridges
+            for bridge_data in data.get("remote_bridges", {}).values():
+                from .physical_remotes import RemoteBridge
+                bridge = RemoteBridge.from_dict(bridge_data)
+                self.remote_bridges[bridge.id] = bridge
+            
             _LOGGER.info(
-                "Loaded database: %d rooms, %d devices, %d scenes, %d blasters",
+                "Loaded database: %d rooms, %d devices, %d scenes, %d blasters, %d remotes, %d bridges",
                 len(self.rooms),
                 len(self.devices),
                 len(self.scenes),
                 len(self.blasters),
+                len(self.physical_remotes),
+                len(self.remote_bridges),
             )
 
     async def async_save(self) -> None:
@@ -84,6 +100,8 @@ class RemoteDatabase:
             "devices": {d.id: d.to_dict() for d in self.devices.values()},
             "scenes": {s.id: s.to_dict() for s in self.scenes.values()},
             "blasters": {b.id: b.to_dict() for b in self.blasters.values()},
+            "physical_remotes": {r.id: r.to_dict() for r in self.physical_remotes.values()},
+            "remote_bridges": {b.id: b.to_dict() for b in self.remote_bridges.values()},
         }
         await self.store.async_save(data)
 

@@ -71,12 +71,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception as e:
         _LOGGER.warning("Area remote support not available: %s", e)
     
+    # Set up physical remote manager (Zigbee, RF, BT, USB remotes)
+    physical_remote_manager = None
+    try:
+        from .physical_remotes import PhysicalRemoteManager
+        physical_remote_manager = PhysicalRemoteManager(hass, database)
+        await physical_remote_manager.async_start()
+        _LOGGER.info("Physical remote manager started")
+    except Exception as e:
+        _LOGGER.warning("Physical remote support not available: %s", e)
+    
     # Store in hass.data
     hass.data[DOMAIN][entry.entry_id] = {
         "database": database,
         "entry": entry,
         "bluetooth_manager": bluetooth_manager,
         "area_manager": area_manager,
+        "physical_remote_manager": physical_remote_manager,
     }
     
     # Register services

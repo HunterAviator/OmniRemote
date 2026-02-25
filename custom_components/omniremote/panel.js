@@ -50,6 +50,9 @@ class OmniRemotePanel extends HTMLElement {
         this._api('/api/omniremote/scenes'),
         this._api('/api/omniremote/blasters'),
         this._api('/api/omniremote/catalog'),
+        this._api('/api/omniremote/physical_remotes'),
+        this._api('/api/omniremote/remote_bridges'),
+        this._api('/api/omniremote/remote_profiles'),
       ]);
       
       this._data = {
@@ -60,6 +63,9 @@ class OmniRemotePanel extends HTMLElement {
         blasters: results[3]?.blasters || [],
         haBlasters: results[3]?.ha_blasters || [],
         catalog: results[4]?.devices || [],
+        physicalRemotes: results[5]?.remotes || [],
+        remoteBridges: results[6]?.bridges || [],
+        remoteProfiles: results[7]?.profiles || [],
         dbOk: results[3]?.database_available !== false,
       };
       
@@ -206,6 +212,20 @@ class OmniRemotePanel extends HTMLElement {
         /* HA Blaster badge */
         .ha-badge { display:inline-block; background:#1b3d1b; color:#4caf50; padding:2px 8px; border-radius:4px; font-size:10px; margin-top:8px; }
         
+        /* Status badges */
+        .status { display:inline-block; padding:2px 8px; border-radius:4px; font-size:11px; font-weight:500; }
+        .status.online { background:#1b3d1b; color:#4caf50; }
+        .status.offline { background:#3d1b1b; color:#f44336; }
+        .card.offline { opacity:0.7; }
+        
+        /* Section header */
+        .section-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+        .section-header h3 { margin:0; display:flex; align-items:center; gap:8px; }
+        
+        /* Page header */
+        .page-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; }
+        .page-header h2 { margin:0; display:flex; align-items:center; gap:10px; }
+        
         /* Spinner animation */
         .spin { animation: spin 1s linear infinite; }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
@@ -249,6 +269,9 @@ class OmniRemotePanel extends HTMLElement {
             </div>
             <div class="nav-item ${this._view === 'catalog' ? 'active' : ''}" data-nav="catalog">
               <ha-icon icon="mdi:book-open-variant"></ha-icon>Catalog
+            </div>
+            <div class="nav-item ${this._view === 'remotes' ? 'active' : ''}" data-nav="remotes">
+              <ha-icon icon="mdi:remote"></ha-icon>Physical Remotes
             </div>
             
             <div class="nav-section">Rooms</div>
@@ -444,6 +467,43 @@ class OmniRemotePanel extends HTMLElement {
       case 'learn-code':
         this._showLearnCodeModal(data.deviceId);
         break;
+      
+      // Physical Remotes actions
+      case 'add-remote':
+        this._showAddRemoteModal(data.type);
+        break;
+      case 'edit-remote':
+        this._showEditRemoteModal(data.remoteId);
+        break;
+      case 'delete-remote':
+        await this._deleteRemote(data.remoteId);
+        break;
+      case 'map-buttons':
+        this._showButtonMappingModal(data.remoteId);
+        break;
+      case 'discover-remotes':
+        await this._discoverRemotes();
+        break;
+      case 'save-remote':
+        await this._saveRemote();
+        break;
+      case 'save-button-mapping':
+        await this._saveButtonMapping();
+        break;
+      
+      // Bridge actions
+      case 'add-bridge':
+        this._showAddBridgeModal();
+        break;
+      case 'edit-bridge':
+        this._showEditBridgeModal(data.bridgeId);
+        break;
+      case 'delete-bridge':
+        await this._deleteBridge(data.bridgeId);
+        break;
+      case 'save-bridge':
+        await this._saveBridge();
+        break;
     }
   }
 
@@ -517,6 +577,7 @@ class OmniRemotePanel extends HTMLElement {
       scenes: 'Scenes',
       blasters: 'Blasters',
       catalog: 'Device Catalog',
+      remotes: 'Physical Remotes',
       room: this._data.rooms.find(r => r.id === this._roomId)?.name || 'Room',
       device: this._data.devices.find(d => d.id === this._deviceId)?.name || 'Device',
     };
@@ -547,6 +608,7 @@ class OmniRemotePanel extends HTMLElement {
       case 'scenes': return this._scenesView();
       case 'blasters': return this._blastersView();
       case 'catalog': return this._catalogView();
+      case 'remotes': return this._remotesView();
       case 'room': return this._roomView();
       case 'device': return this._deviceView();
       default: return this._dashboardView();
@@ -778,6 +840,173 @@ class OmniRemotePanel extends HTMLElement {
           </div>
         </div>
       `).join('')}</div>
+    `;
+  }
+
+  _remotesView() {
+    // Physical Remotes view - manage Zigbee, RF, BT, and USB remotes
+    const remotes = this._data.physicalRemotes || [];
+    const bridges = this._data.remoteBridges || [];
+    const rooms = this._data.rooms || [];
+    
+    const remoteTypeIcons = {
+      'zigbee': 'mdi:zigbee',
+      'rf_433': 'mdi:access-point',
+      'bluetooth': 'mdi:bluetooth',
+      'usb_keyboard': 'mdi:usb',
+      'ir': 'mdi:remote',
+    };
+    
+    const bridgeTypeIcons = {
+      'zigbee_zha': 'mdi:zigbee',
+      'zigbee_deconz': 'mdi:zigbee',
+      'zigbee_z2m': 'mdi:zigbee',
+      'rf_tasmota': 'mdi:access-point',
+      'rf_esphome': 'mdi:chip',
+      'bluetooth_proxy': 'mdi:bluetooth',
+      'usb_bridge': 'mdi:raspberry-pi',
+      'network': 'mdi:lan',
+    };
+    
+    return `
+      <div class="page-header">
+        <h2><ha-icon icon="mdi:remote"></ha-icon> Physical Remotes</h2>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-s" data-action="discover-remotes"><ha-icon icon="mdi:refresh"></ha-icon> Discover</button>
+          <button class="btn btn-p" data-action="add-remote"><ha-icon icon="mdi:plus"></ha-icon> Add Remote</button>
+        </div>
+      </div>
+      
+      <!-- Bridges Section -->
+      <div class="section-header" style="margin-top:20px;">
+        <h3><ha-icon icon="mdi:router-wireless"></ha-icon> Bridges & Receivers</h3>
+        <button class="btn btn-sm" data-action="add-bridge"><ha-icon icon="mdi:plus"></ha-icon> Add Bridge</button>
+      </div>
+      <p style="color:#888;margin-bottom:16px;">Bridges receive signals from physical remotes and forward them to Home Assistant.</p>
+      
+      ${bridges.length === 0 ? `
+        <div class="empty" style="padding:20px;">
+          <ha-icon icon="mdi:router-wireless"></ha-icon>
+          <h4>No Bridges Configured</h4>
+          <p>Add a Pi Zero W USB bridge, ESP32 Bluetooth proxy, or Sonoff RF bridge.</p>
+          <button class="btn btn-p" data-action="add-bridge" style="margin-top:12px;"><ha-icon icon="mdi:plus"></ha-icon> Add Bridge</button>
+        </div>
+      ` : `
+        <div class="grid">
+          ${bridges.map(b => `
+            <div class="card ${b.online ? '' : 'offline'}">
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+                <ha-icon icon="${bridgeTypeIcons[b.bridge_type] || 'mdi:router-wireless'}" style="color:${b.online ? '#4caf50' : '#888'};font-size:24px;"></ha-icon>
+                <div style="flex:1;">
+                  <div style="font-weight:600;">${b.name}</div>
+                  <div style="color:#888;font-size:12px;">${b.bridge_type.replace(/_/g, ' ').toUpperCase()}</div>
+                </div>
+                <span class="status ${b.online ? 'online' : 'offline'}">${b.online ? 'Online' : 'Offline'}</span>
+              </div>
+              <div style="color:#888;font-size:13px;margin-bottom:8px;">
+                ${b.room_name ? `<ha-icon icon="mdi:door" style="margin-right:4px;"></ha-icon>${b.room_name}` : '<span style="color:#666;">No room assigned</span>'}
+              </div>
+              ${b.host ? `<div style="color:#666;font-size:12px;">Host: ${b.host}${b.port ? ':' + b.port : ''}</div>` : ''}
+              ${b.mqtt_topic ? `<div style="color:#666;font-size:12px;">MQTT: ${b.mqtt_topic}</div>` : ''}
+              <div class="card-actions">
+                <button class="btn btn-sm" data-action="edit-bridge" data-bridge-id="${b.id}">Edit</button>
+                <button class="btn btn-sm btn-danger" data-action="delete-bridge" data-bridge-id="${b.id}">Delete</button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `}
+      
+      <!-- Remotes Section -->
+      <div class="section-header" style="margin-top:32px;">
+        <h3><ha-icon icon="mdi:remote"></ha-icon> Configured Remotes</h3>
+        <button class="btn btn-sm" data-action="add-remote"><ha-icon icon="mdi:plus"></ha-icon> Add Remote</button>
+      </div>
+      <p style="color:#888;margin-bottom:16px;">Physical remotes that can control your devices and scenes.</p>
+      
+      ${remotes.length === 0 ? `
+        <div class="empty" style="padding:20px;">
+          <ha-icon icon="mdi:remote"></ha-icon>
+          <h4>No Remotes Configured</h4>
+          <p>Add a Zigbee, RF 433MHz, Bluetooth, or USB remote.</p>
+          <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap;justify-content:center;">
+            <button class="btn" data-action="add-remote" data-type="zigbee"><ha-icon icon="mdi:zigbee"></ha-icon> Zigbee</button>
+            <button class="btn" data-action="add-remote" data-type="rf_433"><ha-icon icon="mdi:access-point"></ha-icon> 433MHz RF</button>
+            <button class="btn" data-action="add-remote" data-type="bluetooth"><ha-icon icon="mdi:bluetooth"></ha-icon> Bluetooth</button>
+            <button class="btn" data-action="add-remote" data-type="usb_keyboard"><ha-icon icon="mdi:usb"></ha-icon> USB</button>
+          </div>
+        </div>
+      ` : `
+        <div class="grid">
+          ${remotes.map(r => `
+            <div class="card" data-remote-id="${r.id}">
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+                <ha-icon icon="${remoteTypeIcons[r.remote_type] || 'mdi:remote'}" style="color:#03a9f4;font-size:24px;"></ha-icon>
+                <div style="flex:1;">
+                  <div style="font-weight:600;">${r.name}</div>
+                  <div style="color:#888;font-size:12px;">${r.remote_type.replace(/_/g, ' ').toUpperCase()}${r.profile ? ' • ' + r.profile : ''}</div>
+                </div>
+                ${r.battery_level !== null ? `<span style="color:${r.battery_level > 20 ? '#4caf50' : '#f44336'};">${r.battery_level}%</span>` : ''}
+              </div>
+              <div style="color:#888;font-size:13px;margin-bottom:8px;">
+                ${r.room_name ? `<ha-icon icon="mdi:door" style="margin-right:4px;"></ha-icon>${r.room_name}` : '<span style="color:#666;">No room assigned</span>'}
+              </div>
+              <div style="color:#666;font-size:12px;margin-bottom:8px;">
+                ${Object.keys(r.button_mappings || {}).length} button(s) mapped
+              </div>
+              ${r.last_seen ? `<div style="color:#666;font-size:11px;">Last seen: ${new Date(r.last_seen).toLocaleString()}</div>` : ''}
+              <div class="card-actions">
+                <button class="btn btn-sm btn-p" data-action="map-buttons" data-remote-id="${r.id}">Map Buttons</button>
+                <button class="btn btn-sm" data-action="edit-remote" data-remote-id="${r.id}">Edit</button>
+                <button class="btn btn-sm btn-danger" data-action="delete-remote" data-remote-id="${r.id}">Delete</button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `}
+      
+      <!-- Quick Setup Guide -->
+      <div class="section-header" style="margin-top:32px;">
+        <h3><ha-icon icon="mdi:help-circle"></ha-icon> Setup Guide</h3>
+      </div>
+      <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
+        <div class="card" style="border-left:3px solid #4caf50;">
+          <h4 style="color:#4caf50;margin:0 0 8px 0;"><ha-icon icon="mdi:zigbee"></ha-icon> Zigbee Remotes</h4>
+          <p style="color:#888;font-size:13px;margin:0 0 12px 0;">IKEA TRADFRI, Aqara, Hue Dimmer, etc.</p>
+          <ol style="color:#888;font-size:12px;margin:0;padding-left:16px;">
+            <li>Pair remote with ZHA/Z2M/deCONZ</li>
+            <li>Click "Discover" to find it</li>
+            <li>Assign to room and map buttons</li>
+          </ol>
+        </div>
+        <div class="card" style="border-left:3px solid #ff9800;">
+          <h4 style="color:#ff9800;margin:0 0 8px 0;"><ha-icon icon="mdi:access-point"></ha-icon> 433MHz RF Remotes</h4>
+          <p style="color:#888;font-size:13px;margin:0 0 12px 0;">Any 433MHz remote with Sonoff RF Bridge</p>
+          <ol style="color:#888;font-size:12px;margin:0;padding-left:16px;">
+            <li>Flash Sonoff RF Bridge with Tasmota</li>
+            <li>Add bridge in OmniRemote</li>
+            <li>Press remote buttons to learn codes</li>
+          </ol>
+        </div>
+        <div class="card" style="border-left:3px solid #2196f3;">
+          <h4 style="color:#2196f3;margin:0 0 8px 0;"><ha-icon icon="mdi:bluetooth"></ha-icon> Bluetooth Remotes</h4>
+          <p style="color:#888;font-size:13px;margin:0 0 12px 0;">Media buttons, presenter remotes</p>
+          <ol style="color:#888;font-size:12px;margin:0;padding-left:16px;">
+            <li>Set up ESP32 Bluetooth Proxy</li>
+            <li>Pair remote with ESP32</li>
+            <li>Add in OmniRemote</li>
+          </ol>
+        </div>
+        <div class="card" style="border-left:3px solid #9c27b0;">
+          <h4 style="color:#9c27b0;margin:0 0 8px 0;"><ha-icon icon="mdi:usb"></ha-icon> USB Remotes (MX3, etc)</h4>
+          <p style="color:#888;font-size:13px;margin:0 0 12px 0;">Air mouse remotes with USB dongle</p>
+          <ol style="color:#888;font-size:12px;margin:0;padding-left:16px;">
+            <li>Set up Pi Zero W with bridge script</li>
+            <li>Plug USB dongle into Pi</li>
+            <li>Bridge auto-discovers via MQTT</li>
+          </ol>
+        </div>
+      </div>
     `;
   }
 
@@ -2118,6 +2347,509 @@ class OmniRemotePanel extends HTMLElement {
       if (status) status.style.display = 'none';
       if (btn) btn.style.display = 'inline-flex';
       alert('Learning failed: ' + (res.error || 'No IR signal received'));
+    }
+  }
+
+  // ==========================================================================
+  // Physical Remotes Management
+  // ==========================================================================
+
+  _showAddRemoteModal(remoteType = null) {
+    const rooms = this._data.rooms || [];
+    const bridges = this._data.remoteBridges || [];
+    const profiles = this._data.remoteProfiles || [];
+    
+    // Filter profiles by type if specified
+    const filteredProfiles = remoteType 
+      ? profiles.filter(p => p.type === remoteType || p.type === remoteType.replace('_', ''))
+      : profiles;
+    
+    this._editingRemote = null;
+    
+    this._modal = `
+      <div class="modal-content" style="max-width:500px;">
+        <h3><ha-icon icon="mdi:remote"></ha-icon> Add Physical Remote</h3>
+        
+        <div class="fg">
+          <label class="fl">Remote Type</label>
+          <select class="fi" id="remote-type">
+            <option value="zigbee" ${remoteType === 'zigbee' ? 'selected' : ''}>Zigbee (IKEA, Aqara, Hue)</option>
+            <option value="rf_433" ${remoteType === 'rf_433' ? 'selected' : ''}>433MHz RF (Sonoff Bridge)</option>
+            <option value="bluetooth" ${remoteType === 'bluetooth' ? 'selected' : ''}>Bluetooth (ESP32 Proxy)</option>
+            <option value="usb_keyboard" ${remoteType === 'usb_keyboard' ? 'selected' : ''}>USB Keyboard (Pi Bridge)</option>
+          </select>
+        </div>
+        
+        <div class="fg">
+          <label class="fl">Name</label>
+          <input type="text" class="fi" id="remote-name" placeholder="Living Room Remote">
+        </div>
+        
+        <div class="fg">
+          <label class="fl">Room</label>
+          <select class="fi" id="remote-room">
+            <option value="">-- No Room --</option>
+            ${rooms.map(r => `<option value="${r.id}">${r.name}</option>`).join('')}
+          </select>
+        </div>
+        
+        <div class="fg" id="bridge-select-group" style="display:${['usb_keyboard', 'bluetooth'].includes(remoteType) ? 'block' : 'none'};">
+          <label class="fl">Bridge/Proxy</label>
+          <select class="fi" id="remote-bridge">
+            <option value="">-- Select Bridge --</option>
+            ${bridges.map(b => `<option value="${b.id}">${b.name} (${b.bridge_type})</option>`).join('')}
+          </select>
+        </div>
+        
+        <div class="fg" id="zigbee-ieee-group" style="display:${remoteType === 'zigbee' ? 'block' : 'none'};">
+          <label class="fl">Zigbee IEEE Address</label>
+          <input type="text" class="fi" id="remote-zigbee-ieee" placeholder="00:11:22:33:44:55:66:77">
+          <small style="color:#888;">Find this in ZHA/deCONZ/Z2M device info</small>
+        </div>
+        
+        <div class="fg" id="rf-code-group" style="display:${remoteType === 'rf_433' ? 'block' : 'none'};">
+          <label class="fl">RF Code Prefix</label>
+          <input type="text" class="fi" id="remote-rf-prefix" placeholder="A1B2C3">
+          <small style="color:#888;">Common prefix of all RF codes from this remote</small>
+        </div>
+        
+        <div class="fg" id="bt-mac-group" style="display:${remoteType === 'bluetooth' ? 'block' : 'none'};">
+          <label class="fl">Bluetooth MAC Address</label>
+          <input type="text" class="fi" id="remote-bt-mac" placeholder="AA:BB:CC:DD:EE:FF">
+        </div>
+        
+        <div class="fg">
+          <label class="fl">Profile (Pre-defined buttons)</label>
+          <select class="fi" id="remote-profile">
+            <option value="">-- Custom / Manual --</option>
+            ${filteredProfiles.map(p => `<option value="${p.id}">${p.name} (${p.buttons?.length || 0} buttons)</option>`).join('')}
+          </select>
+        </div>
+        
+        <div style="margin-top:20px;display:flex;gap:8px;justify-content:flex-end;">
+          <button class="btn btn-s" data-action="close-modal">Cancel</button>
+          <button class="btn btn-p" data-action="save-remote"><ha-icon icon="mdi:check"></ha-icon> Add Remote</button>
+        </div>
+      </div>
+    `;
+    this._render();
+    
+    // Add event listener for type change
+    setTimeout(() => {
+      const typeSelect = this.shadowRoot.getElementById('remote-type');
+      if (typeSelect) {
+        typeSelect.addEventListener('change', () => {
+          const type = typeSelect.value;
+          const bridgeGroup = this.shadowRoot.getElementById('bridge-select-group');
+          const zigbeeGroup = this.shadowRoot.getElementById('zigbee-ieee-group');
+          const rfGroup = this.shadowRoot.getElementById('rf-code-group');
+          const btGroup = this.shadowRoot.getElementById('bt-mac-group');
+          
+          if (bridgeGroup) bridgeGroup.style.display = ['usb_keyboard', 'bluetooth'].includes(type) ? 'block' : 'none';
+          if (zigbeeGroup) zigbeeGroup.style.display = type === 'zigbee' ? 'block' : 'none';
+          if (rfGroup) rfGroup.style.display = type === 'rf_433' ? 'block' : 'none';
+          if (btGroup) btGroup.style.display = type === 'bluetooth' ? 'block' : 'none';
+        });
+      }
+    }, 100);
+  }
+
+  _showEditRemoteModal(remoteId) {
+    const remote = this._data.physicalRemotes.find(r => r.id === remoteId);
+    if (!remote) return;
+    
+    const rooms = this._data.rooms || [];
+    const bridges = this._data.remoteBridges || [];
+    
+    this._editingRemote = remote;
+    
+    this._modal = `
+      <div class="modal-content" style="max-width:500px;">
+        <h3><ha-icon icon="mdi:remote"></ha-icon> Edit Remote</h3>
+        
+        <div class="fg">
+          <label class="fl">Name</label>
+          <input type="text" class="fi" id="remote-name" value="${remote.name || ''}">
+        </div>
+        
+        <div class="fg">
+          <label class="fl">Room</label>
+          <select class="fi" id="remote-room">
+            <option value="">-- No Room --</option>
+            ${rooms.map(r => `<option value="${r.id}" ${remote.room_id === r.id ? 'selected' : ''}>${r.name}</option>`).join('')}
+          </select>
+        </div>
+        
+        <div class="fg">
+          <label class="fl">Bridge</label>
+          <select class="fi" id="remote-bridge">
+            <option value="">-- No Bridge --</option>
+            ${bridges.map(b => `<option value="${b.id}" ${remote.bridge_id === b.id ? 'selected' : ''}>${b.name}</option>`).join('')}
+          </select>
+        </div>
+        
+        <div class="fg">
+          <label class="fl">Type</label>
+          <input type="text" class="fi" value="${remote.remote_type}" disabled>
+        </div>
+        
+        <div style="margin-top:20px;display:flex;gap:8px;justify-content:flex-end;">
+          <button class="btn btn-s" data-action="close-modal">Cancel</button>
+          <button class="btn btn-p" data-action="save-remote"><ha-icon icon="mdi:check"></ha-icon> Save</button>
+        </div>
+      </div>
+    `;
+    this._render();
+  }
+
+  async _saveRemote() {
+    const name = this.shadowRoot.getElementById('remote-name')?.value;
+    const roomId = this.shadowRoot.getElementById('remote-room')?.value;
+    const bridgeId = this.shadowRoot.getElementById('remote-bridge')?.value;
+    const remoteType = this.shadowRoot.getElementById('remote-type')?.value;
+    const profile = this.shadowRoot.getElementById('remote-profile')?.value;
+    const zigbeeIeee = this.shadowRoot.getElementById('remote-zigbee-ieee')?.value;
+    const rfPrefix = this.shadowRoot.getElementById('remote-rf-prefix')?.value;
+    const btMac = this.shadowRoot.getElementById('remote-bt-mac')?.value;
+    
+    if (!name) {
+      alert('Please enter a name for the remote');
+      return;
+    }
+    
+    const data = {
+      action: this._editingRemote ? 'update' : 'add',
+      id: this._editingRemote?.id,
+      name,
+      room_id: roomId || null,
+      bridge_id: bridgeId || null,
+      remote_type: remoteType || this._editingRemote?.remote_type,
+      profile: profile || null,
+      zigbee_ieee: zigbeeIeee || null,
+      rf_code_prefix: rfPrefix || null,
+      bt_mac: btMac || null,
+    };
+    
+    const res = await this._api('/api/omniremote/physical_remotes', 'POST', data);
+    
+    if (res.success) {
+      this._modal = null;
+      this._editingRemote = null;
+      await this._loadData();
+      this._render();
+    } else {
+      alert('Failed to save remote: ' + (res.error || 'Unknown error'));
+    }
+  }
+
+  async _deleteRemote(remoteId) {
+    if (!confirm('Delete this remote?')) return;
+    
+    const res = await this._api('/api/omniremote/physical_remotes', 'POST', {
+      action: 'delete',
+      id: remoteId
+    });
+    
+    if (res.success) {
+      await this._loadData();
+      this._render();
+    } else {
+      alert('Failed to delete: ' + (res.error || 'Unknown error'));
+    }
+  }
+
+  async _discoverRemotes() {
+    const res = await this._api('/api/omniremote/physical_remotes', 'POST', {
+      action: 'discover_zigbee'
+    });
+    
+    if (res.discovered && res.discovered.length > 0) {
+      const list = res.discovered.map(d => `• ${d.name} (${d.model || d.manufacturer || 'unknown'})`).join('\\n');
+      alert('Found Zigbee remotes:\\n' + list + '\\n\\nAdd them manually with their IEEE address.');
+    } else {
+      alert('No new Zigbee remotes found. Make sure they are paired with ZHA/deCONZ/Z2M first.');
+    }
+  }
+
+  _showButtonMappingModal(remoteId) {
+    const remote = this._data.physicalRemotes.find(r => r.id === remoteId);
+    if (!remote) return;
+    
+    const rooms = this._data.rooms || [];
+    const scenes = this._data.scenes || [];
+    const devices = this._data.devices || [];
+    const mappings = remote.button_mappings || {};
+    
+    // Get profile buttons if available
+    const profile = this._data.remoteProfiles?.find(p => p.id === remote.profile);
+    const buttons = profile?.buttons || Object.keys(mappings);
+    
+    const actionTypes = [
+      { value: 'scene', label: 'Run Scene' },
+      { value: 'ir_command', label: 'Send IR Command' },
+      { value: 'volume_up', label: 'Volume Up (Room)' },
+      { value: 'volume_down', label: 'Volume Down (Room)' },
+      { value: 'mute', label: 'Mute (Room)' },
+      { value: 'channel_up', label: 'Channel Up (Room)' },
+      { value: 'channel_down', label: 'Channel Down (Room)' },
+      { value: 'toggle_device', label: 'Toggle Device Power' },
+      { value: 'ha_service', label: 'Call HA Service' },
+    ];
+    
+    this._editingRemote = remote;
+    this._buttonMappings = { ...mappings };
+    
+    this._modal = `
+      <div class="modal-content" style="max-width:700px;max-height:80vh;overflow-y:auto;">
+        <h3><ha-icon icon="mdi:gesture-tap-button"></ha-icon> Button Mapping - ${remote.name}</h3>
+        <p style="color:#888;margin-top:0;">Assign actions to each button on your remote.</p>
+        
+        <table style="width:100%;border-collapse:collapse;margin-top:16px;">
+          <thead>
+            <tr style="background:#252545;">
+              <th style="padding:8px;text-align:left;">Button</th>
+              <th style="padding:8px;text-align:left;">Action Type</th>
+              <th style="padding:8px;text-align:left;">Target</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${buttons.map(btn => {
+              const mapping = mappings[btn] || {};
+              return `
+                <tr style="border-bottom:1px solid #333;">
+                  <td style="padding:8px;font-weight:600;">${btn}</td>
+                  <td style="padding:8px;">
+                    <select class="fi" style="margin:0;" data-button="${btn}" data-field="action_type">
+                      ${actionTypes.map(t => `<option value="${t.value}" ${mapping.action_type === t.value ? 'selected' : ''}>${t.label}</option>`).join('')}
+                    </select>
+                  </td>
+                  <td style="padding:8px;">
+                    <select class="fi" style="margin:0;" data-button="${btn}" data-field="action_target">
+                      <option value="">-- Select --</option>
+                      ${mapping.action_type === 'scene' || !mapping.action_type ? 
+                        scenes.map(s => `<option value="${s.id}" ${mapping.action_target === s.id ? 'selected' : ''}>${s.name}</option>`).join('') :
+                        devices.map(d => `<option value="${d.id}" ${mapping.action_target === d.id ? 'selected' : ''}>${d.name}</option>`).join('')
+                      }
+                    </select>
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+        
+        ${buttons.length === 0 ? `
+          <p style="color:#888;text-align:center;padding:20px;">
+            No buttons defined. Select a profile or add a custom button.
+          </p>
+          <div class="fg">
+            <label class="fl">Add Custom Button</label>
+            <div style="display:flex;gap:8px;">
+              <input type="text" class="fi" id="new-button-name" placeholder="Button name (e.g., KEY_POWER)">
+              <button class="btn btn-s" id="add-button-btn">Add</button>
+            </div>
+          </div>
+        ` : ''}
+        
+        <div style="margin-top:20px;display:flex;gap:8px;justify-content:flex-end;">
+          <button class="btn btn-s" data-action="close-modal">Cancel</button>
+          <button class="btn btn-p" data-action="save-button-mapping"><ha-icon icon="mdi:check"></ha-icon> Save Mappings</button>
+        </div>
+      </div>
+    `;
+    this._render();
+  }
+
+  async _saveButtonMapping() {
+    const remote = this._editingRemote;
+    if (!remote) return;
+    
+    // Collect all mappings from the modal
+    const selects = this.shadowRoot.querySelectorAll('[data-button][data-field]');
+    const mappings = {};
+    
+    selects.forEach(sel => {
+      const btn = sel.dataset.button;
+      const field = sel.dataset.field;
+      
+      if (!mappings[btn]) mappings[btn] = { button_id: btn };
+      mappings[btn][field] = sel.value;
+    });
+    
+    // Save each mapping
+    for (const [btnId, mapping] of Object.entries(mappings)) {
+      if (mapping.action_type && mapping.action_target) {
+        await this._api('/api/omniremote/physical_remotes', 'POST', {
+          action: 'map_button',
+          remote_id: remote.id,
+          button_id: btnId,
+          action_type: mapping.action_type,
+          action_target: mapping.action_target,
+        });
+      }
+    }
+    
+    this._modal = null;
+    this._editingRemote = null;
+    await this._loadData();
+    this._render();
+  }
+
+  // ==========================================================================
+  // Bridge Management
+  // ==========================================================================
+
+  _showAddBridgeModal() {
+    const rooms = this._data.rooms || [];
+    
+    this._editingBridge = null;
+    
+    this._modal = `
+      <div class="modal-content" style="max-width:500px;">
+        <h3><ha-icon icon="mdi:router-wireless"></ha-icon> Add Remote Bridge</h3>
+        <p style="color:#888;margin-top:0;">Bridges receive signals from physical remotes and forward them to Home Assistant.</p>
+        
+        <div class="fg">
+          <label class="fl">Bridge Type</label>
+          <select class="fi" id="bridge-type">
+            <option value="usb_bridge">USB Bridge (Pi Zero W)</option>
+            <option value="bluetooth_proxy">Bluetooth Proxy (ESP32)</option>
+            <option value="rf_tasmota">RF Bridge (Sonoff + Tasmota)</option>
+            <option value="rf_esphome">RF Receiver (ESPHome)</option>
+            <option value="zigbee_zha">ZHA Coordinator</option>
+            <option value="zigbee_z2m">Zigbee2MQTT</option>
+            <option value="zigbee_deconz">deCONZ</option>
+          </select>
+        </div>
+        
+        <div class="fg">
+          <label class="fl">Name</label>
+          <input type="text" class="fi" id="bridge-name" placeholder="Living Room Bridge">
+        </div>
+        
+        <div class="fg">
+          <label class="fl">Room</label>
+          <select class="fi" id="bridge-room">
+            <option value="">-- No Room --</option>
+            ${rooms.map(r => `<option value="${r.id}">${r.name}</option>`).join('')}
+          </select>
+        </div>
+        
+        <div class="fg" id="bridge-host-group">
+          <label class="fl">Host/IP (optional)</label>
+          <input type="text" class="fi" id="bridge-host" placeholder="192.168.1.100 or hostname">
+        </div>
+        
+        <div class="fg" id="bridge-mqtt-group">
+          <label class="fl">MQTT Topic (for Tasmota/ESPHome)</label>
+          <input type="text" class="fi" id="bridge-mqtt" placeholder="tele/rf_bridge/RESULT">
+        </div>
+        
+        <div style="margin-top:20px;display:flex;gap:8px;justify-content:flex-end;">
+          <button class="btn btn-s" data-action="close-modal">Cancel</button>
+          <button class="btn btn-p" data-action="save-bridge"><ha-icon icon="mdi:check"></ha-icon> Add Bridge</button>
+        </div>
+      </div>
+    `;
+    this._render();
+  }
+
+  _showEditBridgeModal(bridgeId) {
+    const bridge = this._data.remoteBridges.find(b => b.id === bridgeId);
+    if (!bridge) return;
+    
+    const rooms = this._data.rooms || [];
+    
+    this._editingBridge = bridge;
+    
+    this._modal = `
+      <div class="modal-content" style="max-width:500px;">
+        <h3><ha-icon icon="mdi:router-wireless"></ha-icon> Edit Bridge</h3>
+        
+        <div class="fg">
+          <label class="fl">Name</label>
+          <input type="text" class="fi" id="bridge-name" value="${bridge.name || ''}">
+        </div>
+        
+        <div class="fg">
+          <label class="fl">Room</label>
+          <select class="fi" id="bridge-room">
+            <option value="">-- No Room --</option>
+            ${rooms.map(r => `<option value="${r.id}" ${bridge.room_id === r.id ? 'selected' : ''}>${r.name}</option>`).join('')}
+          </select>
+        </div>
+        
+        <div class="fg">
+          <label class="fl">Host/IP</label>
+          <input type="text" class="fi" id="bridge-host" value="${bridge.host || ''}">
+        </div>
+        
+        <div class="fg">
+          <label class="fl">MQTT Topic</label>
+          <input type="text" class="fi" id="bridge-mqtt" value="${bridge.mqtt_topic || ''}">
+        </div>
+        
+        <div class="fg">
+          <label class="fl">Type</label>
+          <input type="text" class="fi" value="${bridge.bridge_type}" disabled>
+        </div>
+        
+        <div style="margin-top:20px;display:flex;gap:8px;justify-content:flex-end;">
+          <button class="btn btn-s" data-action="close-modal">Cancel</button>
+          <button class="btn btn-p" data-action="save-bridge"><ha-icon icon="mdi:check"></ha-icon> Save</button>
+        </div>
+      </div>
+    `;
+    this._render();
+  }
+
+  async _saveBridge() {
+    const name = this.shadowRoot.getElementById('bridge-name')?.value;
+    const roomId = this.shadowRoot.getElementById('bridge-room')?.value;
+    const host = this.shadowRoot.getElementById('bridge-host')?.value;
+    const mqttTopic = this.shadowRoot.getElementById('bridge-mqtt')?.value;
+    const bridgeType = this.shadowRoot.getElementById('bridge-type')?.value;
+    
+    if (!name) {
+      alert('Please enter a name for the bridge');
+      return;
+    }
+    
+    const data = {
+      action: this._editingBridge ? 'update' : 'add',
+      id: this._editingBridge?.id,
+      name,
+      room_id: roomId || null,
+      host: host || null,
+      mqtt_topic: mqttTopic || null,
+      bridge_type: bridgeType || this._editingBridge?.bridge_type,
+    };
+    
+    const res = await this._api('/api/omniremote/remote_bridges', 'POST', data);
+    
+    if (res.success) {
+      this._modal = null;
+      this._editingBridge = null;
+      await this._loadData();
+      this._render();
+    } else {
+      alert('Failed to save bridge: ' + (res.error || 'Unknown error'));
+    }
+  }
+
+  async _deleteBridge(bridgeId) {
+    if (!confirm('Delete this bridge? Remotes using it will need to be reconfigured.')) return;
+    
+    const res = await this._api('/api/omniremote/remote_bridges', 'POST', {
+      action: 'delete',
+      id: bridgeId
+    });
+    
+    if (res.success) {
+      await this._loadData();
+      this._render();
+    } else {
+      alert('Failed to delete: ' + (res.error || 'Unknown error'));
     }
   }
 }

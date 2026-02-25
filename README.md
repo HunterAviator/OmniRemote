@@ -10,6 +10,9 @@
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
 </p>
 
+> [!WARNING]
+> **NOTE:** This is Public and Production only because HACS requires it. It is still being developed and so does not function yet. I will be updating frequently until at least minimum functionality is there. Please be patient as I have a day job and this is just a personal project that I will be sharing.
+
 A comprehensive Home Assistant integration for universal remote control. Manage IR, RF, Network, and Bluetooth devices with a beautiful sidebar GUI, customizable Lovelace cards, pre-built device catalog, and powerful activity macros.
 
 <p align="center">
@@ -24,21 +27,30 @@ A comprehensive Home Assistant integration for universal remote control. Manage 
 - 🎬 **Activities** - Complex macros like "Watch Roku" or "Movie Night" with timing and app launching
 - 📺 **Multi-Protocol** - IR, RF 433MHz, Network (Roku ECP, Fire TV ADB, Onkyo eISCP), Bluetooth
 
-### NEW: Customizable Remote Cards
+### NEW: Physical Remote Control System
+Use real physical remotes to control your devices and run scenes:
+
+| Remote Type | Connection | Examples |
+|------------|------------|----------|
+| 🔷 **Zigbee** | Direct to HA | IKEA TRADFRI, Aqara, Hue Dimmer |
+| 📡 **RF 433MHz** | Sonoff RF Bridge | Any cheap 433MHz remote |
+| 🔵 **Bluetooth** | ESP32 Proxy | Media buttons, presenter remotes |
+| 🔌 **USB Keyboard** | Pi Zero W Bridge | MX3 Air Mouse, WeChip, Rii |
+
+- 🎯 **Room-Based Mapping** - Assign remotes to rooms, buttons auto-target room devices
+- 🎛️ **Button Mapping** - Map any button to scenes, IR commands, or HA services
+- 📦 **Pi Bridge Included** - Install script for Raspberry Pi Zero W USB bridge
+- 🔍 **Auto-Discovery** - Bridges announce via MQTT, Zigbee remotes via ZHA/Z2M
+
+### Customizable Remote Cards
 - 🎛️ **Lovelace Remote Card** - Fully customizable remote control card for your dashboards
 - 🎨 **Multiple Themes** - Default, Dark, Glass, Retro, Neon themes
 - 📐 **Template Layouts** - Pre-built layouts for TV, Streaming, Receiver, Projector, Fan
 - ✏️ **Visual Editor** - Drag-and-drop button arrangement in edit mode
 - 📱 **Touch Optimized** - Haptic feedback, hold-to-repeat, double-tap support
 
-### NEW: Bluetooth Remote Support
-- 🎮 **Physical Remote Pairing** - Pair Bluetooth remotes (Fire TV, Roku, Apple TV remotes)
-- 🔗 **Button Mapping** - Map physical buttons to any OmniRemote command
-- 📍 **Area Registration** - Assign remotes to specific rooms/areas
-- 🔄 **Learning Mode** - Capture unknown button codes
-
-### NEW: Area-Based Organization
-- 🏠 **Room Assignment** - Register remotes to specific Home Assistant areas
+### Area-Based Organization
+- 🏠 **Room Assignment** - Register all devices, remotes, and blasters to rooms
 - 🎯 **Smart Targeting** - Volume goes to receiver, navigation to streaming device
 - 📊 **Device Mapping** - Set default TV, receiver, streaming device per area
 - 📋 **Dashboard Generation** - Auto-generate Lovelace dashboards per area

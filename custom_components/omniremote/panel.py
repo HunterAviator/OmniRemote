@@ -48,6 +48,9 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     hass.http.register_view(OmniRemoteCardResource(hass))
     hass.http.register_view(OmniApiVersion(hass))
     hass.http.register_view(OmniApiTest(hass))
+    hass.http.register_view(OmniApiPhysicalRemotes(hass))
+    hass.http.register_view(OmniApiRemoteBridges(hass))
+    hass.http.register_view(OmniApiRemoteProfiles(hass))
     hass.http.register_view(OmniIconView(hass))
     hass.http.register_view(OmniLogoView(hass))
     
@@ -1425,3 +1428,298 @@ class OmniLogoView(HomeAssistantView):
             )
         
         return web.Response(status=404, text="Logo not found")
+
+
+# =============================================================================
+# Physical Remotes API
+# =============================================================================
+
+class OmniApiPhysicalRemotes(HomeAssistantView):
+    """API for managing physical remotes (Zigbee, RF, BT, USB)."""
+    
+    url = "/api/omniremote/physical_remotes"
+    name = "api:omniremote:physical_remotes"
+    requires_auth = True
+    
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+    
+    async def get(self, request: web.Request) -> web.Response:
+        """Get all physical remotes."""
+        database = self.hass.data[DOMAIN]["database"]
+        
+        remotes = []
+        for remote in database.physical_remotes.values():
+            remote_dict = remote.to_dict()
+            # Add room name for display
+            if remote.room_id and remote.room_id in database.rooms:
+                remote_dict["room_name"] = database.rooms[remote.room_id].name
+            else:
+                remote_dict["room_name"] = None
+            remotes.append(remote_dict)
+        
+        return web.json_response({"remotes": remotes})
+    
+    async def post(self, request: web.Request) -> web.Response:
+        """Add or update a physical remote."""
+        database = self.hass.data[DOMAIN]["database"]
+        data = await request.json()
+        
+        action = data.get("action", "add")
+        
+        if action == "add":
+            from .physical_remotes import PhysicalRemote, RemoteType, ButtonMapping, ActionType
+            
+            remote_id = data.get("id") or str(uuid.uuid4())[:8]
+            
+            remote = PhysicalRemote(
+                id=remote_id,
+                name=data.get("name", "New Remote"),
+                remote_type=RemoteType(data.get("remote_type", "zigbee")),
+                room_id=data.get("room_id"),
+                bridge_id=data.get("bridge_id"),
+                zigbee_ieee=data.get("zigbee_ieee"),
+                rf_code_prefix=data.get("rf_code_prefix"),
+                bt_mac=data.get("bt_mac"),
+                usb_device_name=data.get("usb_device_name"),
+                profile=data.get("profile"),
+            )
+            
+            # Apply profile defaults if specified
+            if remote.profile:
+                from .physical_remotes import REMOTE_PROFILES
+                profile_data = REMOTE_PROFILES.get(remote.profile, {})
+                for btn_id, mapping_data in profile_data.get("default_mappings", {}).items():
+                    remote.button_mappings[btn_id] = ButtonMapping(
+                        button_id=btn_id,
+                        action_type=ActionType(mapping_data.get("action_type", "scene")),
+                        action_target=mapping_data.get("action_target", ""),
+                        action_data=mapping_data.get("action_data", {}),
+                    )
+            
+            database.physical_remotes[remote.id] = remote
+            await database.async_save()
+            
+            return web.json_response({
+                "success": True,
+                "remote": remote.to_dict()
+            })
+        
+        elif action == "update":
+            remote_id = data.get("id")
+            if not remote_id or remote_id not in database.physical_remotes:
+                return web.json_response({"error": "Remote not found"}, status=404)
+            
+            remote = database.physical_remotes[remote_id]
+            
+            # Update fields
+            if "name" in data:
+                remote.name = data["name"]
+            if "room_id" in data:
+                remote.room_id = data["room_id"]
+            if "bridge_id" in data:
+                remote.bridge_id = data["bridge_id"]
+            if "zigbee_ieee" in data:
+                remote.zigbee_ieee = data["zigbee_ieee"]
+            if "rf_code_prefix" in data:
+                remote.rf_code_prefix = data["rf_code_prefix"]
+            if "bt_mac" in data:
+                remote.bt_mac = data["bt_mac"]
+            if "usb_device_name" in data:
+                remote.usb_device_name = data["usb_device_name"]
+            
+            await database.async_save()
+            
+            return web.json_response({
+                "success": True,
+                "remote": remote.to_dict()
+            })
+        
+        elif action == "delete":
+            remote_id = data.get("id")
+            if remote_id and remote_id in database.physical_remotes:
+                del database.physical_remotes[remote_id]
+                await database.async_save()
+                return web.json_response({"success": True})
+            return web.json_response({"error": "Remote not found"}, status=404)
+        
+        elif action == "map_button":
+            # Map a button to an action
+            remote_id = data.get("remote_id")
+            if not remote_id or remote_id not in database.physical_remotes:
+                return web.json_response({"error": "Remote not found"}, status=404)
+            
+            remote = database.physical_remotes[remote_id]
+            
+            from .physical_remotes import ButtonMapping, ActionType
+            
+            button_id = data.get("button_id")
+            mapping = ButtonMapping(
+                button_id=button_id,
+                action_type=ActionType(data.get("action_type", "scene")),
+                action_target=data.get("action_target", ""),
+                action_data=data.get("action_data", {}),
+                long_press_action=data.get("long_press_action"),
+                double_press_action=data.get("double_press_action"),
+            )
+            
+            remote.button_mappings[button_id] = mapping
+            await database.async_save()
+            
+            return web.json_response({
+                "success": True,
+                "mapping": mapping.to_dict()
+            })
+        
+        elif action == "discover_zigbee":
+            # Discover Zigbee remotes from ZHA/deCONZ
+            from .physical_remotes import discover_zigbee_remotes
+            
+            try:
+                discovered = await discover_zigbee_remotes(self.hass)
+                return web.json_response({
+                    "success": True,
+                    "discovered": discovered
+                })
+            except Exception as ex:
+                return web.json_response({
+                    "error": str(ex)
+                }, status=500)
+        
+        return web.json_response({"error": "Unknown action"}, status=400)
+
+
+class OmniApiRemoteBridges(HomeAssistantView):
+    """API for managing remote bridges (Pi Zero, ESP32, Sonoff, etc.)."""
+    
+    url = "/api/omniremote/remote_bridges"
+    name = "api:omniremote:remote_bridges"
+    requires_auth = True
+    
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+    
+    async def get(self, request: web.Request) -> web.Response:
+        """Get all remote bridges."""
+        database = self.hass.data[DOMAIN]["database"]
+        
+        bridges = []
+        for bridge in database.remote_bridges.values():
+            bridge_dict = bridge.to_dict()
+            # Add room name for display
+            if bridge.room_id and bridge.room_id in database.rooms:
+                bridge_dict["room_name"] = database.rooms[bridge.room_id].name
+            else:
+                bridge_dict["room_name"] = None
+            bridges.append(bridge_dict)
+        
+        return web.json_response({"bridges": bridges})
+    
+    async def post(self, request: web.Request) -> web.Response:
+        """Add or update a remote bridge."""
+        database = self.hass.data[DOMAIN]["database"]
+        data = await request.json()
+        
+        action = data.get("action", "add")
+        
+        if action == "add":
+            from .physical_remotes import RemoteBridge, BridgeType
+            
+            bridge_id = data.get("id") or str(uuid.uuid4())[:8]
+            
+            bridge = RemoteBridge(
+                id=bridge_id,
+                name=data.get("name", "New Bridge"),
+                bridge_type=BridgeType(data.get("bridge_type", "usb_bridge")),
+                room_id=data.get("room_id"),
+                host=data.get("host"),
+                port=data.get("port"),
+                mqtt_topic=data.get("mqtt_topic"),
+                device_id=data.get("device_id"),
+            )
+            
+            database.remote_bridges[bridge.id] = bridge
+            await database.async_save()
+            
+            return web.json_response({
+                "success": True,
+                "bridge": bridge.to_dict()
+            })
+        
+        elif action == "update":
+            bridge_id = data.get("id")
+            if not bridge_id or bridge_id not in database.remote_bridges:
+                return web.json_response({"error": "Bridge not found"}, status=404)
+            
+            bridge = database.remote_bridges[bridge_id]
+            
+            # Update fields
+            if "name" in data:
+                bridge.name = data["name"]
+            if "room_id" in data:
+                bridge.room_id = data["room_id"]
+            if "host" in data:
+                bridge.host = data["host"]
+            if "port" in data:
+                bridge.port = data["port"]
+            if "mqtt_topic" in data:
+                bridge.mqtt_topic = data["mqtt_topic"]
+            
+            await database.async_save()
+            
+            return web.json_response({
+                "success": True,
+                "bridge": bridge.to_dict()
+            })
+        
+        elif action == "delete":
+            bridge_id = data.get("id")
+            if bridge_id and bridge_id in database.remote_bridges:
+                del database.remote_bridges[bridge_id]
+                await database.async_save()
+                return web.json_response({"success": True})
+            return web.json_response({"error": "Bridge not found"}, status=404)
+        
+        elif action == "discover":
+            # Discover MQTT bridges that have registered
+            discovered = []
+            
+            # Check for auto-discovered bridges via MQTT
+            if "mqtt" in self.hass.config.components:
+                # Look for retained status messages
+                # This would need MQTT subscription during init
+                pass
+            
+            return web.json_response({
+                "success": True,
+                "discovered": discovered
+            })
+        
+        return web.json_response({"error": "Unknown action"}, status=400)
+
+
+class OmniApiRemoteProfiles(HomeAssistantView):
+    """API for remote profiles (pre-defined button layouts)."""
+    
+    url = "/api/omniremote/remote_profiles"
+    name = "api:omniremote:remote_profiles"
+    requires_auth = True
+    
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+    
+    async def get(self, request: web.Request) -> web.Response:
+        """Get all remote profiles."""
+        from .physical_remotes import REMOTE_PROFILES
+        
+        profiles = []
+        for profile_id, profile_data in REMOTE_PROFILES.items():
+            profiles.append({
+                "id": profile_id,
+                "name": profile_data.get("name", profile_id),
+                "type": profile_data.get("type", "unknown").value if hasattr(profile_data.get("type"), "value") else str(profile_data.get("type", "unknown")),
+                "buttons": profile_data.get("buttons", []),
+                "default_mappings": profile_data.get("default_mappings", {}),
+            })
+        
+        return web.json_response({"profiles": profiles})

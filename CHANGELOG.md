@@ -1,5 +1,93 @@
 # OmniRemote Release Notes
 
+## v1.6.0 - Physical Remote Control System (2024-02-25)
+
+### ✨ New Features
+
+#### Physical Remote Support
+Complete system for using physical remotes (not just IR blasters) to control your devices:
+
+| Remote Type | Connection | Examples |
+|------------|------------|----------|
+| **Zigbee** | Direct to HA | IKEA TRADFRI, Aqara, Hue Dimmer |
+| **RF 433MHz** | Sonoff RF Bridge | Any 433MHz remote |
+| **Bluetooth** | ESP32 Proxy | Media buttons, presenters |
+| **USB Keyboard** | Pi Zero W Bridge | MX3 Air Mouse, WeChip |
+
+#### Bridge System
+- **USB Bridge**: Python script for Pi Zero W to capture USB keyboard remotes
+- **Bluetooth Proxy**: Support for ESP32 Bluetooth proxies
+- **RF Bridge**: Integration with Tasmota-flashed Sonoff RF bridges
+- **Auto-Discovery**: MQTT-based bridge discovery
+
+#### Room-Based Mapping
+- Every entity can be assigned to a room:
+  - Devices (IR-controlled equipment)
+  - Blasters (IR transmitters)
+  - Scenes (automation sequences)
+  - Physical Remotes (button controllers)
+  - Bridges (signal receivers)
+- Button actions automatically target room devices
+
+#### Button Mapping
+- Map any button to:
+  - Run OmniRemote scenes
+  - Send IR commands
+  - Volume Up/Down (room-based)
+  - Channel Up/Down (room-based)
+  - Mute toggle
+  - Toggle device power
+  - Call any Home Assistant service
+- Pre-defined profiles for popular remotes:
+  - IKEA TRADFRI Remote
+  - IKEA RODRET/SOMRIG
+  - Aqara Mini Switch
+  - Aqara Cube T1 Pro
+  - Hue Dimmer Switch
+  - MX3 Pro Air Mouse
+
+#### New Panel UI
+- **Physical Remotes** section in sidebar
+- Add/edit/delete remotes and bridges
+- Visual button mapping editor
+- Bridge online/offline status
+- Quick setup guides for each remote type
+
+### 📦 Pi Zero W Bridge
+Included `remote_bridge/` folder contains:
+- `omniremote_bridge.py` - Python script for Pi
+- `install.sh` - One-line installation
+- `omniremote-bridge.service` - Systemd service
+- `README.md` - Setup documentation
+
+Install on Pi:
+```bash
+curl -sSL https://raw.githubusercontent.com/HunterAviator/OmniRemote/main/remote_bridge/install.sh | sudo bash
+```
+
+### 🔧 Technical Details
+- New `physical_remotes.py` module (~800 lines)
+- `PhysicalRemoteManager` class listens to multiple event sources
+- Support for ZHA, deCONZ, Zigbee2MQTT events
+- MQTT subscriptions for Tasmota and custom bridges
+- Long-press and double-press detection
+
+---
+
+## v1.5.5 - IR Protocol Encoding (2024-02-25)
+
+### 🐛 Bug Fixes
+- **Critical**: Fixed catalog IR codes not working with Broadlink devices
+- Catalog now properly converts protocol codes (NEC, Samsung32, etc.) to Broadlink raw format
+
+### ✨ New Features
+- **IR Protocol Encoder**: Full encoder for 8 protocols
+- **Test Buttons**: Test commands before adding devices
+- **Profile Switching**: Try different profiles for same device
+- **Learn Code**: Learn IR codes directly from existing remotes
+
+---
+
 ## v1.5.0 - Comprehensive Device Catalog (2024-02-25)
 
 ### ✨ New Features
