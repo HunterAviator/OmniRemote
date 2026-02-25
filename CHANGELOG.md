@@ -1,5 +1,24 @@
 # OmniRemote Release Notes
 
+## v1.6.2 - Cache Busting Fix (2024-02-25)
+
+### 🐛 Bug Fixes
+
+#### Panel Update / Cache Issues
+- **Content Hash Cache-Busting**: Panel URL now includes MD5 hash of panel.js content
+- **Auto Re-registration**: Panel automatically re-registers when version changes
+- **Force Remove Old Panel**: Removes old panel registration before re-adding
+- **Prominent Version Mismatch Banner**: Orange warning banner with clear reload instructions
+- **Console Logging**: Detailed version logging for debugging cache issues
+
+**If panel doesn't update after reinstall:**
+1. Check browser console for `[OmniRemote] Panel v1.6.2 loaded` message
+2. If version mismatch banner appears, click "Clear Cache & Reload"
+3. Try Ctrl+Shift+R (Cmd+Shift+R on Mac) for hard refresh
+4. Restart Home Assistant completely
+
+---
+
 ## v1.6.1 - IR Debugger & Catalog Improvements (2024-02-25)
 
 ### 🐛 Bug Fixes

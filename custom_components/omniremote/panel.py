@@ -27,10 +27,32 @@ PANEL_ICON = "mdi:remote-tv"
 
 async def async_register_panel(hass: HomeAssistant) -> None:
     """Register the panel and API."""
-    # Check if already registered (avoid duplicate registration on reload)
-    if hass.data.get(DOMAIN, {}).get("_panel_registered"):
-        _LOGGER.debug("OmniRemote panel already registered, skipping")
-        return
+    import hashlib
+    import time
+    
+    # Generate a unique cache-buster based on version AND a hash of panel.js
+    panel_path = Path(__file__).parent / "panel.js"
+    if panel_path.exists():
+        content = panel_path.read_bytes()
+        content_hash = hashlib.md5(content).hexdigest()[:8]
+    else:
+        content_hash = str(int(time.time()))
+    
+    cache_buster = f"{VERSION}-{content_hash}"
+    
+    # Check if we need to update (version changed)
+    current_version = hass.data.get(DOMAIN, {}).get("_panel_version")
+    if current_version == cache_buster:
+        _LOGGER.debug("OmniRemote panel already registered with current version %s", cache_buster)
+    else:
+        _LOGGER.info("OmniRemote panel version change: %s -> %s", current_version, cache_buster)
+        # Force re-registration by removing old panel
+        if "omniremote" in hass.data.get("frontend_panels", {}):
+            _LOGGER.info("Removing old OmniRemote panel for re-registration")
+            try:
+                hass.components.frontend.async_remove_panel("omniremote")
+            except Exception as ex:
+                _LOGGER.debug("Could not remove old panel: %s", ex)
     
     # Register API views (safe to call multiple times - HA handles duplicates)
     hass.http.register_view(OmniApiRooms(hass))
@@ -55,33 +77,31 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     hass.http.register_view(OmniIconView(hass))
     hass.http.register_view(OmniLogoView(hass))
     
-    # Check if panel already exists before registering
-    if "omniremote" in hass.data.get("frontend_panels", {}):
-        _LOGGER.debug("OmniRemote panel already in frontend_panels, skipping registration")
-        hass.data.setdefault(DOMAIN, {})["_panel_registered"] = True
+    # Check if panel already exists (and is current version)
+    if "omniremote" in hass.data.get("frontend_panels", {}) and current_version == cache_buster:
+        _LOGGER.debug("OmniRemote panel already in frontend_panels with correct version")
         return
     
     try:
-        # Register the panel with version for cache-busting
+        # Register the panel with version+hash for cache-busting
         await panel_custom.async_register_panel(
             hass,
             webcomponent_name="omniremote-panel",
             frontend_url_path="omniremote",
             sidebar_title=PANEL_TITLE,
             sidebar_icon=PANEL_ICON,
-            module_url=f"/api/omniremote/panel.js?v={VERSION}",
+            module_url=f"/api/omniremote/panel.js?v={cache_buster}",
             embed_iframe=False,
             require_admin=False,
         )
-        hass.data.setdefault(DOMAIN, {})["_panel_registered"] = True
-        _LOGGER.info("OmniRemote panel registered successfully")
+        hass.data.setdefault(DOMAIN, {})["_panel_version"] = cache_buster
+        _LOGGER.info("OmniRemote panel registered successfully (v%s)", cache_buster)
     except ValueError as ex:
-        if "Overwriting" in str(ex):
-            _LOGGER.debug("Panel already exists: %s", ex)
-            hass.data.setdefault(DOMAIN, {})["_panel_registered"] = True
+        if "Overwriting" in str(ex) or "already registered" in str(ex).lower():
+            _LOGGER.debug("Panel registration note: %s", ex)
+            hass.data.setdefault(DOMAIN, {})["_panel_version"] = cache_buster
         else:
             raise
-
 
 def _get_database(hass: HomeAssistant) -> RemoteDatabase | None:
     """Get the database instance."""

@@ -1,9 +1,9 @@
 /**
- * OmniRemote Manager Panel v1.5.3
+ * OmniRemote Manager Panel v1.6.2
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.5.5";
+const OMNIREMOTE_VERSION = "1.6.2";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -16,6 +16,10 @@ class OmniRemotePanel extends HTMLElement {
     this._roomId = null;
     this._deviceId = null;
     this._version = OMNIREMOTE_VERSION;
+    
+    // Log panel load for debugging cache issues
+    console.log(`[OmniRemote] Panel v${OMNIREMOTE_VERSION} loaded at ${new Date().toISOString()}`);
+    console.log(`[OmniRemote] Script URL: ${document.currentScript?.src || 'inline/unknown'}`);
   }
 
   set hass(hass) {
@@ -190,9 +194,9 @@ class OmniRemotePanel extends HTMLElement {
         .warning { background:#3d2e00; border:1px solid #ff9800; border-radius:12px; padding:16px; margin-bottom:24px; display:flex; align-items:center; gap:12px; }
         
         /* Version Banner */
-        .version-banner { background:#1a3d1a; border:1px solid #4caf50; padding:12px 24px; display:flex; align-items:center; gap:12px; color:#a5d6a7; }
-        .version-banner ha-icon { color:#4caf50; }
-        .version-banner a { color:#81c784; font-weight:500; }
+        .version-banner { background:#3d2c1a; border:1px solid #ff9800; padding:12px 24px; display:flex; align-items:center; gap:12px; color:#ffcc80; }
+        .version-banner ha-icon { color:#ff9800; }
+        .version-banner a { color:#ffb74d; font-weight:500; text-decoration:underline; }
         .warning ha-icon { color:#ff9800; --mdc-icon-size:24px; }
         .warning-text { flex:1; }
         .warning-title { color:#ff9800; font-weight:500; }
@@ -310,8 +314,12 @@ class OmniRemotePanel extends HTMLElement {
           </header>
           ${this._versionMismatch ? `
             <div class="version-banner">
-              <ha-icon icon="mdi:update"></ha-icon>
-              <span>A new version (${this._versionMismatch}) is available. Please <a href="#" onclick="location.reload(); return false;">reload the page</a> or clear your browser cache.</span>
+              <ha-icon icon="mdi:alert"></ha-icon>
+              <span>
+                <strong>Version Mismatch!</strong> Panel: v${this._version}, Server: v${this._versionMismatch}. 
+                Try: <a href="#" onclick="location.reload(true); return false;">Hard Reload</a> (Ctrl+Shift+R) 
+                or <a href="#" onclick="caches.keys().then(k => k.forEach(n => caches.delete(n))).then(() => location.reload(true)); return false;">Clear Cache & Reload</a>
+              </span>
             </div>
           ` : ''}
           <div class="content">${this._getContent()}</div>
