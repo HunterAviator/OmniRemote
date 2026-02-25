@@ -1,9 +1,9 @@
 /**
- * OmniRemote Manager Panel v1.4.4
+ * OmniRemote Manager Panel v1.4.5
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.4.4";
+const OMNIREMOTE_VERSION = "1.4.5";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -1517,16 +1517,6 @@ class OmniRemotePanel extends HTMLElement {
         service_data: {}
       };
       serviceDataDiv.innerHTML = this._getServiceDataFields(action, entity);
-    }
-  }
-        <option value="volume_mute">Mute</option>
-        <option value="media_play">Play</option>
-        <option value="media_pause">Pause</option>
-        <option value="media_stop">Stop</option>
-        <option value="media_next_track">Next Track</option>
-        <option value="media_previous_track">Previous Track</option>
-      `;
-      serviceSelect.value = currentValue;
     }
   }
 
