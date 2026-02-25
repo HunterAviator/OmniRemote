@@ -1,12 +1,14 @@
 {
   "domain": "omniremote",
   "name": "OmniRemote",
-  "version": "1.5.3",
+  "version": "1.5.4",
   "documentation": "https://github.com/HunterAviator/OmniRemote",
   "issue_tracker": "https://github.com/HunterAviator/OmniRemote/issues",
   "dependencies": ["http"],
   "codeowners": ["@HunterAviator"],
   "requirements": ["broadlink>=0.18.3"],
   "config_flow": true,
-  "iot_class": "local_push"
+  "iot_class": "local_push",
+  "integration_type": "hub",
+  "loggers": ["omniremote"]
 }

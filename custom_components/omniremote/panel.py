@@ -47,6 +47,8 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     hass.http.register_view(OmniApiAreaRemotes(hass))
     hass.http.register_view(OmniRemoteCardResource(hass))
     hass.http.register_view(OmniApiVersion(hass))
+    hass.http.register_view(OmniIconView(hass))
+    hass.http.register_view(OmniLogoView(hass))
     
     # Check if panel already exists before registering
     if "omniremote" in hass.data.get("frontend_panels", {}):
@@ -1187,3 +1189,57 @@ class OmniApiVersion(HomeAssistantView):
             "version": VERSION,
             "name": "OmniRemote Manager"
         })
+
+
+class OmniIconView(HomeAssistantView):
+    """Serve the integration icon."""
+    
+    url = "/api/omniremote/icon.png"
+    name = "api:omniremote:icon"
+    requires_auth = False
+    
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+    
+    async def get(self, request: web.Request) -> web.Response:
+        """Return the icon PNG."""
+        icon_path = Path(__file__).parent / "icon.png"
+        
+        if icon_path.exists():
+            content = await self.hass.async_add_executor_job(icon_path.read_bytes)
+            return web.Response(
+                body=content,
+                content_type="image/png",
+                headers={"Cache-Control": "public, max-age=86400"},
+            )
+        
+        return web.Response(status=404, text="Icon not found")
+
+
+class OmniLogoView(HomeAssistantView):
+    """Serve the integration logo."""
+    
+    url = "/api/omniremote/logo.png"
+    name = "api:omniremote:logo"
+    requires_auth = False
+    
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+    
+    async def get(self, request: web.Request) -> web.Response:
+        """Return the logo PNG."""
+        logo_path = Path(__file__).parent / "logo.png"
+        
+        if not logo_path.exists():
+            # Fall back to icon
+            logo_path = Path(__file__).parent / "icon.png"
+        
+        if logo_path.exists():
+            content = await self.hass.async_add_executor_job(logo_path.read_bytes)
+            return web.Response(
+                body=content,
+                content_type="image/png",
+                headers={"Cache-Control": "public, max-age=86400"},
+            )
+        
+        return web.Response(status=404, text="Logo not found")
