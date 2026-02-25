@@ -1,5 +1,60 @@
 # OmniRemote Release Notes
 
+## v1.6.1 - IR Debugger & Catalog Improvements (2024-02-25)
+
+### 🐛 Bug Fixes
+
+#### Samsung IR Encoding Fix
+- **Repeat Signals**: Samsung TVs now receive 2 repeated frames (was single frame)
+- **Proper Timing**: Added 46ms gap between repeat frames as per Samsung spec
+- **Power Commands**: Fixed power on/off reliability
+
+### ✨ New Features
+
+#### Visual IR Debugger
+New "IR Debugger" section in the panel for troubleshooting IR commands:
+
+| Feature | Description |
+|---------|-------------|
+| **Blaster Status** | Live connection status for all configured blasters |
+| **Test Encoding** | Encode any protocol/address/command without sending |
+| **Quick Test Buttons** | One-click Samsung TV commands (power, vol, ch, etc.) |
+| **Command Log** | Real-time log of all IR encoding and transmission |
+
+- View detailed encoding info: timings, packet bytes, base64 output
+- Send raw encoded commands for testing
+- Clear troubleshooting tips for common issues
+
+#### Catalog Category Tiles
+- **Visual Categories**: Browse by device type with icon tiles
+- **Click to Browse**: Select a category to see all devices in that category
+- **Better Navigation**: Back button to return to category overview
+- **Category Counts**: Shows number of devices per category
+
+| Category | Icon | Example Devices |
+|----------|------|-----------------|
+| TVs | 📺 | Samsung, LG, Sony, Vizio |
+| Receivers | 🔊 | Denon, Yamaha, Onkyo |
+| Soundbars | 🎵 | Bose, Sonos, Samsung |
+| Streamers | 📡 | Roku, Fire TV, Apple TV |
+| Projectors | 🎬 | BenQ, Epson, JVC |
+| And more... | | |
+
+### 🔧 Technical Improvements
+
+#### Enhanced Logging
+- Full debug logging in `ir_encoder.py` with timing details
+- Command send logging with blaster info and byte counts
+- In-memory debug log accessible via API (`/api/omniremote/debug`)
+- Log entries include: timestamp, action, protocol, status, errors
+
+#### New API Endpoints
+- `GET /api/omniremote/debug` - Retrieve debug log
+- `POST /api/omniremote/debug` - Debug actions (clear, test_encode, test_send, blaster_status)
+- `POST /api/omniremote/test` with `action: send_raw` - Send raw base64 Broadlink codes
+
+---
+
 ## v1.6.0 - Physical Remote Control System (2024-02-25)
 
 ### ✨ New Features

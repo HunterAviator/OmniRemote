@@ -8,11 +8,36 @@ from __future__ import annotations
 
 import base64
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
 _LOGGER = logging.getLogger(__name__)
+
+# Debug log storage for GUI debugger
+_debug_log: list[dict] = []
+_max_debug_entries = 100
+
+
+def get_debug_log() -> list[dict]:
+    """Get the debug log for GUI display."""
+    return list(_debug_log)
+
+
+def clear_debug_log() -> None:
+    """Clear the debug log."""
+    _debug_log.clear()
+
+
+def _log_debug(entry: dict) -> None:
+    """Add entry to debug log."""
+    entry["timestamp"] = datetime.now().isoformat()
+    _debug_log.append(entry)
+    # Keep log bounded
+    while len(_debug_log) > _max_debug_entries:
+        _debug_log.pop(0)
+
 
 # Import IRProtocol enum values for comparison
 # We need these at runtime, not just for type checking
@@ -35,8 +60,6 @@ except ImportError:
 if TYPE_CHECKING:
     from .catalog import IRCode
 
-_LOGGER = logging.getLogger(__name__)
-
 
 def encode_ir_to_broadlink(ir_code: "IRCode") -> str | None:
     """
@@ -44,14 +67,61 @@ def encode_ir_to_broadlink(ir_code: "IRCode") -> str | None:
     
     Returns base64-encoded Broadlink packet or None if conversion fails.
     """
+    debug_entry = {
+        "action": "encode_ir_to_broadlink",
+        "input": {
+            "name": getattr(ir_code, 'name', 'unknown'),
+            "protocol": str(ir_code.protocol.value if hasattr(ir_code.protocol, 'value') else ir_code.protocol),
+            "address": ir_code.address,
+            "command": ir_code.command,
+            "frequency": getattr(ir_code, 'frequency', 38000),
+        },
+        "status": "started",
+    }
+    
     try:
         timings = _protocol_to_timings(ir_code)
         if not timings:
+            debug_entry["status"] = "error"
+            debug_entry["error"] = f"Could not generate timings for protocol {ir_code.protocol}"
+            _log_debug(debug_entry)
             _LOGGER.warning("Could not encode protocol %s", ir_code.protocol)
             return None
         
-        return _timings_to_broadlink(timings, ir_code.frequency)
+        debug_entry["timings"] = {
+            "count": len(timings),
+            "total_duration_us": sum(timings),
+            "total_duration_ms": sum(timings) / 1000,
+            "preview": timings[:20],
+        }
+        
+        result = _timings_to_broadlink(timings, getattr(ir_code, 'frequency', 38000))
+        
+        if result:
+            debug_entry["status"] = "success"
+            debug_entry["output"] = {
+                "broadlink_base64": result[:50] + "..." if len(result) > 50 else result,
+                "broadlink_bytes": len(base64.b64decode(result)),
+            }
+            _LOGGER.debug(
+                "Encoded %s: protocol=%s, addr=%s, cmd=%s -> %d bytes",
+                getattr(ir_code, 'name', 'code'),
+                ir_code.protocol,
+                ir_code.address,
+                ir_code.command,
+                len(base64.b64decode(result))
+            )
+        else:
+            debug_entry["status"] = "error"
+            debug_entry["error"] = "Failed to convert timings to Broadlink format"
+        
+        _log_debug(debug_entry)
+        return result
+        
     except Exception as ex:
+        debug_entry["status"] = "exception"
+        debug_entry["error"] = str(ex)
+        _log_debug(debug_entry)
         _LOGGER.error("Error encoding IR code: %s", ex)
         return None
 
@@ -67,22 +137,32 @@ def _timings_to_broadlink(timings: list[int], frequency: int = 38000) -> str:
     
     # Broadlink uses a time unit based on the carrier frequency
     # Time unit = 1 / (frequency * 2) seconds = 500000 / frequency microseconds
+    # For 38kHz: time_unit = 500000 / 38000 = 13.158 microseconds
     time_unit = 500000 / frequency if frequency > 0 else 13.158
+    
+    _LOGGER.debug("Converting %d timings to Broadlink format (freq=%d, unit=%.2fµs)", 
+                  len(timings), frequency, time_unit)
     
     # Convert timings to Broadlink units
     bl_data = []
-    for timing in timings:
+    for i, timing in enumerate(timings):
         # Convert microseconds to Broadlink time units
         units = int(abs(timing) / time_unit + 0.5)  # Round to nearest
+        
+        if units == 0:
+            units = 1  # Minimum 1 unit
+        
         if units > 255:
-            # Use extended format for long durations
+            # Use extended format for long durations (3 bytes: 0x00, high, low)
             bl_data.extend([0x00, (units >> 8) & 0xFF, units & 0xFF])
         else:
-            bl_data.append(max(1, units))  # Minimum 1 unit
+            bl_data.append(units)
     
     # Build Broadlink packet
     # Format: 0x26 0x00 <length_lo> <length_hi> <data...>
-    packet = [0x26, 0x00]  # IR marker
+    # 0x26 = IR transmission
+    # 0x00 = Repeat count (0 = send once)
+    packet = [0x26, 0x00]
     
     # Add length (little-endian)
     data_len = len(bl_data)
@@ -94,6 +174,9 @@ def _timings_to_broadlink(timings: list[int], frequency: int = 38000) -> str:
     # Pad to multiple of 16 bytes (required by Broadlink)
     while len(packet) % 16 != 0:
         packet.append(0x00)
+    
+    _LOGGER.debug("Broadlink packet: %d bytes total, %d bytes timing data", 
+                  len(packet), data_len)
     
     return base64.b64encode(bytes(packet)).decode('ascii')
 
@@ -231,33 +314,50 @@ def _encode_nec_extended(address: int, command: int) -> list[int]:
 # Logical 0: 560µs mark, 560µs space
 # Logical 1: 560µs mark, 1690µs space
 # Format: Address (8), Address (8), Command (8), ~Command (8)
+# Note: Samsung TVs typically need the signal repeated 2-3 times
 
-def _encode_samsung32(address: int, command: int) -> list[int]:
-    """Encode Samsung32 protocol."""
+def _encode_samsung32(address: int, command: int, repeats: int = 2) -> list[int]:
+    """Encode Samsung32 protocol with repeats."""
+    
+    def encode_frame():
+        """Encode a single Samsung32 frame."""
+        frame = []
+        
+        # Leader pulse
+        frame.extend([4500, 4500])
+        
+        # Build data: address, address (repeated), command, ~command
+        data = [
+            address & 0xFF,
+            address & 0xFF,  # Samsung repeats address
+            command & 0xFF,
+            (~command) & 0xFF
+        ]
+        
+        # Encode each bit (LSB first)
+        for byte in data:
+            for bit in range(8):
+                frame.append(560)  # Mark
+                if (byte >> bit) & 1:
+                    frame.append(1690)  # Space for 1
+                else:
+                    frame.append(560)   # Space for 0
+        
+        # End mark
+        frame.append(560)
+        
+        return frame
+    
     timings = []
     
-    # Leader
-    timings.extend([4500, 4500])
+    # First frame
+    timings.extend(encode_frame())
     
-    # Build data: address, address (repeated), command, ~command
-    data = [
-        address & 0xFF,
-        address & 0xFF,  # Samsung repeats address
-        command & 0xFF,
-        (~command) & 0xFF
-    ]
-    
-    # Encode each bit (LSB first)
-    for byte in data:
-        for bit in range(8):
-            timings.append(560)
-            if (byte >> bit) & 1:
-                timings.append(1690)
-            else:
-                timings.append(560)
-    
-    # End mark
-    timings.append(560)
+    # Add repeats with gap
+    for _ in range(repeats - 1):
+        # Gap between frames (about 46ms for Samsung)
+        timings.append(46000)
+        timings.extend(encode_frame())
     
     return timings
 

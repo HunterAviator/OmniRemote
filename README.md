@@ -1,5 +1,3 @@
-NOTE:  THIS is Public and Production only because HACS requires it.  It is still being developed and so does not function yet.  I will be updating frequently until at least minimum functionality is there.  Please be patient as I have a day job and this is just a personal project that I will be sharing.
-
 # OmniRemote for Home Assistant
 
 <p align="center">
@@ -266,6 +264,16 @@ data:
 ## 🤝 Contributing
 
 Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+## 🎨 Branding / Icons
+
+To get the OmniRemote icon to appear in HACS and Home Assistant:
+
+1. Icons are submitted to the [home-assistant/brands](https://github.com/home-assistant/brands) repository
+2. See `brands_submission/` folder for the submission-ready icons
+3. Once merged, icons appear at `https://brands.home-assistant.io/omniremote/icon.png`
+
+For local development, icons are also included in `custom_components/omniremote/`.
 
 ## 📝 License
 

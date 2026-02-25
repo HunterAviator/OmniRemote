@@ -51,6 +51,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     hass.http.register_view(OmniApiPhysicalRemotes(hass))
     hass.http.register_view(OmniApiRemoteBridges(hass))
     hass.http.register_view(OmniApiRemoteProfiles(hass))
+    hass.http.register_view(OmniApiDebug(hass))
     hass.http.register_view(OmniIconView(hass))
     hass.http.register_view(OmniLogoView(hass))
     
@@ -1355,6 +1356,75 @@ class OmniApiTest(HomeAssistantView):
                 "commands_loaded": converted_count,
             })
         
+        elif action == "send_raw":
+            # Send a raw base64-encoded Broadlink code
+            broadlink_code = data.get("broadlink_code")
+            blaster_id = data.get("blaster_id")
+            
+            if not broadlink_code:
+                return web.json_response({"error": "broadlink_code required"}, status=400)
+            
+            from .ir_encoder import _log_debug
+            import base64
+            
+            _log_debug({
+                "action": "send_raw_request",
+                "broadlink_bytes": len(base64.b64decode(broadlink_code)),
+                "blaster_id": blaster_id,
+            })
+            
+            # Find a blaster to use
+            async with database._lock:
+                if blaster_id and blaster_id in database.blasters:
+                    blaster = database.blasters[blaster_id]
+                    if blaster.mac not in database._blaster_connections:
+                        await database.async_connect_blaster(blaster_id)
+                    device = database._blaster_connections.get(blaster.mac)
+                else:
+                    result = database.get_any_blaster()
+                    if result:
+                        blaster, device = result
+                    else:
+                        _log_debug({
+                            "action": "send_raw",
+                            "status": "error",
+                            "error": "No blaster available",
+                        })
+                        return web.json_response({"error": "No blaster available"}, status=400)
+                
+                if not device:
+                    _log_debug({
+                        "action": "send_raw",
+                        "status": "error",
+                        "error": "Blaster not connected",
+                    })
+                    return web.json_response({"error": "Blaster not connected"}, status=400)
+                
+                try:
+                    code_bytes = base64.b64decode(broadlink_code)
+                    _LOGGER.info("Sending raw IR: %d bytes via %s", len(code_bytes), blaster.name)
+                    await self.hass.async_add_executor_job(device.send_data, code_bytes)
+                    
+                    _log_debug({
+                        "action": "send_raw",
+                        "status": "success",
+                        "blaster_name": blaster.name,
+                        "bytes_sent": len(code_bytes),
+                    })
+                    
+                    return web.json_response({
+                        "success": True,
+                        "blaster": blaster.name,
+                        "bytes_sent": len(code_bytes),
+                    })
+                except Exception as ex:
+                    _log_debug({
+                        "action": "send_raw",
+                        "status": "exception",
+                        "error": str(ex),
+                    })
+                    return web.json_response({"error": str(ex)}, status=500)
+        
         return web.json_response({"error": "Unknown action"}, status=400)
 
 
@@ -1374,6 +1444,157 @@ class OmniApiVersion(HomeAssistantView):
             "version": VERSION,
             "name": "OmniRemote Manager"
         })
+
+
+class OmniApiDebug(HomeAssistantView):
+    """API for IR command debugging and logging."""
+    
+    url = "/api/omniremote/debug"
+    name = "api:omniremote:debug"
+    requires_auth = True
+    
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+    
+    async def get(self, request: web.Request) -> web.Response:
+        """Get debug log entries."""
+        from .ir_encoder import get_debug_log
+        
+        return web.json_response({
+            "log": get_debug_log(),
+            "count": len(get_debug_log()),
+        })
+    
+    async def post(self, request: web.Request) -> web.Response:
+        """Debug actions."""
+        from .ir_encoder import clear_debug_log, get_debug_log, _log_debug
+        
+        data = await request.json()
+        action = data.get("action")
+        
+        if action == "clear":
+            clear_debug_log()
+            return web.json_response({"success": True, "message": "Debug log cleared"})
+        
+        elif action == "test_encode":
+            # Test encoding a specific protocol/address/command
+            from .ir_encoder import encode_ir_to_broadlink
+            from .catalog import IRCode, IRProtocol
+            
+            protocol_str = data.get("protocol", "samsung32")
+            address = data.get("address", "07")
+            command = data.get("command", "02")
+            
+            # Map string to enum
+            protocol_map = {
+                "nec": IRProtocol.NEC,
+                "nec_ext": IRProtocol.NEC_EXT,
+                "samsung32": IRProtocol.SAMSUNG32,
+                "sony": IRProtocol.SONY_SIRC,
+                "rc5": IRProtocol.RC5,
+                "rc6": IRProtocol.RC6,
+                "panasonic": IRProtocol.PANASONIC,
+                "jvc": IRProtocol.JVC,
+            }
+            
+            protocol = protocol_map.get(protocol_str.lower())
+            if not protocol:
+                return web.json_response({"error": f"Unknown protocol: {protocol_str}"}, status=400)
+            
+            ir_code = IRCode(
+                name="debug_test",
+                protocol=protocol,
+                address=address,
+                command=command,
+            )
+            
+            result = encode_ir_to_broadlink(ir_code)
+            
+            if result:
+                import base64
+                decoded = base64.b64decode(result)
+                return web.json_response({
+                    "success": True,
+                    "protocol": protocol_str,
+                    "address": address,
+                    "command": command,
+                    "broadlink_base64": result,
+                    "broadlink_bytes": len(decoded),
+                    "broadlink_hex": decoded.hex(),
+                })
+            else:
+                return web.json_response({
+                    "success": False,
+                    "error": "Encoding failed - check debug log for details"
+                })
+        
+        elif action == "test_send":
+            # Test send a code
+            database = self.hass.data[DOMAIN]["database"]
+            
+            profile_id = data.get("profile_id")
+            command_name = data.get("command")
+            blaster_id = data.get("blaster_id")
+            
+            if not profile_id or not command_name:
+                return web.json_response({"error": "profile_id and command required"}, status=400)
+            
+            from .catalog import get_profile
+            
+            profile = get_profile(profile_id)
+            if not profile:
+                return web.json_response({"error": f"Profile not found: {profile_id}"}, status=404)
+            
+            ir_code = profile.ir_codes.get(command_name)
+            if not ir_code:
+                return web.json_response({"error": f"Command not found: {command_name}"}, status=404)
+            
+            # Log the attempt
+            _log_debug({
+                "action": "test_send_request",
+                "profile_id": profile_id,
+                "command": command_name,
+                "protocol": str(ir_code.protocol),
+                "address": ir_code.address,
+                "command_hex": ir_code.command,
+            })
+            
+            success = await database.async_send_catalog_code(ir_code, blaster_id)
+            
+            return web.json_response({
+                "success": success,
+                "profile": profile_id,
+                "command": command_name,
+                "protocol": str(ir_code.protocol.value if hasattr(ir_code.protocol, 'value') else ir_code.protocol),
+                "address": ir_code.address,
+                "command_hex": ir_code.command,
+            })
+        
+        elif action == "blaster_status":
+            # Get blaster connection status
+            database = self.hass.data[DOMAIN]["database"]
+            
+            blasters_status = []
+            for blaster in database.blasters.values():
+                connected = blaster.mac in database._blaster_connections
+                device = database._blaster_connections.get(blaster.mac)
+                
+                blasters_status.append({
+                    "id": blaster.id,
+                    "name": blaster.name,
+                    "mac": blaster.mac,
+                    "host": blaster.host,
+                    "connected": connected,
+                    "device_type": str(type(device).__name__) if device else None,
+                })
+            
+            return web.json_response({
+                "blasters": blasters_status,
+                "total": len(blasters_status),
+                "connected": sum(1 for b in blasters_status if b["connected"]),
+            })
+        
+        return web.json_response({"error": "Unknown action"}, status=400)
 
 
 class OmniIconView(HomeAssistantView):

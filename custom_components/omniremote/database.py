@@ -710,10 +710,21 @@ class RemoteDatabase:
         blaster_id: str | None = None,
     ) -> bool:
         """Send a code using a blaster."""
+        from .ir_encoder import _log_debug
+        
+        debug_entry = {
+            "action": "send_code",
+            "code_source": code.source if hasattr(code, 'source') else "unknown",
+            "blaster_id": blaster_id,
+            "status": "started",
+        }
+        
         async with self._lock:
             # Find blaster to use
             if blaster_id and blaster_id in self.blasters:
                 blaster = self.blasters[blaster_id]
+                debug_entry["blaster_name"] = blaster.name
+                debug_entry["blaster_mac"] = blaster.mac
                 if blaster.mac not in self._blaster_connections:
                     await self.async_connect_blaster(blaster_id)
                 device = self._blaster_connections.get(blaster.mac)
@@ -721,27 +732,49 @@ class RemoteDatabase:
                 result = self.get_any_blaster()
                 if result:
                     blaster, device = result
+                    debug_entry["blaster_name"] = blaster.name
+                    debug_entry["blaster_mac"] = blaster.mac
                 else:
+                    debug_entry["status"] = "error"
+                    debug_entry["error"] = "No blaster available"
+                    _log_debug(debug_entry)
                     _LOGGER.error("No blaster available")
                     return False
             
             if not device:
+                debug_entry["status"] = "error"
+                debug_entry["error"] = "Blaster not connected"
+                _log_debug(debug_entry)
                 _LOGGER.error("Blaster not connected")
                 return False
             
             # Get code to send
             if code.broadlink_code:
                 code_bytes = base64.b64decode(code.broadlink_code)
+                debug_entry["code_bytes"] = len(code_bytes)
+                debug_entry["code_preview"] = code.broadlink_code[:50] + "..." if len(code.broadlink_code) > 50 else code.broadlink_code
             else:
+                debug_entry["status"] = "error"
+                debug_entry["error"] = "No Broadlink-compatible code available"
+                _log_debug(debug_entry)
                 _LOGGER.error("No Broadlink-compatible code available")
                 return False
             
             try:
+                _LOGGER.info(
+                    "Sending IR code via %s (%s): %d bytes",
+                    blaster.name, blaster.mac, len(code_bytes)
+                )
                 await self.hass.async_add_executor_job(
                     device.send_data, code_bytes
                 )
+                debug_entry["status"] = "success"
+                _log_debug(debug_entry)
                 return True
             except Exception as ex:
+                debug_entry["status"] = "exception"
+                debug_entry["error"] = str(ex)
+                _log_debug(debug_entry)
                 _LOGGER.error("Error sending code: %s", ex)
                 return False
 
@@ -751,18 +784,35 @@ class RemoteDatabase:
         blaster_id: str | None = None,
     ) -> bool:
         """Send a catalog IRCode using a blaster."""
-        from .ir_encoder import encode_ir_to_broadlink
+        from .ir_encoder import encode_ir_to_broadlink, _log_debug
+        
+        debug_entry = {
+            "action": "send_catalog_code",
+            "ir_code_name": getattr(ir_code, 'name', 'unknown'),
+            "protocol": str(ir_code.protocol.value if hasattr(ir_code.protocol, 'value') else ir_code.protocol),
+            "address": ir_code.address,
+            "command": ir_code.command,
+            "blaster_id": blaster_id,
+            "status": "started",
+        }
         
         # Convert IRCode to Broadlink format
         broadlink_b64 = encode_ir_to_broadlink(ir_code)
         if not broadlink_b64:
+            debug_entry["status"] = "error"
+            debug_entry["error"] = f"Could not encode IR code for protocol {ir_code.protocol}"
+            _log_debug(debug_entry)
             _LOGGER.error("Could not encode IR code for protocol %s", ir_code.protocol)
             return False
+        
+        debug_entry["encoded_bytes"] = len(base64.b64decode(broadlink_b64))
         
         async with self._lock:
             # Find blaster to use
             if blaster_id and blaster_id in self.blasters:
                 blaster = self.blasters[blaster_id]
+                debug_entry["blaster_name"] = blaster.name
+                debug_entry["blaster_mac"] = blaster.mac
                 if blaster.mac not in self._blaster_connections:
                     await self.async_connect_blaster(blaster_id)
                 device = self._blaster_connections.get(blaster.mac)
@@ -770,22 +820,43 @@ class RemoteDatabase:
                 result = self.get_any_blaster()
                 if result:
                     blaster, device = result
+                    debug_entry["blaster_name"] = blaster.name
+                    debug_entry["blaster_mac"] = blaster.mac
                 else:
+                    debug_entry["status"] = "error"
+                    debug_entry["error"] = "No blaster available"
+                    _log_debug(debug_entry)
                     _LOGGER.error("No blaster available")
                     return False
             
             if not device:
+                debug_entry["status"] = "error"
+                debug_entry["error"] = "Blaster not connected"
+                _log_debug(debug_entry)
                 _LOGGER.error("Blaster not connected")
                 return False
             
             try:
                 code_bytes = base64.b64decode(broadlink_b64)
-                _LOGGER.debug("Sending %d bytes via %s", len(code_bytes), blaster.name)
+                _LOGGER.info(
+                    "Sending catalog IR: %s (protocol=%s, addr=%s, cmd=%s) via %s - %d bytes",
+                    getattr(ir_code, 'name', 'code'),
+                    ir_code.protocol,
+                    ir_code.address,
+                    ir_code.command,
+                    blaster.name,
+                    len(code_bytes)
+                )
                 await self.hass.async_add_executor_job(
                     device.send_data, code_bytes
                 )
+                debug_entry["status"] = "success"
+                _log_debug(debug_entry)
                 return True
             except Exception as ex:
+                debug_entry["status"] = "exception"
+                debug_entry["error"] = str(ex)
+                _log_debug(debug_entry)
                 _LOGGER.error("Error sending catalog code: %s", ex)
                 return False
 

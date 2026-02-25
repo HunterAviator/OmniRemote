@@ -53,6 +53,7 @@ class OmniRemotePanel extends HTMLElement {
         this._api('/api/omniremote/physical_remotes'),
         this._api('/api/omniremote/remote_bridges'),
         this._api('/api/omniremote/remote_profiles'),
+        this._api('/api/omniremote/debug'),
       ]);
       
       this._data = {
@@ -68,6 +69,9 @@ class OmniRemotePanel extends HTMLElement {
         remoteProfiles: results[7]?.profiles || [],
         dbOk: results[3]?.database_available !== false,
       };
+      
+      // Store debug log separately (can get large)
+      this._debugLog = results[8]?.log || [];
       
       console.log('[OmniRemote] Data loaded:', this._data);
       this._render();
@@ -240,6 +244,16 @@ class OmniRemotePanel extends HTMLElement {
         /* Success/Error colors */
         .success { color:#4caf50; }
         .error { color:#f44336; }
+        
+        /* Category tiles */
+        .category-tile:hover { transform:translateY(-4px); box-shadow:0 8px 24px rgba(0,0,0,0.3); }
+        .category-tile:active { transform:translateY(-2px); }
+        
+        /* Debug log styling */
+        #debug-log::-webkit-scrollbar { width:8px; }
+        #debug-log::-webkit-scrollbar-track { background:#111; }
+        #debug-log::-webkit-scrollbar-thumb { background:#333; border-radius:4px; }
+        #debug-log::-webkit-scrollbar-thumb:hover { background:#444; }
       </style>
       
       <div class="app">
@@ -272,6 +286,9 @@ class OmniRemotePanel extends HTMLElement {
             </div>
             <div class="nav-item ${this._view === 'remotes' ? 'active' : ''}" data-nav="remotes">
               <ha-icon icon="mdi:remote"></ha-icon>Physical Remotes
+            </div>
+            <div class="nav-item ${this._view === 'debugger' ? 'active' : ''}" data-nav="debugger">
+              <ha-icon icon="mdi:bug"></ha-icon>IR Debugger
             </div>
             
             <div class="nav-section">Rooms</div>
@@ -438,6 +455,23 @@ class OmniRemotePanel extends HTMLElement {
       case 'save-scene-full':
         await this._saveSceneFull(data.sceneId);
         break;
+      
+      // Catalog category navigation
+      case 'select-category':
+        this._catalogFilter = this._catalogFilter || {};
+        this._catalogFilter.category = data.category;
+        this._catalogFilter.brand = '';
+        this._catalogFilter.search = '';
+        this._render();
+        break;
+      case 'clear-category':
+        this._catalogFilter = this._catalogFilter || {};
+        this._catalogFilter.category = '';
+        this._catalogFilter.brand = '';
+        this._catalogFilter.search = '';
+        this._render();
+        break;
+      
       case 'add-catalog':
         await this._addFromCatalog(data.catalogId);
         break;
@@ -503,6 +537,26 @@ class OmniRemotePanel extends HTMLElement {
         break;
       case 'save-bridge':
         await this._saveBridge();
+        break;
+      
+      // Debugger actions
+      case 'refresh-debug-log':
+        await this._refreshDebugLog();
+        break;
+      case 'clear-debug-log':
+        await this._clearDebugLog();
+        break;
+      case 'check-blasters':
+        await this._checkBlasterStatus();
+        break;
+      case 'test-encode':
+        await this._testEncode();
+        break;
+      case 'test-send-debug':
+        await this._testSendDebug();
+        break;
+      case 'quick-test':
+        await this._quickTest(data.protocol, data.addr, data.cmd);
         break;
     }
   }
@@ -578,6 +632,7 @@ class OmniRemotePanel extends HTMLElement {
       blasters: 'Blasters',
       catalog: 'Device Catalog',
       remotes: 'Physical Remotes',
+      debugger: 'IR Debugger',
       room: this._data.rooms.find(r => r.id === this._roomId)?.name || 'Room',
       device: this._data.devices.find(d => d.id === this._deviceId)?.name || 'Device',
     };
@@ -609,6 +664,7 @@ class OmniRemotePanel extends HTMLElement {
       case 'blasters': return this._blastersView();
       case 'catalog': return this._catalogView();
       case 'remotes': return this._remotesView();
+      case 'debugger': return this._debuggerView();
       case 'room': return this._roomView();
       case 'device': return this._deviceView();
       default: return this._dashboardView();
@@ -792,11 +848,76 @@ class OmniRemotePanel extends HTMLElement {
     const categories = [...new Set(catalog.map(d => d.category))].sort();
     const brands = [...new Set(catalog.map(d => d.brand))].sort();
     
-    // Filter by selected category/brand
-    let filtered = catalog;
-    if (this._catalogFilter?.category) {
-      filtered = filtered.filter(d => d.category === this._catalogFilter.category);
+    // Category icons and colors
+    const categoryInfo = {
+      'tv': { icon: 'mdi:television', color: '#2196f3', label: 'TVs' },
+      'receiver': { icon: 'mdi:speaker-multiple', color: '#9c27b0', label: 'Receivers' },
+      'soundbar': { icon: 'mdi:soundbar', color: '#e91e63', label: 'Soundbars' },
+      'streamer': { icon: 'mdi:cast', color: '#ff5722', label: 'Streamers' },
+      'projector': { icon: 'mdi:projector', color: '#795548', label: 'Projectors' },
+      'cable': { icon: 'mdi:satellite-variant', color: '#607d8b', label: 'Cable/Satellite' },
+      'game_console': { icon: 'mdi:gamepad-variant', color: '#4caf50', label: 'Game Consoles' },
+      'bluray': { icon: 'mdi:disc', color: '#3f51b5', label: 'Blu-ray Players' },
+      'ac': { icon: 'mdi:air-conditioner', color: '#00bcd4', label: 'Air Conditioners' },
+      'fan': { icon: 'mdi:fan', color: '#8bc34a', label: 'Fans' },
+      'garage': { icon: 'mdi:garage', color: '#ff9800', label: 'Garage Doors' },
+      'lighting': { icon: 'mdi:lightbulb', color: '#ffc107', label: 'Lighting' },
+    };
+    
+    // Count devices per category
+    const categoryCounts = {};
+    categories.forEach(cat => {
+      categoryCounts[cat] = catalog.filter(d => d.category === cat).length;
+    });
+    
+    // If no category selected, show category tiles
+    if (!this._catalogFilter?.category) {
+      return `
+        <div class="page-header">
+          <h2><ha-icon icon="mdi:book-open-variant"></ha-icon> Device Catalog</h2>
+          <span style="color:#888;">${catalog.length} devices available</span>
+        </div>
+        
+        <p style="color:#888;margin-bottom:20px;">Select a category to browse pre-built IR code profiles for common devices.</p>
+        
+        <div class="category-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px;">
+          ${categories.map(cat => {
+            const info = categoryInfo[cat] || { icon: 'mdi:remote', color: '#666', label: cat };
+            const count = categoryCounts[cat];
+            return `
+              <div class="category-tile" data-action="select-category" data-category="${cat}"
+                   style="background:linear-gradient(135deg,${info.color}22,${info.color}11);
+                          border:1px solid ${info.color}44;border-radius:12px;padding:24px;
+                          cursor:pointer;text-align:center;transition:all 0.2s;">
+                <ha-icon icon="${info.icon}" style="font-size:48px;color:${info.color};margin-bottom:12px;display:block;"></ha-icon>
+                <div style="font-size:16px;font-weight:600;color:#fff;margin-bottom:4px;">${info.label}</div>
+                <div style="font-size:13px;color:#888;">${count} device${count !== 1 ? 's' : ''}</div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+        
+        <div style="margin-top:32px;padding-top:24px;border-top:1px solid #333;">
+          <h3 style="margin-bottom:16px;"><ha-icon icon="mdi:magnify"></ha-icon> Quick Search</h3>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;">
+            <input type="text" class="fi" id="catalog-search" placeholder="Search all devices..." 
+                   value="${this._catalogFilter?.search || ''}" style="max-width:300px;">
+            <select class="fi" id="catalog-brand" style="max-width:150px;">
+              <option value="">All Brands</option>
+              ${brands.map(b => `<option value="${b}">${b}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+      `;
     }
+    
+    // Category is selected - show devices in that category
+    const selectedCat = this._catalogFilter.category;
+    const catInfo = categoryInfo[selectedCat] || { icon: 'mdi:remote', color: '#666', label: selectedCat };
+    
+    // Filter devices
+    let filtered = catalog.filter(d => d.category === selectedCat);
+    
     if (this._catalogFilter?.brand) {
       filtered = filtered.filter(d => d.brand === this._catalogFilter.brand);
     }
@@ -809,37 +930,200 @@ class OmniRemotePanel extends HTMLElement {
       );
     }
     
+    // Get brands for this category
+    const catBrands = [...new Set(catalog.filter(d => d.category === selectedCat).map(d => d.brand))].sort();
+    
     return `
-      <div class="catalog-filters" style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
-        <input type="text" class="fi" id="catalog-search" placeholder="Search devices..." 
+      <div class="page-header">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <button class="btn btn-s" data-action="clear-category" style="padding:8px;">
+            <ha-icon icon="mdi:arrow-left"></ha-icon>
+          </button>
+          <ha-icon icon="${catInfo.icon}" style="font-size:32px;color:${catInfo.color};"></ha-icon>
+          <div>
+            <h2 style="margin:0;">${catInfo.label}</h2>
+            <span style="color:#888;font-size:13px;">${filtered.length} of ${categoryCounts[selectedCat]} devices</span>
+          </div>
+        </div>
+      </div>
+      
+      <div class="catalog-filters" style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;align-items:center;">
+        <input type="text" class="fi" id="catalog-search" placeholder="Search ${catInfo.label.toLowerCase()}..." 
                value="${this._catalogFilter?.search || ''}" style="max-width:200px;">
-        <select class="fi" id="catalog-category" style="max-width:150px;">
-          <option value="">All Categories</option>
-          ${categories.map(c => `<option value="${c}" ${this._catalogFilter?.category === c ? 'selected' : ''}>${c}</option>`).join('')}
-        </select>
         <select class="fi" id="catalog-brand" style="max-width:150px;">
           <option value="">All Brands</option>
-          ${brands.map(b => `<option value="${b}" ${this._catalogFilter?.brand === b ? 'selected' : ''}>${b}</option>`).join('')}
+          ${catBrands.map(b => `<option value="${b}" ${this._catalogFilter?.brand === b ? 'selected' : ''}>${b}</option>`).join('')}
         </select>
-        <span style="color:#888;align-self:center;">${filtered.length} devices</span>
       </div>
+      
       <div class="grid">${filtered.map(d => `
         <div class="card">
           <div class="card-head">
-            <div class="card-icon"><ha-icon icon="${this._catIcon(d.category)}"></ha-icon></div>
+            <div class="card-icon" style="background:${catInfo.color}22;"><ha-icon icon="${catInfo.icon}" style="color:${catInfo.color};"></ha-icon></div>
             <div class="card-info">
               <div class="card-title">${d.name}</div>
               <div class="card-sub">${d.brand} • ${Object.keys(d.commands || d.ir_codes || {}).length} cmds</div>
               ${d.model_years ? `<div class="card-sub">${d.model_years}</div>` : ''}
             </div>
           </div>
-          ${d.description ? `<p style="font-size:12px;color:#888;margin:8px 0;">${d.description}</p>` : ''}
+          ${d.description ? `<p style="font-size:12px;color:#888;margin:8px 0;line-height:1.4;">${d.description}</p>` : ''}
           <div class="card-btns">
             <button class="btn btn-s" data-action="preview-catalog" data-catalog-id="${d.id}">Preview</button>
             <button class="btn btn-p" data-action="add-catalog" data-catalog-id="${d.id}"><ha-icon icon="mdi:plus"></ha-icon>Add</button>
           </div>
         </div>
       `).join('')}</div>
+      
+      ${filtered.length === 0 ? `
+        <div class="empty" style="padding:40px;">
+          <ha-icon icon="mdi:magnify"></ha-icon>
+          <h4>No Devices Found</h4>
+          <p>Try adjusting your search or filter.</p>
+        </div>
+      ` : ''}
+    `;
+  }
+
+  _debuggerView() {
+    // IR Command Debugger view
+    const blasters = this._data.blasters || [];
+    const haBlasters = this._data.haBlasters || [];
+    const allBlasters = [...blasters, ...haBlasters];
+    
+    return `
+      <div class="page-header">
+        <h2><ha-icon icon="mdi:bug"></ha-icon> IR Command Debugger</h2>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-s" data-action="refresh-debug-log"><ha-icon icon="mdi:refresh"></ha-icon> Refresh</button>
+          <button class="btn btn-s" data-action="clear-debug-log"><ha-icon icon="mdi:delete"></ha-icon> Clear Log</button>
+        </div>
+      </div>
+      
+      <!-- Blaster Status -->
+      <div class="section-header">
+        <h3><ha-icon icon="mdi:access-point"></ha-icon> Blaster Status</h3>
+        <button class="btn btn-sm" data-action="check-blasters"><ha-icon icon="mdi:refresh"></ha-icon> Check</button>
+      </div>
+      <div id="blaster-status" class="grid" style="margin-bottom:24px;">
+        ${allBlasters.length === 0 ? `
+          <div class="card" style="grid-column:1/-1;">
+            <p style="color:#888;text-align:center;margin:0;">No blasters configured. Add one in the Blasters section.</p>
+          </div>
+        ` : allBlasters.map(b => `
+          <div class="card blaster-status-card" data-blaster-id="${b.id || b.entity_id}">
+            <div style="display:flex;align-items:center;gap:12px;">
+              <ha-icon icon="mdi:access-point" style="font-size:24px;color:#888;"></ha-icon>
+              <div style="flex:1;">
+                <div style="font-weight:600;">${b.name}</div>
+                <div style="font-size:12px;color:#888;">${b.mac || b.entity_id || 'Unknown'}</div>
+                ${b.host ? `<div style="font-size:11px;color:#666;">${b.host}</div>` : ''}
+              </div>
+              <span class="status-indicator" style="width:12px;height:12px;border-radius:50%;background:#666;"></span>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+      
+      <!-- Test IR Encoding -->
+      <div class="section-header">
+        <h3><ha-icon icon="mdi:code-braces"></ha-icon> Test IR Encoding</h3>
+      </div>
+      <div class="card" style="margin-bottom:24px;">
+        <p style="color:#888;margin-top:0;">Test encoding an IR code without sending it.</p>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+          <div class="fg" style="margin:0;">
+            <label class="fl">Protocol</label>
+            <select class="fi" id="debug-protocol">
+              <option value="samsung32">Samsung32</option>
+              <option value="nec">NEC</option>
+              <option value="nec_ext">NEC Extended</option>
+              <option value="sony">Sony SIRC</option>
+              <option value="rc5">RC5</option>
+              <option value="rc6">RC6</option>
+              <option value="panasonic">Panasonic</option>
+              <option value="jvc">JVC</option>
+            </select>
+          </div>
+          <div class="fg" style="margin:0;">
+            <label class="fl">Address (hex)</label>
+            <input type="text" class="fi" id="debug-address" value="07" style="width:80px;">
+          </div>
+          <div class="fg" style="margin:0;">
+            <label class="fl">Command (hex)</label>
+            <input type="text" class="fi" id="debug-command" value="02" style="width:80px;">
+          </div>
+          <button class="btn btn-p" data-action="test-encode"><ha-icon icon="mdi:play"></ha-icon> Encode</button>
+          <button class="btn btn-s" data-action="test-send-debug"><ha-icon icon="mdi:send"></ha-icon> Send</button>
+        </div>
+        <div id="encode-result" style="margin-top:16px;display:none;">
+          <div style="background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:12px;font-family:monospace;font-size:12px;">
+            <div id="encode-output"></div>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Quick Test Common Commands -->
+      <div class="section-header">
+        <h3><ha-icon icon="mdi:remote"></ha-icon> Quick Test - Samsung TV</h3>
+      </div>
+      <div class="card" style="margin-bottom:24px;">
+        <p style="color:#888;margin-top:0;">Quick test buttons for Samsung TV commands (Samsung32 protocol).</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn" data-action="quick-test" data-protocol="samsung32" data-addr="07" data-cmd="02">Power</button>
+          <button class="btn" data-action="quick-test" data-protocol="samsung32" data-addr="07" data-cmd="07">Vol+</button>
+          <button class="btn" data-action="quick-test" data-protocol="samsung32" data-addr="07" data-cmd="0B">Vol-</button>
+          <button class="btn" data-action="quick-test" data-protocol="samsung32" data-addr="07" data-cmd="0F">Mute</button>
+          <button class="btn" data-action="quick-test" data-protocol="samsung32" data-addr="07" data-cmd="12">Ch+</button>
+          <button class="btn" data-action="quick-test" data-protocol="samsung32" data-addr="07" data-cmd="10">Ch-</button>
+          <button class="btn" data-action="quick-test" data-protocol="samsung32" data-addr="07" data-cmd="01">Source</button>
+          <button class="btn" data-action="quick-test" data-protocol="samsung32" data-addr="07" data-cmd="79">Home</button>
+        </div>
+      </div>
+      
+      <!-- Debug Log -->
+      <div class="section-header">
+        <h3><ha-icon icon="mdi:text-box-outline"></ha-icon> Command Log</h3>
+        <span style="color:#888;font-size:12px;">Last ${this._debugLog?.length || 0} entries</span>
+      </div>
+      <div id="debug-log" style="background:#0d0d1a;border:1px solid #333;border-radius:8px;max-height:400px;overflow-y:auto;">
+        ${this._debugLog && this._debugLog.length > 0 ? 
+          this._debugLog.slice().reverse().map(entry => `
+            <div style="padding:12px;border-bottom:1px solid #222;font-family:monospace;font-size:12px;">
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+                <span style="color:${entry.status === 'success' ? '#4caf50' : entry.status === 'error' ? '#f44336' : '#ff9800'};">
+                  ${entry.action || 'unknown'}
+                </span>
+                <span style="color:#666;">${entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString() : ''}</span>
+              </div>
+              ${entry.protocol ? `<div style="color:#888;">Protocol: ${entry.protocol}, Addr: ${entry.address || entry.input?.address}, Cmd: ${entry.command_hex || entry.command || entry.input?.command}</div>` : ''}
+              ${entry.blaster_name ? `<div style="color:#888;">Blaster: ${entry.blaster_name}</div>` : ''}
+              ${entry.error ? `<div style="color:#f44336;">Error: ${entry.error}</div>` : ''}
+              ${entry.timings ? `<div style="color:#666;">Timings: ${entry.timings.count} pulses, ${entry.timings.total_duration_ms?.toFixed(1)}ms total</div>` : ''}
+              ${entry.output?.broadlink_bytes ? `<div style="color:#666;">Packet: ${entry.output.broadlink_bytes} bytes</div>` : ''}
+            </div>
+          `).join('') 
+          : `
+            <div style="padding:24px;text-align:center;color:#666;">
+              <ha-icon icon="mdi:text-box-outline" style="font-size:32px;margin-bottom:8px;"></ha-icon>
+              <p>No commands logged yet. Send a command to see the debug output.</p>
+            </div>
+          `
+        }
+      </div>
+      
+      <!-- Tips -->
+      <div class="section-header" style="margin-top:24px;">
+        <h3><ha-icon icon="mdi:lightbulb-outline"></ha-icon> Troubleshooting Tips</h3>
+      </div>
+      <div class="card">
+        <ul style="margin:0;padding-left:20px;color:#888;line-height:1.8;">
+          <li><strong>Samsung TV not responding?</strong> Try power_off (0x98) instead of power toggle (0x02)</li>
+          <li><strong>Commands sent but nothing happens?</strong> Check blaster is pointed at device IR receiver</li>
+          <li><strong>Intermittent response?</strong> Some devices need the signal sent 2-3 times quickly</li>
+          <li><strong>Wrong device responds?</strong> The address byte might be incorrect for your model</li>
+          <li><strong>Check HA logs:</strong> Filter by "omniremote" for detailed protocol encoding info</li>
+        </ul>
+      </div>
     `;
   }
 
@@ -2850,6 +3134,152 @@ class OmniRemotePanel extends HTMLElement {
       this._render();
     } else {
       alert('Failed to delete: ' + (res.error || 'Unknown error'));
+    }
+  }
+
+  // ==========================================================================
+  // IR Debugger Functions
+  // ==========================================================================
+
+  async _refreshDebugLog() {
+    const res = await this._api('/api/omniremote/debug');
+    if (res.log) {
+      this._debugLog = res.log;
+      this._render();
+    }
+  }
+
+  async _clearDebugLog() {
+    const res = await this._api('/api/omniremote/debug', 'POST', { action: 'clear' });
+    if (res.success) {
+      this._debugLog = [];
+      this._render();
+    }
+  }
+
+  async _checkBlasterStatus() {
+    const res = await this._api('/api/omniremote/debug', 'POST', { action: 'blaster_status' });
+    
+    if (res.blasters) {
+      // Update status indicators in the UI
+      res.blasters.forEach(b => {
+        const card = this.shadowRoot.querySelector(`[data-blaster-id="${b.id}"]`);
+        if (card) {
+          const indicator = card.querySelector('.status-indicator');
+          if (indicator) {
+            indicator.style.background = b.connected ? '#4caf50' : '#f44336';
+            indicator.title = b.connected ? 'Connected' : 'Disconnected';
+          }
+        }
+      });
+      
+      const connected = res.blasters.filter(b => b.connected).length;
+      alert(`Blaster Status: ${connected}/${res.total} connected`);
+    }
+  }
+
+  async _testEncode() {
+    const protocol = this.shadowRoot.getElementById('debug-protocol')?.value;
+    const address = this.shadowRoot.getElementById('debug-address')?.value;
+    const command = this.shadowRoot.getElementById('debug-command')?.value;
+    
+    const res = await this._api('/api/omniremote/debug', 'POST', {
+      action: 'test_encode',
+      protocol,
+      address,
+      command,
+    });
+    
+    const resultDiv = this.shadowRoot.getElementById('encode-result');
+    const outputDiv = this.shadowRoot.getElementById('encode-output');
+    
+    if (resultDiv && outputDiv) {
+      resultDiv.style.display = 'block';
+      
+      if (res.success) {
+        outputDiv.innerHTML = `
+          <div style="color:#4caf50;margin-bottom:8px;">✓ Encoding successful</div>
+          <div><strong>Protocol:</strong> ${res.protocol}</div>
+          <div><strong>Address:</strong> 0x${res.address}</div>
+          <div><strong>Command:</strong> 0x${res.command}</div>
+          <div><strong>Packet size:</strong> ${res.broadlink_bytes} bytes</div>
+          <div style="margin-top:8px;word-break:break-all;">
+            <strong>Base64:</strong><br>
+            <span style="color:#888;">${res.broadlink_base64}</span>
+          </div>
+          <div style="margin-top:8px;word-break:break-all;">
+            <strong>Hex:</strong><br>
+            <span style="color:#666;">${res.broadlink_hex}</span>
+          </div>
+        `;
+      } else {
+        outputDiv.innerHTML = `
+          <div style="color:#f44336;">✗ Encoding failed</div>
+          <div>${res.error || 'Unknown error'}</div>
+        `;
+      }
+    }
+    
+    // Refresh log to show encoding details
+    await this._refreshDebugLog();
+  }
+
+  async _testSendDebug() {
+    const protocol = this.shadowRoot.getElementById('debug-protocol')?.value;
+    const address = this.shadowRoot.getElementById('debug-address')?.value;
+    const command = this.shadowRoot.getElementById('debug-command')?.value;
+    
+    // Find a catalog profile that matches or create a test
+    // For now, we'll use the test API endpoint
+    const res = await this._api('/api/omniremote/debug', 'POST', {
+      action: 'test_encode',
+      protocol,
+      address,
+      command,
+    });
+    
+    if (res.success && res.broadlink_base64) {
+      // Send the encoded command
+      const sendRes = await this._api('/api/omniremote/test', 'POST', {
+        action: 'send_raw',
+        broadlink_code: res.broadlink_base64,
+      });
+      
+      if (sendRes.success) {
+        alert('Command sent!');
+      } else {
+        alert('Send failed: ' + (sendRes.error || 'Unknown error'));
+      }
+    } else {
+      alert('Encoding failed - cannot send');
+    }
+    
+    await this._refreshDebugLog();
+  }
+
+  async _quickTest(protocol, addr, cmd) {
+    const res = await this._api('/api/omniremote/debug', 'POST', {
+      action: 'test_encode',
+      protocol,
+      address: addr,
+      command: cmd,
+    });
+    
+    if (res.success && res.broadlink_base64) {
+      // Try to send it
+      const sendRes = await this._api('/api/omniremote/test', 'POST', {
+        action: 'send_raw',
+        broadlink_code: res.broadlink_base64,
+      });
+      
+      // Refresh log
+      await this._refreshDebugLog();
+      
+      if (!sendRes.success) {
+        alert('Send failed: ' + (sendRes.error || 'Unknown error'));
+      }
+    } else {
+      alert('Encoding failed: ' + (res.error || 'Unknown error'));
     }
   }
 }
