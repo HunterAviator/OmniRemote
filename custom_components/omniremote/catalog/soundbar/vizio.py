@@ -1,0 +1,36 @@
+"""Vizio Soundbar profiles."""
+
+VIZIO_SOUNDBAR_IR = DeviceProfile(
+    id="vizio_soundbar_ir",
+    name="Vizio Soundbar (IR)",
+    brand="Vizio",
+    category="soundbar",
+    model_years="2018+",
+    description="Vizio soundbars (M-Series, V-Series, Elevate).",
+    control_methods=[ControlMethod.IR],
+    logo_url=BRAND_LOGOS.get("vizio", ""),
+    ir_codes={
+        "power": nec(0x20, 0x01, "power"),
+        "vol_up": nec(0x20, 0x02, "vol_up"),
+        "vol_down": nec(0x20, 0x03, "vol_down"),
+        "mute": nec(0x20, 0x04, "mute"),
+        "input": nec(0x20, 0x05, "input"),
+        "input_hdmi": nec(0x20, 0x10, "input_hdmi"),
+        "input_optical": nec(0x20, 0x11, "input_optical"),
+        "input_aux": nec(0x20, 0x12, "input_aux"),
+        "input_bluetooth": nec(0x20, 0x13, "input_bluetooth"),
+        "input_usb": nec(0x20, 0x14, "input_usb"),
+        "input_chromecast": nec(0x20, 0x15, "input_chromecast"),
+        "bass_up": nec(0x20, 0x20, "bass_up"),
+        "bass_down": nec(0x20, 0x21, "bass_down"),
+        "treble_up": nec(0x20, 0x22, "treble_up"),
+        "treble_down": nec(0x20, 0x23, "treble_down"),
+        "eq_movie": nec(0x20, 0x30, "eq_movie"),
+        "eq_music": nec(0x20, 0x31, "eq_music"),
+        "eq_game": nec(0x20, 0x32, "eq_game"),
+        "eq_direct": nec(0x20, 0x33, "eq_direct"),
+        "surround_on": nec(0x20, 0x40, "surround_on"),
+        "surround_off": nec(0x20, 0x41, "surround_off"),
+    },
+)
+register_profile(VIZIO_SOUNDBAR_IR)

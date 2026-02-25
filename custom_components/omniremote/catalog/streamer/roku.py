@@ -1,0 +1,123 @@
+"""Roku profiles - IR and Network (ECP API)."""
+
+ROKU_IR = DeviceProfile(
+    id="roku_ir",
+    name="Roku (IR)",
+    brand="Roku",
+    category="streamer",
+    model_years="2015+",
+    description="Roku streaming devices - IR control.",
+    control_methods=[ControlMethod.IR],
+    logo_url=BRAND_LOGOS.get("roku", ""),
+    ir_codes={
+        "power": nec(0xEE, 0x8D, "power"),
+        "home": nec(0xEE, 0x8E, "home"),
+        "back": nec(0xEE, 0x83, "back"),
+        "up": nec(0xEE, 0x9A, "up"),
+        "down": nec(0xEE, 0x9B, "down"),
+        "left": nec(0xEE, 0x9C, "left"),
+        "right": nec(0xEE, 0x9D, "right"),
+        "ok": nec(0xEE, 0x9E, "ok"),
+        "enter": nec(0xEE, 0x9E, "enter"),
+        "play": nec(0xEE, 0x8F, "play"),
+        "pause": nec(0xEE, 0x8F, "pause"),
+        "rewind": nec(0xEE, 0x8B, "rewind"),
+        "fast_forward": nec(0xEE, 0x8A, "fast_forward"),
+        "replay": nec(0xEE, 0x86, "replay"),
+        "options": nec(0xEE, 0x82, "options"),
+        "info": nec(0xEE, 0x81, "info"),
+        "vol_up": nec(0xEE, 0x84, "vol_up"),
+        "vol_down": nec(0xEE, 0x85, "vol_down"),
+        "mute": nec(0xEE, 0x8C, "mute"),
+        "input": nec(0xEE, 0x90, "input"),
+        "search": nec(0xEE, 0x91, "search"),
+        "sleep": nec(0xEE, 0x92, "sleep"),
+        "headphone": nec(0xEE, 0x93, "headphone"),
+        "netflix": nec(0xEE, 0x96, "netflix"),
+        "hulu": nec(0xEE, 0x97, "hulu"),
+        "sling": nec(0xEE, 0x98, "sling"),
+        "disney_plus": nec(0xEE, 0x99, "disney_plus"),
+        "apple_tv": nec(0xEE, 0x9F, "apple_tv"),
+    },
+)
+register_profile(ROKU_IR)
+
+ROKU_NETWORK = DeviceProfile(
+    id="roku_network",
+    name="Roku (ECP Network)",
+    brand="Roku",
+    category="streamer",
+    model_years="2015+",
+    description="Roku External Control Protocol (ECP) - Network API.",
+    control_methods=[ControlMethod.NETWORK],
+    logo_url=BRAND_LOGOS.get("roku", ""),
+    network_port=8060,
+    network_protocol="http",
+    network_commands={
+        # Navigation
+        "home": NetworkCommand("home", "POST", "/keypress/Home", {}),
+        "back": NetworkCommand("back", "POST", "/keypress/Back", {}),
+        "up": NetworkCommand("up", "POST", "/keypress/Up", {}),
+        "down": NetworkCommand("down", "POST", "/keypress/Down", {}),
+        "left": NetworkCommand("left", "POST", "/keypress/Left", {}),
+        "right": NetworkCommand("right", "POST", "/keypress/Right", {}),
+        "select": NetworkCommand("select", "POST", "/keypress/Select", {}),
+        "info": NetworkCommand("info", "POST", "/keypress/Info", {}),
+        "search": NetworkCommand("search", "POST", "/keypress/Search", {}),
+        "find_remote": NetworkCommand("find_remote", "POST", "/keypress/FindRemote", {}),
+        
+        # Playback
+        "play": NetworkCommand("play", "POST", "/keypress/Play", {}),
+        "pause": NetworkCommand("pause", "POST", "/keypress/Pause", {}),
+        "rev": NetworkCommand("rev", "POST", "/keypress/Rev", {}),
+        "fwd": NetworkCommand("fwd", "POST", "/keypress/Fwd", {}),
+        "replay": NetworkCommand("replay", "POST", "/keypress/InstantReplay", {}),
+        
+        # Volume (Roku TV only)
+        "vol_up": NetworkCommand("vol_up", "POST", "/keypress/VolumeUp", {}),
+        "vol_down": NetworkCommand("vol_down", "POST", "/keypress/VolumeDown", {}),
+        "mute": NetworkCommand("mute", "POST", "/keypress/VolumeMute", {}),
+        
+        # Power (Roku TV only)
+        "power_off": NetworkCommand("power_off", "POST", "/keypress/PowerOff", {}),
+        "power_on": NetworkCommand("power_on", "POST", "/keypress/Power", {}),
+        
+        # App launching (by ID)
+        "launch_netflix": NetworkCommand("launch_netflix", "POST", "/launch/12", {}),
+        "launch_youtube": NetworkCommand("launch_youtube", "POST", "/launch/837", {}),
+        "launch_hulu": NetworkCommand("launch_hulu", "POST", "/launch/2285", {}),
+        "launch_amazon": NetworkCommand("launch_amazon", "POST", "/launch/13", {}),
+        "launch_disney": NetworkCommand("launch_disney", "POST", "/launch/291097", {}),
+        "launch_hbo_max": NetworkCommand("launch_hbo_max", "POST", "/launch/61322", {}),
+        "launch_peacock": NetworkCommand("launch_peacock", "POST", "/launch/593099", {}),
+        "launch_paramount": NetworkCommand("launch_paramount", "POST", "/launch/31440", {}),
+        "launch_apple_tv": NetworkCommand("launch_apple_tv", "POST", "/launch/551012", {}),
+        "launch_plex": NetworkCommand("launch_plex", "POST", "/launch/13535", {}),
+        "launch_spotify": NetworkCommand("launch_spotify", "POST", "/launch/22297", {}),
+        "launch_tubi": NetworkCommand("launch_tubi", "POST", "/launch/41468", {}),
+        
+        # Device info
+        "get_apps": NetworkCommand("get_apps", "GET", "/query/apps", {}),
+        "get_device_info": NetworkCommand("get_device_info", "GET", "/query/device-info", {}),
+        "get_active_app": NetworkCommand("get_active_app", "GET", "/query/active-app", {}),
+        "get_media_player": NetworkCommand("get_media_player", "GET", "/query/media-player", {}),
+    },
+    apps={
+        "netflix": "12",
+        "youtube": "837",
+        "hulu": "2285",
+        "amazon_prime": "13",
+        "disney_plus": "291097",
+        "hbo_max": "61322",
+        "peacock": "593099",
+        "paramount_plus": "31440",
+        "apple_tv": "551012",
+        "plex": "13535",
+        "spotify": "22297",
+        "tubi": "41468",
+        "roku_channel": "151908",
+        "pluto_tv": "74519",
+        "sling": "46041",
+    },
+)
+register_profile(ROKU_NETWORK)

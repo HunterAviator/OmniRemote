@@ -1,0 +1,37 @@
+"""Samsung Soundbar profiles."""
+
+SAMSUNG_SOUNDBAR_IR = DeviceProfile(
+    id="samsung_soundbar_ir",
+    name="Samsung Soundbar (IR)",
+    brand="Samsung",
+    category="soundbar",
+    model_years="2018+",
+    description="Samsung soundbars including Q-Series, S-Series.",
+    control_methods=[ControlMethod.IR],
+    logo_url=BRAND_LOGOS.get("samsung", ""),
+    ir_codes={
+        "power": samsung(0x07, 0x8C, "power"),
+        "power_on": samsung(0x07, 0x8C, "power_on"),
+        "power_off": samsung(0x07, 0x8C, "power_off"),
+        "vol_up": samsung(0x07, 0x07, "vol_up"),
+        "vol_down": samsung(0x07, 0x0B, "vol_down"),
+        "mute": samsung(0x07, 0x0F, "mute"),
+        "input_hdmi": samsung(0x07, 0x6C, "input_hdmi"),
+        "input_hdmi_arc": samsung(0x07, 0x6D, "input_hdmi_arc"),
+        "input_optical": samsung(0x07, 0x52, "input_optical"),
+        "input_aux": samsung(0x07, 0x53, "input_aux"),
+        "input_bluetooth": samsung(0x07, 0xC0, "input_bluetooth"),
+        "input_wifi": samsung(0x07, 0xC1, "input_wifi"),
+        "input_usb": samsung(0x07, 0xC2, "input_usb"),
+        "sound_mode": samsung(0x07, 0xD0, "sound_mode"),
+        "bass_up": samsung(0x07, 0xD1, "bass_up"),
+        "bass_down": samsung(0x07, 0xD2, "bass_down"),
+        "treble_up": samsung(0x07, 0xD3, "treble_up"),
+        "treble_down": samsung(0x07, 0xD4, "treble_down"),
+        "surround_on": samsung(0x07, 0xD5, "surround_on"),
+        "surround_off": samsung(0x07, 0xD6, "surround_off"),
+        "night_mode": samsung(0x07, 0xD7, "night_mode"),
+        "voice_enhance": samsung(0x07, 0xD8, "voice_enhance"),
+    },
+)
+register_profile(SAMSUNG_SOUNDBAR_IR)
