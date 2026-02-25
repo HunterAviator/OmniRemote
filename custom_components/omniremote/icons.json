@@ -1,7 +1,14 @@
 {
+  "icon": "mdi:remote-tv",
   "services": {
-    "send_command": "mdi:remote",
-    "learn_command": "mdi:record-circle",
-    "delete_command": "mdi:delete"
+    "send_command": {
+      "service": "mdi:remote"
+    },
+    "learn_command": {
+      "service": "mdi:record-circle"
+    },
+    "delete_command": {
+      "service": "mdi:delete"
+    }
   }
 }
