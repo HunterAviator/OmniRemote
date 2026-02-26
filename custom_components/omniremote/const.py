@@ -7,7 +7,7 @@ from typing import Any
 import uuid
 
 DOMAIN = "omniremote"
-VERSION = "1.7.0"
+VERSION = "1.8.0"
 
 # Storage
 STORAGE_VERSION = 1
@@ -253,6 +253,7 @@ class Room:
     name: str = ""
     icon: str = "mdi:sofa"
     device_ids: list[str] = field(default_factory=list)
+    entity_ids: list[str] = field(default_factory=list)  # HA entity IDs assigned to this room
     
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -260,6 +261,7 @@ class Room:
             "name": self.name,
             "icon": self.icon,
             "device_ids": self.device_ids,
+            "entity_ids": self.entity_ids,
         }
     
     @classmethod
@@ -269,6 +271,7 @@ class Room:
             name=data.get("name", ""),
             icon=data.get("icon", "mdi:sofa"),
             device_ids=data.get("device_ids", []),
+            entity_ids=data.get("entity_ids", []),
         )
 
 

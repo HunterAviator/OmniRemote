@@ -175,7 +175,7 @@ class OmniApiRooms(HomeAssistantView):
         return web.json_response({"rooms": rooms})
     
     async def post(self, request: web.Request) -> web.Response:
-        """Create a new room."""
+        """Create or update a room."""
         import logging
         import traceback
         _LOGGER = logging.getLogger(__name__)
@@ -190,21 +190,48 @@ class OmniApiRooms(HomeAssistantView):
             
             try:
                 data = await request.json()
-                _LOGGER.info("Creating room: %s", data)
+                _LOGGER.info("Room API: %s", data)
             except Exception as ex:
                 _LOGGER.error("Failed to parse room data: %s", ex)
                 return web.json_response({"error": f"Invalid request data: {ex}"}, status=400)
             
-            room = database.add_room(
-                name=data.get("name", "New Room"),
-                icon=data.get("icon", "mdi:sofa"),
-            )
-            await database.async_save()
-            _LOGGER.info("Created room: %s", room.name)
+            action = data.get("action", "create")
             
-            return web.json_response({"room": room.to_dict(), "success": True})
+            if action == "update":
+                # Update existing room
+                room_id = data.get("id")
+                if room_id and room_id in database.rooms:
+                    room = database.rooms[room_id]
+                    if "name" in data:
+                        room.name = data["name"]
+                    if "icon" in data:
+                        room.icon = data["icon"]
+                    if "entity_ids" in data:
+                        room.entity_ids = data["entity_ids"]
+                    await database.async_save()
+                    return web.json_response({"room": room.to_dict(), "success": True})
+                return web.json_response({"error": "Room not found"}, status=404)
+            
+            elif action == "delete":
+                room_id = data.get("id")
+                if room_id and room_id in database.rooms:
+                    del database.rooms[room_id]
+                    await database.async_save()
+                    return web.json_response({"success": True})
+                return web.json_response({"error": "Room not found"}, status=404)
+            
+            else:
+                # Create new room
+                room = database.add_room(
+                    name=data.get("name", "New Room"),
+                    icon=data.get("icon", "mdi:sofa"),
+                )
+                await database.async_save()
+                _LOGGER.info("Created room: %s", room.name)
+                
+                return web.json_response({"room": room.to_dict(), "success": True})
         except Exception as ex:
-            _LOGGER.error("Failed to create room: %s\n%s", ex, traceback.format_exc())
+            _LOGGER.error("Failed to process room: %s\n%s", ex, traceback.format_exc())
             return web.json_response({"error": str(ex)}, status=500)
 
 
@@ -370,6 +397,41 @@ class OmniApiScenes(HomeAssistantView):
             "vacuum", "lock", "siren",
         ]
         
+        # Get entity registry for additional info
+        entity_registry = None
+        device_registry = None
+        area_registry = None
+        try:
+            from homeassistant.helpers import entity_registry as er
+            from homeassistant.helpers import device_registry as dr
+            from homeassistant.helpers import area_registry as ar
+            entity_registry = er.async_get(self.hass)
+            device_registry = dr.async_get(self.hass)
+            area_registry = ar.async_get(self.hass)
+        except Exception:
+            pass
+        
+        # Domain-specific services
+        domain_services = {
+            "light": ["turn_on", "turn_off", "toggle"],
+            "switch": ["turn_on", "turn_off", "toggle"],
+            "fan": ["turn_on", "turn_off", "toggle", "set_percentage", "set_preset_mode"],
+            "cover": ["open_cover", "close_cover", "stop_cover", "set_cover_position"],
+            "climate": ["turn_on", "turn_off", "set_hvac_mode", "set_temperature", "set_preset_mode"],
+            "media_player": ["turn_on", "turn_off", "toggle", "volume_up", "volume_down", "volume_mute", "volume_set", "media_play", "media_pause", "media_stop", "media_next_track", "media_previous_track", "select_source"],
+            "remote": ["turn_on", "turn_off", "send_command"],
+            "lock": ["lock", "unlock"],
+            "vacuum": ["start", "stop", "pause", "return_to_base"],
+            "scene": ["turn_on"],
+            "script": ["turn_on", "turn_off"],
+            "automation": ["turn_on", "turn_off", "trigger"],
+            "input_boolean": ["turn_on", "turn_off", "toggle"],
+            "input_select": ["select_option"],
+            "input_number": ["set_value"],
+            "humidifier": ["turn_on", "turn_off", "set_humidity"],
+            "siren": ["turn_on", "turn_off"],
+        }
+        
         for state in self.hass.states.async_all():
             domain = state.entity_id.split(".")[0]
             if domain in controllable_domains:
@@ -378,7 +440,46 @@ class OmniApiScenes(HomeAssistantView):
                     "name": state.attributes.get("friendly_name", state.entity_id),
                     "domain": domain,
                     "state": state.state,
+                    "services": domain_services.get(domain, []),
                 }
+                
+                # Get device class
+                device_class = state.attributes.get("device_class")
+                if device_class:
+                    entity_data["device_class"] = device_class
+                
+                # Get supported features bitmask
+                supported_features = state.attributes.get("supported_features", 0)
+                if supported_features:
+                    entity_data["supported_features"] = supported_features
+                
+                # Get integration/platform info from entity registry
+                if entity_registry:
+                    entry = entity_registry.async_get(state.entity_id)
+                    if entry:
+                        entity_data["platform"] = entry.platform
+                        entity_data["integration"] = entry.platform  # alias
+                        if entry.device_id and device_registry:
+                            device = device_registry.async_get(entry.device_id)
+                            if device:
+                                entity_data["device_name"] = device.name
+                                # Get manufacturer/model
+                                if device.manufacturer:
+                                    entity_data["manufacturer"] = device.manufacturer
+                                if device.model:
+                                    entity_data["model"] = device.model
+                                # Get area
+                                if device.area_id and area_registry:
+                                    area = area_registry.async_get_area(device.area_id)
+                                    if area:
+                                        entity_data["area_id"] = area.id
+                                        entity_data["area_name"] = area.name
+                        # Direct entity area
+                        if entry.area_id and area_registry:
+                            area = area_registry.async_get_area(entry.area_id)
+                            if area:
+                                entity_data["area_id"] = area.id
+                                entity_data["area_name"] = area.name
                 
                 # Add domain-specific attributes
                 if domain == "media_player":
@@ -402,13 +503,26 @@ class OmniApiScenes(HomeAssistantView):
                 
                 elif domain == "cover":
                     entity_data["current_position"] = state.attributes.get("current_position")
+                    # Add cover-specific services based on device class
+                    if device_class == "garage":
+                        entity_data["services"] = ["open_cover", "close_cover", "stop_cover", "toggle"]
+                    elif device_class in ("blind", "shade", "curtain"):
+                        entity_data["services"] = ["open_cover", "close_cover", "stop_cover", "set_cover_position"]
+                    elif device_class == "awning":
+                        entity_data["services"] = ["open_cover", "close_cover", "stop_cover"]
                 
                 elif domain == "fan":
                     entity_data["percentage"] = state.attributes.get("percentage")
                     entity_data["preset_modes"] = state.attributes.get("preset_modes", [])
+                    entity_data["speed_count"] = state.attributes.get("speed_count")
                 
                 elif domain == "input_select":
                     entity_data["options"] = state.attributes.get("options", [])
+                
+                elif domain == "input_number":
+                    entity_data["min"] = state.attributes.get("min")
+                    entity_data["max"] = state.attributes.get("max")
+                    entity_data["step"] = state.attributes.get("step")
                 
                 ha_entities.append(entity_data)
         

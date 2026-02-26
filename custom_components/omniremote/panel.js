@@ -311,6 +311,9 @@ class OmniRemotePanel extends HTMLElement {
             <div class="nav-item ${this._view === 'debugger' ? 'active' : ''}" data-nav="debugger">
               <ha-icon icon="mdi:bug"></ha-icon>IR Debugger
             </div>
+            <div class="nav-item ${this._view === 'wiki' ? 'active' : ''}" data-nav="wiki">
+              <ha-icon icon="mdi:help-circle"></ha-icon>Help & Wiki
+            </div>
             
             <div class="nav-section">Rooms</div>
             ${this._data.rooms.map(r => `
@@ -523,6 +526,75 @@ class OmniRemotePanel extends HTMLElement {
         break;
       case 'save-scene-full':
         await this._saveSceneFull(data.sceneId);
+        break;
+      
+      // Icon picker actions
+      case 'show-icon-picker':
+        this._toggleIconPicker(true);
+        break;
+      case 'close-icon-picker':
+        this._toggleIconPicker(false);
+        break;
+      case 'pick-icon':
+        this._selectIcon(data.icon);
+        break;
+      case 'apply-custom-icon':
+        this._applyCustomIcon();
+        break;
+      
+      // Wiki navigation
+      case 'wiki-section':
+        this._wikiSection = data.section;
+        this._render();
+        break;
+      
+      // Room management actions
+      case 'room-add-item':
+        this._showRoomAddItemModal(data.roomId);
+        break;
+      case 'room-add-scene':
+        this._showSceneEditor();
+        // Pre-select the room
+        setTimeout(() => {
+          const roomSelect = this.shadowRoot.getElementById('scene-room');
+          if (roomSelect) roomSelect.value = data.roomId;
+          if (this._editingScene) this._editingScene.room_id = data.roomId;
+        }, 100);
+        break;
+      case 'room-add-device':
+        this._showAddDeviceModal(data.roomId);
+        break;
+      case 'room-add-entity':
+        this._showAddHAEntityModal(data.roomId);
+        break;
+      case 'edit-room':
+        this._showEditRoomModal(data.roomId);
+        break;
+      case 'quick-power':
+        await this._sendQuickPower(data.deviceId);
+        break;
+      
+      // HA Entity actions
+      case 'call-ha-service':
+        await this._callHAService(data.entityId, data.service);
+        break;
+      case 'search-ha-entities':
+        this._filterHAEntities();
+        break;
+      case 'add-entity-to-room':
+        await this._addEntityToRoom(data.entityId, data.roomId);
+        break;
+      case 'remove-entity-from-room':
+        await this._removeEntityFromRoom(data.entityId, data.roomId);
+        break;
+      case 'set-entity-type':
+        this._setEntityDeviceType(data.entityId, data.deviceType);
+        break;
+      case 'delete-room':
+        await this._deleteRoom(data.roomId);
+        break;
+      case 'save-room-edit':
+        await this._saveRoomEdit(data.roomId);
         break;
       
       // Catalog category navigation
@@ -779,6 +851,7 @@ class OmniRemotePanel extends HTMLElement {
       catalog: 'Device Catalog',
       remotes: 'Physical Remotes',
       debugger: 'IR Debugger',
+      wiki: 'Help & Wiki',
       room: this._data.rooms.find(r => r.id === this._roomId)?.name || 'Room',
       device: this._data.devices.find(d => d.id === this._deviceId)?.name || 'Device',
     };
@@ -811,6 +884,7 @@ class OmniRemotePanel extends HTMLElement {
       case 'catalog': return this._catalogView();
       case 'remotes': return this._remotesView();
       case 'debugger': return this._debuggerView();
+      case 'wiki': return this._wikiView();
       case 'room': return this._roomView();
       case 'device': return this._deviceView();
       default: return this._dashboardView();
@@ -1476,6 +1550,344 @@ class OmniRemotePanel extends HTMLElement {
       </div>
     `;
   }
+
+  _wikiView() {
+    // Wiki section tracker
+    this._wikiSection = this._wikiSection || 'getting-started';
+    
+    const sections = {
+      'getting-started': {
+        title: 'Getting Started',
+        icon: 'mdi:rocket-launch',
+        content: `
+          <h3>Welcome to OmniRemote</h3>
+          <p>OmniRemote is a universal remote control integration for Home Assistant that lets you control IR devices, create automation scenes, and manage physical remotes.</p>
+          
+          <h4>Quick Start Guide</h4>
+          <ol>
+            <li><strong>Add a Blaster</strong> - Go to <em>Blasters</em> tab and click <em>Discover</em> to find your Broadlink RM device</li>
+            <li><strong>Add Devices</strong> - Browse the <em>Catalog</em> for pre-built device profiles (TVs, receivers, etc.)</li>
+            <li><strong>Create Scenes</strong> - Combine multiple commands into ON/OFF sequences</li>
+            <li><strong>Control</strong> - Use the Dashboard or create Home Assistant automations</li>
+          </ol>
+          
+          <h4>Supported Hardware</h4>
+          <ul>
+            <li><strong>Broadlink RM Mini/RM4</strong> - WiFi IR blasters (recommended)</li>
+            <li><strong>Flipper Zero</strong> - USB or Bluetooth connection</li>
+            <li><strong>Home Assistant Remote Entities</strong> - SwitchBot Hub, Tuya, etc.</li>
+          </ul>
+        `
+      },
+      'blasters': {
+        title: 'IR Blasters',
+        icon: 'mdi:access-point',
+        content: `
+          <h3>Setting Up IR Blasters</h3>
+          
+          <h4>Broadlink RM Mini / RM4</h4>
+          <ol>
+            <li>Setup your Broadlink device using the Broadlink app (just to get it on WiFi)</li>
+            <li>In OmniRemote, go to <em>Blasters</em> → <em>Discover</em></li>
+            <li>Your device should appear - click to add it</li>
+            <li>If not found, click <em>Add by IP</em> and enter the IP address manually</li>
+          </ol>
+          
+          <h4>Flipper Zero</h4>
+          <ol>
+            <li>Connect Flipper via USB or enable Bluetooth</li>
+            <li>In <em>Blasters</em> section, click <em>Find USB</em> or <em>Find Bluetooth</em></li>
+            <li>Select your Flipper from discovered devices</li>
+            <li>Click <em>Connect</em></li>
+          </ol>
+          
+          <h4>Troubleshooting</h4>
+          <ul>
+            <li><strong>Device not found:</strong> Check it's on the same network as Home Assistant</li>
+            <li><strong>Commands not working:</strong> Make sure the blaster has line-of-sight to the device</li>
+            <li><strong>Intermittent issues:</strong> Try assigning a static IP to your blaster</li>
+          </ul>
+        `
+      },
+      'devices': {
+        title: 'Adding Devices',
+        icon: 'mdi:devices',
+        content: `
+          <h3>Adding Devices to Control</h3>
+          
+          <h4>From Catalog (Recommended)</h4>
+          <ol>
+            <li>Go to <em>Catalog</em> tab</li>
+            <li>Select a category (TV, Receiver, etc.)</li>
+            <li>Find your brand and model</li>
+            <li>Click <em>Add Device</em></li>
+          </ol>
+          <p>Catalog devices come with pre-configured IR codes that should work with most models.</p>
+          
+          <h4>Manual Device Setup</h4>
+          <ol>
+            <li>Go to <em>Devices</em> → <em>Add Device</em></li>
+            <li>Enter device name, select category</li>
+            <li>Add commands using IR Learner or manual entry</li>
+          </ol>
+          
+          <h4>Learning IR Codes</h4>
+          <ol>
+            <li>Select a device and click <em>Learn Code</em></li>
+            <li>Point your original remote at the IR blaster</li>
+            <li>Press the button you want to learn</li>
+            <li>Name the command and save</li>
+          </ol>
+          
+          <h4>Importing Flipper Zero Files</h4>
+          <ol>
+            <li>Export .ir files from your Flipper Zero</li>
+            <li>In OmniRemote device settings, select <em>Import Flipper IR</em></li>
+            <li>Upload the .ir file</li>
+          </ol>
+        `
+      },
+      'scenes': {
+        title: 'Scenes & Automation',
+        icon: 'mdi:play-box-multiple',
+        content: `
+          <h3>Creating Scenes</h3>
+          <p>Scenes let you combine multiple IR commands, HA services, and delays into ON and OFF sequences.</p>
+          
+          <h4>Scene Example: "Watch TV"</h4>
+          <p><strong>ON Sequence:</strong></p>
+          <ol>
+            <li>TV Power On</li>
+            <li>Delay 3 seconds (wait for TV to boot)</li>
+            <li>Receiver Power On</li>
+            <li>Receiver Input: TV</li>
+            <li>Turn off room lights (HA service)</li>
+          </ol>
+          <p><strong>OFF Sequence:</strong></p>
+          <ol>
+            <li>TV Power Off</li>
+            <li>Receiver Power Off</li>
+            <li>Turn on room lights (HA service)</li>
+          </ol>
+          
+          <h4>Action Types</h4>
+          <ul>
+            <li><strong>IR Command:</strong> Send a command from one of your devices</li>
+            <li><strong>HA Service:</strong> Call any Home Assistant service (lights, switches, scripts)</li>
+            <li><strong>Delay:</strong> Wait a specified number of seconds</li>
+            <li><strong>Network Command:</strong> Send network commands to supported devices</li>
+          </ul>
+          
+          <h4>Using Scenes in Automations</h4>
+          <pre style="background:#1a1a2e;padding:12px;border-radius:8px;overflow-x:auto;">
+service: omniremote.run_scene
+data:
+  scene_id: watch_tv
+  action: on  # or "off"</pre>
+        `
+      },
+      'ir-codes': {
+        title: 'IR Protocols & Codes',
+        icon: 'mdi:remote',
+        content: `
+          <h3>Understanding IR Protocols</h3>
+          
+          <h4>Common Protocols</h4>
+          <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+            <tr style="border-bottom:1px solid #333;">
+              <th style="text-align:left;padding:8px;">Protocol</th>
+              <th style="text-align:left;padding:8px;">Used By</th>
+              <th style="text-align:left;padding:8px;">Address Format</th>
+            </tr>
+            <tr style="border-bottom:1px solid #333;">
+              <td style="padding:8px;">Samsung32</td>
+              <td style="padding:8px;">Samsung TVs</td>
+              <td style="padding:8px;">1 byte (e.g., 07)</td>
+            </tr>
+            <tr style="border-bottom:1px solid #333;">
+              <td style="padding:8px;">NEC</td>
+              <td style="padding:8px;">LG, Vizio, Onkyo, most Asian brands</td>
+              <td style="padding:8px;">1 byte (e.g., 04, 4B)</td>
+            </tr>
+            <tr style="border-bottom:1px solid #333;">
+              <td style="padding:8px;">Sony SIRC</td>
+              <td style="padding:8px;">Sony TVs, PlayStation</td>
+              <td style="padding:8px;">5 bits (01 for TV)</td>
+            </tr>
+            <tr style="border-bottom:1px solid #333;">
+              <td style="padding:8px;">RC5/RC6</td>
+              <td style="padding:8px;">Philips, European brands</td>
+              <td style="padding:8px;">5 bits</td>
+            </tr>
+            <tr>
+              <td style="padding:8px;">Panasonic</td>
+              <td style="padding:8px;">Panasonic (Kaseikyo)</td>
+              <td style="padding:8px;">2 bytes</td>
+            </tr>
+          </table>
+          
+          <h4>Finding IR Codes</h4>
+          <ul>
+            <li><strong>IRDB Wiki:</strong> <a href="http://www.hifi-remote.com/wiki/" target="_blank" style="color:#64b5f6;">hifi-remote.com/wiki</a></li>
+            <li><strong>GitHub IRDB:</strong> <a href="https://github.com/probonopd/irdb" target="_blank" style="color:#64b5f6;">github.com/probonopd/irdb</a></li>
+            <li><strong>Device service manual</strong> - Often contains IR code tables</li>
+            <li><strong>Use IR Learner</strong> - Capture from your existing remote</li>
+          </ul>
+          
+          <h4>Testing IR Codes</h4>
+          <p>Use the <em>IR Debugger</em> tab to test protocol/address/command combinations before adding to devices.</p>
+        `
+      },
+      'troubleshooting': {
+        title: 'Troubleshooting',
+        icon: 'mdi:wrench',
+        content: `
+          <h3>Common Issues & Solutions</h3>
+          
+          <h4>IR Commands Not Working</h4>
+          <ul>
+            <li><strong>No response at all:</strong> Check blaster connection, line-of-sight, and try moving closer</li>
+            <li><strong>Wrong device responds:</strong> Verify the correct address for your device model</li>
+            <li><strong>Intermittent:</strong> Some devices need repeat codes - edit command and increase repeat count</li>
+          </ul>
+          
+          <h4>HTTP 401 Unauthorized</h4>
+          <p>If you see "HTTP 401: Unauthorized" errors:</p>
+          <ol>
+            <li>Ensure you're accessing OmniRemote through Home Assistant (not direct API)</li>
+            <li>Clear browser cache and hard refresh (Ctrl+Shift+R)</li>
+            <li>Update to latest OmniRemote version</li>
+          </ol>
+          
+          <h4>Blaster Not Discovered</h4>
+          <ul>
+            <li>Ensure blaster is on same network/VLAN as Home Assistant</li>
+            <li>Try adding by IP address manually</li>
+            <li>Check firewall isn't blocking UDP broadcast (port 80)</li>
+          </ul>
+          
+          <h4>Catalog Device Codes Wrong</h4>
+          <p>Manufacturer codes vary by region and model year. Options:</p>
+          <ol>
+            <li>Try alternate profiles if available (some brands have multiple)</li>
+            <li>Use IR Learner to capture codes from your actual remote</li>
+            <li>Report incorrect codes via GitHub issue</li>
+          </ol>
+          
+          <h4>Debug Logging</h4>
+          <p>Enable detailed logging in configuration.yaml:</p>
+          <pre style="background:#1a1a2e;padding:12px;border-radius:8px;overflow-x:auto;">
+logger:
+  logs:
+    custom_components.omniremote: debug</pre>
+        `
+      },
+      'api': {
+        title: 'API & Services',
+        icon: 'mdi:api',
+        content: `
+          <h3>Home Assistant Services</h3>
+          
+          <h4>Send IR Command</h4>
+          <pre style="background:#1a1a2e;padding:12px;border-radius:8px;overflow-x:auto;">
+service: omniremote.send_command
+data:
+  device_id: samsung_tv_living_room
+  command: power</pre>
+          
+          <h4>Run Scene</h4>
+          <pre style="background:#1a1a2e;padding:12px;border-radius:8px;overflow-x:auto;">
+service: omniremote.run_scene
+data:
+  scene_id: watch_tv
+  action: on  # "on" or "off"</pre>
+          
+          <h4>Send Raw IR Code</h4>
+          <pre style="background:#1a1a2e;padding:12px;border-radius:8px;overflow-x:auto;">
+service: omniremote.send_raw
+data:
+  blaster_id: rm_mini_living_room
+  protocol: nec
+  address: "04"
+  command: "08"</pre>
+          
+          <h3>REST API Endpoints</h3>
+          <p>All endpoints are prefixed with <code>/api/omniremote/</code></p>
+          <ul>
+            <li><code>GET /rooms</code> - List all rooms</li>
+            <li><code>GET /devices</code> - List all devices</li>
+            <li><code>GET /scenes</code> - List all scenes</li>
+            <li><code>GET /blasters</code> - List all blasters</li>
+            <li><code>GET /catalog</code> - Browse device catalog</li>
+            <li><code>POST /test</code> - Test IR commands</li>
+          </ul>
+        `
+      },
+      'about': {
+        title: 'About OmniRemote',
+        icon: 'mdi:information',
+        content: `
+          <h3>About OmniRemote</h3>
+          <p><strong>Version:</strong> ${this._data.version || 'Unknown'}</p>
+          <p>OmniRemote is a universal remote control integration for Home Assistant.</p>
+          
+          <h4>Features</h4>
+          <ul>
+            <li>Control IR devices via Broadlink or Flipper Zero</li>
+            <li>Pre-built device catalog with 90+ device profiles</li>
+            <li>Scene automation with ON/OFF sequences</li>
+            <li>IR code learning from existing remotes</li>
+            <li>Physical remote support (Zigbee, RF, Bluetooth)</li>
+            <li>Network device control (eISCP, HTTP, etc.)</li>
+          </ul>
+          
+          <h4>Links</h4>
+          <ul>
+            <li><a href="https://github.com/omniremote/omniremote" target="_blank" style="color:#64b5f6;">GitHub Repository</a></li>
+            <li><a href="https://github.com/omniremote/omniremote/issues" target="_blank" style="color:#64b5f6;">Report Issues</a></li>
+            <li><a href="https://github.com/omniremote/omniremote/discussions" target="_blank" style="color:#64b5f6;">Community Discussions</a></li>
+          </ul>
+          
+          <h4>Credits</h4>
+          <p>Built with ❤️ for the Home Assistant community.</p>
+          <p>Uses Broadlink protocol implementation and Flipper Zero CLI interface.</p>
+        `
+      }
+    };
+    
+    const currentSection = sections[this._wikiSection] || sections['getting-started'];
+    
+    return \`
+      <div class="wiki-container" style="display:flex;gap:24px;">
+        <!-- Wiki Navigation -->
+        <div class="wiki-nav" style="width:220px;flex-shrink:0;">
+          <div class="card" style="padding:0;">
+            \${Object.entries(sections).map(([key, section]) => \`
+              <div class="wiki-nav-item \${this._wikiSection === key ? 'active' : ''}" 
+                   data-action="wiki-section" data-section="\${key}"
+                   style="display:flex;align-items:center;gap:8px;padding:12px 16px;cursor:pointer;
+                          border-bottom:1px solid #333;
+                          background:\${this._wikiSection === key ? '#2a2a4a' : 'transparent'};
+                          color:\${this._wikiSection === key ? '#64b5f6' : '#888'};">
+                <ha-icon icon="\${section.icon}" style="font-size:18px;"></ha-icon>
+                <span>\${section.title}</span>
+              </div>
+            \`).join('')}
+          </div>
+        </div>
+        
+        <!-- Wiki Content -->
+        <div class="wiki-content" style="flex:1;min-width:0;">
+          <div class="card">
+            <div class="wiki-article" style="line-height:1.7;color:#ccc;">
+              \${currentSection.content}
+            </div>
+          </div>
+        </div>
+      </div>
+    \`;
+  }
+
   _remotesView() {
     // Physical Remotes view - manage Zigbee, RF, BT, and USB remotes
     const remotes = this._data.physicalRemotes || [];
@@ -1645,21 +2057,307 @@ class OmniRemotePanel extends HTMLElement {
 
   _roomView() {
     const room = this._data.rooms.find(r => r.id === this._roomId);
+    if (!room) return '<p>Room not found</p>';
+    
     const devices = this._data.devices.filter(d => d.room_id === this._roomId);
-    if (!devices.length) {
-      return `<div class="empty"><ha-icon icon="mdi:sofa"></ha-icon><h3>No Devices in ${room?.name || 'Room'}</h3><p>Add devices to this room</p></div>`;
-    }
-    return `<div class="grid">${devices.map(d => `
-      <div class="card">
-        <div class="card-head">
-          <div class="card-icon"><ha-icon icon="${this._catIcon(d.category)}"></ha-icon></div>
-          <div class="card-info"><div class="card-title">${d.name}</div></div>
+    const scenes = this._data.scenes.filter(s => s.room_id === this._roomId);
+    const physicalRemotes = (this._data.physicalRemotes || []).filter(r => r.room_id === this._roomId);
+    
+    // Get HA entities assigned to this room (by area or by our own assignment)
+    const roomEntities = (this._data.haEntities || []).filter(e => 
+      e.area_name === room.name || (room.entity_ids || []).includes(e.entity_id)
+    );
+    
+    // Device type icons for HA entities
+    const deviceTypeIcons = {
+      // Covers
+      'cover': 'mdi:window-shutter',
+      'cover.blind': 'mdi:blinds',
+      'cover.shade': 'mdi:roller-shade',
+      'cover.curtain': 'mdi:curtains',
+      'cover.garage': 'mdi:garage',
+      'cover.awning': 'mdi:storefront-outline',
+      'cover.shutter': 'mdi:window-shutter',
+      // Media
+      'media_player': 'mdi:cast',
+      'media_player.tv': 'mdi:television',
+      'media_player.speaker': 'mdi:speaker',
+      'media_player.receiver': 'mdi:audio-video',
+      // Lights
+      'light': 'mdi:lightbulb',
+      'light.ceiling': 'mdi:ceiling-light',
+      // Climate
+      'fan': 'mdi:fan',
+      'climate': 'mdi:thermostat',
+      // Switches
+      'switch': 'mdi:toggle-switch',
+      'switch.outlet': 'mdi:power-plug',
+      // Remotes
+      'remote': 'mdi:remote',
+      // Locks
+      'lock': 'mdi:lock',
+      // Vacuum
+      'vacuum': 'mdi:robot-vacuum',
+    };
+    
+    const getEntityIcon = (entity) => {
+      // Check for device_class specific icon
+      if (entity.device_class) {
+        const key = `${entity.domain}.${entity.device_class}`;
+        if (deviceTypeIcons[key]) return deviceTypeIcons[key];
+      }
+      // Fall back to domain icon
+      return deviceTypeIcons[entity.domain] || 'mdi:help-circle';
+    };
+    
+    const getEntityStateColor = (entity) => {
+      if (entity.state === 'on' || entity.state === 'open' || entity.state === 'playing') return '#4caf50';
+      if (entity.state === 'off' || entity.state === 'closed' || entity.state === 'paused') return '#666';
+      if (entity.state === 'unavailable') return '#f44336';
+      return '#888';
+    };
+    
+    return `
+      <div class="page-header">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="width:48px;height:48px;background:#2a2a4a;border-radius:12px;display:flex;align-items:center;justify-content:center;">
+            <ha-icon icon="${room.icon || 'mdi:sofa'}" style="font-size:28px;color:#64b5f6;"></ha-icon>
+          </div>
+          <div>
+            <h2 style="margin:0;">${room.name}</h2>
+            <div style="color:#888;font-size:13px;">${devices.length} devices • ${scenes.length} scenes • ${roomEntities.length} HA entities</div>
+          </div>
         </div>
-        <div class="card-btns">
-          <button class="btn btn-s" data-action="open-device" data-device-id="${d.id}">Control</button>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-s" data-action="edit-room" data-room-id="${room.id}"><ha-icon icon="mdi:pencil"></ha-icon></button>
+          <button class="btn btn-p" data-action="room-add-item" data-room-id="${room.id}"><ha-icon icon="mdi:plus"></ha-icon> Add</button>
         </div>
       </div>
-    `).join('')}</div>`;
+      
+      <!-- Scenes Section -->
+      <div class="section-header" style="margin-top:24px;">
+        <h3><ha-icon icon="mdi:play-box-multiple"></ha-icon> Scenes</h3>
+        <button class="btn btn-sm" data-action="room-add-scene" data-room-id="${room.id}"><ha-icon icon="mdi:plus"></ha-icon></button>
+      </div>
+      ${scenes.length === 0 ? `
+        <div class="card" style="text-align:center;padding:24px;color:#666;">
+          <ha-icon icon="mdi:play-box-multiple-outline" style="font-size:32px;margin-bottom:8px;display:block;"></ha-icon>
+          No scenes in this room
+        </div>
+      ` : `
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:24px;">
+          ${scenes.map(s => `
+            <div class="card" style="padding:12px;">
+              <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+                <div style="width:40px;height:40px;background:#2a2a4a;border-radius:8px;display:flex;align-items:center;justify-content:center;">
+                  <ha-icon icon="${s.icon || 'mdi:play'}" style="font-size:20px;color:#64b5f6;"></ha-icon>
+                </div>
+                <div style="flex:1;min-width:0;">
+                  <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${s.name}</div>
+                  <div style="font-size:11px;color:#888;">${(s.on_actions || []).length} on / ${(s.off_actions || []).length} off</div>
+                </div>
+              </div>
+              <div style="display:flex;gap:6px;">
+                <button class="btn btn-sm btn-p" style="flex:1;" data-action="run-scene" data-scene-id="${s.id}">
+                  <ha-icon icon="mdi:play"></ha-icon> ON
+                </button>
+                <button class="btn btn-sm" style="flex:1;" data-action="deactivate-scene" data-scene-id="${s.id}">
+                  <ha-icon icon="mdi:stop"></ha-icon> OFF
+                </button>
+                <button class="btn btn-sm" data-action="edit-scene" data-scene-id="${s.id}">
+                  <ha-icon icon="mdi:pencil"></ha-icon>
+                </button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `}
+      
+      <!-- Devices Section -->
+      <div class="section-header">
+        <h3><ha-icon icon="mdi:devices"></ha-icon> IR Devices</h3>
+        <button class="btn btn-sm" data-action="room-add-device" data-room-id="${room.id}"><ha-icon icon="mdi:plus"></ha-icon></button>
+      </div>
+      ${devices.length === 0 ? `
+        <div class="card" style="text-align:center;padding:24px;color:#666;">
+          <ha-icon icon="mdi:remote-off" style="font-size:32px;margin-bottom:8px;display:block;"></ha-icon>
+          No IR devices in this room
+        </div>
+      ` : `
+        <div class="grid" style="margin-bottom:24px;">
+          ${devices.map(d => `
+            <div class="card">
+              <div class="card-head">
+                <div class="card-icon"><ha-icon icon="${this._catIcon(d.category)}"></ha-icon></div>
+                <div class="card-info">
+                  <div class="card-title">${d.name}</div>
+                  <div class="card-sub">${d.brand || d.category || ''} • ${Object.keys(d.commands || {}).length} commands</div>
+                </div>
+              </div>
+              <div class="card-btns">
+                <button class="btn btn-s" data-action="open-device" data-device-id="${d.id}">Control</button>
+                <button class="btn btn-sm" data-action="quick-power" data-device-id="${d.id}"><ha-icon icon="mdi:power"></ha-icon></button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      `}
+      
+      <!-- HA Entities Section -->
+      <div class="section-header">
+        <h3><ha-icon icon="mdi:home-assistant"></ha-icon> Home Assistant Entities</h3>
+        <button class="btn btn-sm" data-action="room-add-entity" data-room-id="${room.id}"><ha-icon icon="mdi:plus"></ha-icon></button>
+      </div>
+      ${roomEntities.length === 0 ? `
+        <div class="card" style="text-align:center;padding:24px;color:#666;">
+          <ha-icon icon="mdi:home-assistant" style="font-size:32px;margin-bottom:8px;display:block;opacity:0.5;"></ha-icon>
+          No HA entities assigned to this room
+          <div style="margin-top:12px;">
+            <button class="btn btn-sm" data-action="room-add-entity" data-room-id="${room.id}">
+              <ha-icon icon="mdi:plus"></ha-icon> Add HA Entity
+            </button>
+          </div>
+        </div>
+      ` : `
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:24px;">
+          ${roomEntities.map(e => `
+            <div class="card" style="padding:12px;">
+              <div style="display:flex;align-items:center;gap:12px;">
+                <div style="width:40px;height:40px;background:#1b3d1b;border-radius:8px;display:flex;align-items:center;justify-content:center;">
+                  <ha-icon icon="${getEntityIcon(e)}" style="font-size:20px;color:${getEntityStateColor(e)};"></ha-icon>
+                </div>
+                <div style="flex:1;min-width:0;">
+                  <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${e.name}</div>
+                  <div style="font-size:11px;color:#888;">
+                    ${e.integration ? `<span style="background:#333;padding:2px 6px;border-radius:4px;margin-right:4px;">${e.integration}</span>` : ''}
+                    ${e.state}
+                    ${e.device_class ? ` • ${e.device_class}` : ''}
+                  </div>
+                </div>
+                <div style="display:flex;gap:4px;">
+                  ${this._getEntityQuickActions(e)}
+                </div>
+              </div>
+              ${e.services && e.services.length > 0 ? `
+                <div style="margin-top:8px;padding-top:8px;border-top:1px solid #333;">
+                  <div style="font-size:11px;color:#666;margin-bottom:4px;">Available actions:</div>
+                  <div style="display:flex;flex-wrap:wrap;gap:4px;">
+                    ${e.services.slice(0, 6).map(svc => `
+                      <button class="btn btn-sm" data-action="call-ha-service" data-entity-id="${e.entity_id}" data-service="${e.domain}.${svc}" style="font-size:10px;padding:4px 8px;">
+                        ${svc.replace(/_/g, ' ')}
+                      </button>
+                    `).join('')}
+                    ${e.services.length > 6 ? `<span style="font-size:10px;color:#666;">+${e.services.length - 6} more</span>` : ''}
+                  </div>
+                </div>
+              ` : ''}
+            </div>
+          `).join('')}
+        </div>
+      `}
+      
+      <!-- Physical Remotes Section (if any) -->
+      ${physicalRemotes.length > 0 ? `
+        <div class="section-header">
+          <h3><ha-icon icon="mdi:remote"></ha-icon> Physical Remotes</h3>
+        </div>
+        <div class="grid">
+          ${physicalRemotes.map(r => `
+            <div class="card">
+              <div class="card-head">
+                <div class="card-icon"><ha-icon icon="mdi:remote"></ha-icon></div>
+                <div class="card-info">
+                  <div class="card-title">${r.name}</div>
+                  <div class="card-sub">${r.type || 'Unknown type'}</div>
+                </div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+    `;
+  }
+  
+  _getEntityQuickActions(entity) {
+    const domain = entity.domain;
+    const state = entity.state;
+    
+    // Generate quick action buttons based on domain
+    switch (domain) {
+      case 'light':
+      case 'switch':
+      case 'input_boolean':
+      case 'fan':
+        return `
+          <button class="btn btn-sm ${state === 'on' ? 'btn-p' : ''}" 
+                  data-action="call-ha-service" data-entity-id="${entity.entity_id}" 
+                  data-service="${domain}.toggle" title="Toggle">
+            <ha-icon icon="mdi:power"></ha-icon>
+          </button>
+        `;
+      
+      case 'cover':
+        return `
+          <button class="btn btn-sm" data-action="call-ha-service" data-entity-id="${entity.entity_id}" 
+                  data-service="cover.open_cover" title="Open">
+            <ha-icon icon="mdi:arrow-up"></ha-icon>
+          </button>
+          <button class="btn btn-sm" data-action="call-ha-service" data-entity-id="${entity.entity_id}" 
+                  data-service="cover.stop_cover" title="Stop">
+            <ha-icon icon="mdi:stop"></ha-icon>
+          </button>
+          <button class="btn btn-sm" data-action="call-ha-service" data-entity-id="${entity.entity_id}" 
+                  data-service="cover.close_cover" title="Close">
+            <ha-icon icon="mdi:arrow-down"></ha-icon>
+          </button>
+        `;
+      
+      case 'media_player':
+        return `
+          <button class="btn btn-sm" data-action="call-ha-service" data-entity-id="${entity.entity_id}" 
+                  data-service="media_player.toggle" title="Power">
+            <ha-icon icon="mdi:power"></ha-icon>
+          </button>
+          <button class="btn btn-sm" data-action="call-ha-service" data-entity-id="${entity.entity_id}" 
+                  data-service="media_player.volume_down" title="Vol-">
+            <ha-icon icon="mdi:volume-minus"></ha-icon>
+          </button>
+          <button class="btn btn-sm" data-action="call-ha-service" data-entity-id="${entity.entity_id}" 
+                  data-service="media_player.volume_up" title="Vol+">
+            <ha-icon icon="mdi:volume-plus"></ha-icon>
+          </button>
+        `;
+      
+      case 'lock':
+        return `
+          <button class="btn btn-sm ${state === 'locked' ? 'btn-p' : ''}" 
+                  data-action="call-ha-service" data-entity-id="${entity.entity_id}" 
+                  data-service="lock.${state === 'locked' ? 'unlock' : 'lock'}" title="${state === 'locked' ? 'Unlock' : 'Lock'}">
+            <ha-icon icon="mdi:${state === 'locked' ? 'lock' : 'lock-open'}"></ha-icon>
+          </button>
+        `;
+      
+      case 'climate':
+        return `
+          <button class="btn btn-sm ${state !== 'off' ? 'btn-p' : ''}" 
+                  data-action="call-ha-service" data-entity-id="${entity.entity_id}" 
+                  data-service="climate.turn_${state === 'off' ? 'on' : 'off'}" title="Toggle">
+            <ha-icon icon="mdi:power"></ha-icon>
+          </button>
+        `;
+      
+      case 'scene':
+      case 'script':
+        return `
+          <button class="btn btn-sm btn-p" data-action="call-ha-service" data-entity-id="${entity.entity_id}" 
+                  data-service="${domain}.turn_on" title="Activate">
+            <ha-icon icon="mdi:play"></ha-icon>
+          </button>
+        `;
+      
+      default:
+        return '';
+    }
   }
 
   _deviceView() {
@@ -2157,6 +2855,17 @@ class OmniRemotePanel extends HTMLElement {
     
     const isEdit = !!this._editingScene.id || (sceneId && this._data.scenes.find(s => s.id === sceneId));
     
+    // Common scene icons organized by category
+    const iconCategories = {
+      'Media': ['mdi:television', 'mdi:movie', 'mdi:music', 'mdi:speaker', 'mdi:gamepad-variant', 'mdi:youtube', 'mdi:netflix', 'mdi:play-circle', 'mdi:disc-player', 'mdi:radio'],
+      'Lighting': ['mdi:lightbulb', 'mdi:lamp', 'mdi:ceiling-light', 'mdi:led-strip', 'mdi:brightness-7', 'mdi:weather-night', 'mdi:candle', 'mdi:spotlight-beam'],
+      'Climate': ['mdi:thermometer', 'mdi:air-conditioner', 'mdi:fan', 'mdi:snowflake', 'mdi:fire', 'mdi:weather-sunny'],
+      'Activities': ['mdi:sofa', 'mdi:bed', 'mdi:coffee', 'mdi:food', 'mdi:book-open-variant', 'mdi:dumbbell', 'mdi:meditation', 'mdi:party-popper'],
+      'Security': ['mdi:shield-home', 'mdi:lock', 'mdi:cctv', 'mdi:alarm-light', 'mdi:motion-sensor', 'mdi:door-open'],
+      'Power': ['mdi:power', 'mdi:power-plug', 'mdi:power-standby', 'mdi:flash', 'mdi:battery'],
+      'Time': ['mdi:weather-sunset-up', 'mdi:weather-sunset-down', 'mdi:weather-night', 'mdi:clock-outline', 'mdi:alarm'],
+    };
+    
     this._modal = `
       <div class="modal-content" style="max-width:800px;max-height:90vh;overflow-y:auto;">
         <h3>${isEdit ? 'Edit' : 'Create'} Scene</h3>
@@ -2168,7 +2877,43 @@ class OmniRemotePanel extends HTMLElement {
           </div>
           <div>
             <label class="fl">Icon</label>
-            <input type="text" class="fi" id="scene-icon" value="${this._editingScene.icon || 'mdi:television'}">
+            <div style="display:flex;gap:8px;align-items:center;">
+              <div id="icon-preview" style="width:48px;height:48px;background:#2a2a4a;border-radius:8px;display:flex;align-items:center;justify-content:center;">
+                <ha-icon icon="${this._editingScene.icon || 'mdi:television'}" style="font-size:28px;color:#64b5f6;"></ha-icon>
+              </div>
+              <input type="text" class="fi" id="scene-icon" value="${this._editingScene.icon || 'mdi:television'}" style="flex:1;">
+              <button class="btn btn-sm" data-action="show-icon-picker" type="button">Browse</button>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Icon Picker (hidden by default) -->
+        <div id="icon-picker" style="display:none;margin-bottom:16px;background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:12px;max-height:300px;overflow-y:auto;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+            <span style="font-weight:600;">Select Icon</span>
+            <button class="btn btn-sm" data-action="close-icon-picker" type="button">&times; Close</button>
+          </div>
+          ${Object.entries(iconCategories).map(([category, icons]) => `
+            <div style="margin-bottom:12px;">
+              <div style="font-size:12px;color:#888;margin-bottom:6px;">${category}</div>
+              <div style="display:flex;flex-wrap:wrap;gap:4px;">
+                ${icons.map(icon => `
+                  <button class="icon-pick-btn" data-action="pick-icon" data-icon="${icon}" type="button"
+                          style="width:40px;height:40px;background:${this._editingScene.icon === icon ? '#3d5afe' : '#2a2a4a'};
+                                 border:1px solid ${this._editingScene.icon === icon ? '#3d5afe' : '#444'};border-radius:6px;
+                                 cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.15s;">
+                    <ha-icon icon="${icon}" style="font-size:20px;color:${this._editingScene.icon === icon ? '#fff' : '#888'};"></ha-icon>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+          `).join('')}
+          <div style="margin-top:8px;padding-top:8px;border-top:1px solid #333;">
+            <div style="font-size:12px;color:#888;margin-bottom:6px;">Custom (enter any mdi: icon)</div>
+            <div style="display:flex;gap:8px;">
+              <input type="text" class="fi" id="custom-icon-input" placeholder="mdi:your-icon" style="flex:1;">
+              <button class="btn btn-sm btn-p" data-action="apply-custom-icon" type="button">Apply</button>
+            </div>
           </div>
         </div>
         
@@ -2218,6 +2963,546 @@ class OmniRemotePanel extends HTMLElement {
       </div>
     `;
     this._render();
+    
+    // Setup icon picker event listeners after render
+    setTimeout(() => this._setupIconPicker(), 50);
+  }
+  
+  _setupIconPicker() {
+    const iconInput = this.shadowRoot.getElementById('scene-icon');
+    const iconPreview = this.shadowRoot.getElementById('icon-preview');
+    
+    if (iconInput && iconPreview) {
+      iconInput.addEventListener('input', (e) => {
+        const icon = e.target.value || 'mdi:help';
+        iconPreview.innerHTML = `<ha-icon icon="${icon}" style="font-size:28px;color:#64b5f6;"></ha-icon>`;
+        if (this._editingScene) this._editingScene.icon = icon;
+      });
+    }
+  }
+  
+  _toggleIconPicker(show) {
+    const picker = this.shadowRoot.getElementById('icon-picker');
+    if (picker) {
+      picker.style.display = show ? 'block' : 'none';
+    }
+  }
+  
+  _selectIcon(icon) {
+    const iconInput = this.shadowRoot.getElementById('scene-icon');
+    const iconPreview = this.shadowRoot.getElementById('icon-preview');
+    
+    if (iconInput) iconInput.value = icon;
+    if (iconPreview) {
+      iconPreview.innerHTML = `<ha-icon icon="${icon}" style="font-size:28px;color:#64b5f6;"></ha-icon>`;
+    }
+    if (this._editingScene) this._editingScene.icon = icon;
+    
+    // Update button styles to show selection
+    this.shadowRoot.querySelectorAll('.icon-pick-btn').forEach(btn => {
+      const btnIcon = btn.dataset.icon;
+      if (btnIcon === icon) {
+        btn.style.background = '#3d5afe';
+        btn.style.borderColor = '#3d5afe';
+        btn.querySelector('ha-icon').style.color = '#fff';
+      } else {
+        btn.style.background = '#2a2a4a';
+        btn.style.borderColor = '#444';
+        btn.querySelector('ha-icon').style.color = '#888';
+      }
+    });
+    
+    // Close picker after selection
+    this._toggleIconPicker(false);
+  }
+  
+  _applyCustomIcon() {
+    const customInput = this.shadowRoot.getElementById('custom-icon-input');
+    if (customInput && customInput.value) {
+      let icon = customInput.value.trim();
+      if (!icon.startsWith('mdi:')) icon = 'mdi:' + icon;
+      this._selectIcon(icon);
+    }
+  }
+
+  // =============================================================================
+  // Room Management
+  // =============================================================================
+
+  _showRoomAddItemModal(roomId) {
+    const room = this._data.rooms.find(r => r.id === roomId);
+    this._modal = `
+      <div class="modal-head">
+        <h3>Add to ${room?.name || 'Room'}</h3>
+        <button class="modal-close" data-action="close-modal">&times;</button>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:16px;">
+        <button class="btn btn-s" style="padding:24px;flex-direction:column;height:auto;" data-action="room-add-scene" data-room-id="${roomId}">
+          <ha-icon icon="mdi:play-box-multiple" style="font-size:32px;margin-bottom:8px;"></ha-icon>
+          <div style="font-weight:600;">New Scene</div>
+          <div style="font-size:12px;color:#888;">Create automation sequence</div>
+        </button>
+        <button class="btn btn-s" style="padding:24px;flex-direction:column;height:auto;" data-action="room-add-device" data-room-id="${roomId}">
+          <ha-icon icon="mdi:remote" style="font-size:32px;margin-bottom:8px;"></ha-icon>
+          <div style="font-weight:600;">IR Device</div>
+          <div style="font-size:12px;color:#888;">Add from catalog or manual</div>
+        </button>
+        <button class="btn btn-s" style="padding:24px;flex-direction:column;height:auto;" data-action="room-add-entity" data-room-id="${roomId}">
+          <ha-icon icon="mdi:home-assistant" style="font-size:32px;margin-bottom:8px;color:#4caf50;"></ha-icon>
+          <div style="font-weight:600;">HA Entity</div>
+          <div style="font-size:12px;color:#888;">Import from Home Assistant</div>
+        </button>
+        <button class="btn btn-s" style="padding:24px;flex-direction:column;height:auto;" data-action="close-modal">
+          <ha-icon icon="mdi:television" style="font-size:32px;margin-bottom:8px;"></ha-icon>
+          <div style="font-weight:600;">Direct Channel</div>
+          <div style="font-size:12px;color:#888;">Quick IR command button</div>
+        </button>
+      </div>
+    `;
+    this._render();
+  }
+
+  _showAddDeviceModal(roomId = null) {
+    this._modal = `
+      <div class="modal-head">
+        <h3>Add Device</h3>
+        <button class="modal-close" data-action="close-modal">&times;</button>
+      </div>
+      <p style="color:#888;">Choose how to add a device:</p>
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <button class="btn btn-s" style="justify-content:flex-start;padding:16px;" data-action="close-modal" onclick="setTimeout(() => { this.closest('omniremote-panel')._view = 'catalog'; this.closest('omniremote-panel')._render(); }, 100);">
+          <ha-icon icon="mdi:book-open-variant" style="margin-right:12px;"></ha-icon>
+          <div style="text-align:left;">
+            <div style="font-weight:600;">From Catalog</div>
+            <div style="font-size:12px;color:#888;">Browse pre-built device profiles</div>
+          </div>
+        </button>
+        <button class="btn btn-s" style="justify-content:flex-start;padding:16px;" data-action="show-add-device-manual" data-room-id="${roomId || ''}">
+          <ha-icon icon="mdi:pencil" style="margin-right:12px;"></ha-icon>
+          <div style="text-align:left;">
+            <div style="font-weight:600;">Manual Entry</div>
+            <div style="font-size:12px;color:#888;">Create custom device with learned codes</div>
+          </div>
+        </button>
+        <button class="btn btn-s" style="justify-content:flex-start;padding:16px;" data-action="show-import-flipper">
+          <ha-icon icon="mdi:dolphin" style="margin-right:12px;"></ha-icon>
+          <div style="text-align:left;">
+            <div style="font-weight:600;">Import Flipper IR</div>
+            <div style="font-size:12px;color:#888;">Import .ir file from Flipper Zero</div>
+          </div>
+        </button>
+      </div>
+    `;
+    this._render();
+  }
+
+  _showEditRoomModal(roomId) {
+    const room = this._data.rooms.find(r => r.id === roomId);
+    if (!room) return;
+    
+    this._modal = `
+      <div class="modal-head">
+        <h3>Edit Room</h3>
+        <button class="modal-close" data-action="close-modal">&times;</button>
+      </div>
+      <div class="fg">
+        <label class="fl">Room Name</label>
+        <input type="text" class="fi" id="edit-room-name" value="${room.name}">
+      </div>
+      <div class="fg">
+        <label class="fl">Icon</label>
+        <input type="text" class="fi" id="edit-room-icon" value="${room.icon || 'mdi:sofa'}">
+      </div>
+      <div style="display:flex;gap:8px;margin-top:16px;">
+        <button class="btn btn-danger" data-action="delete-room" data-room-id="${roomId}">
+          <ha-icon icon="mdi:delete"></ha-icon> Delete
+        </button>
+        <div style="flex:1;"></div>
+        <button class="btn btn-s" data-action="close-modal">Cancel</button>
+        <button class="btn btn-p" data-action="save-room-edit" data-room-id="${roomId}">Save</button>
+      </div>
+    `;
+    this._render();
+  }
+
+  // =============================================================================
+  // HA Entity Management
+  // =============================================================================
+
+  _showAddHAEntityModal(roomId) {
+    const room = this._data.rooms.find(r => r.id === roomId);
+    const entities = this._data.haEntities || [];
+    
+    // Get unique integrations/platforms
+    const integrations = [...new Set(entities.map(e => e.integration || e.platform).filter(Boolean))].sort();
+    
+    // Get unique domains
+    const domains = [...new Set(entities.map(e => e.domain))].sort();
+    
+    // Device type options for categorization
+    const deviceTypes = [
+      { value: 'projector_screen', label: 'Projector Screen', icon: 'mdi:projector-screen' },
+      { value: 'tv', label: 'TV / Display', icon: 'mdi:television' },
+      { value: 'receiver', label: 'Receiver / Amplifier', icon: 'mdi:audio-video' },
+      { value: 'speaker', label: 'Speaker', icon: 'mdi:speaker' },
+      { value: 'light', label: 'Light', icon: 'mdi:lightbulb' },
+      { value: 'fan', label: 'Fan', icon: 'mdi:fan' },
+      { value: 'blind', label: 'Blind / Shade', icon: 'mdi:blinds' },
+      { value: 'garage', label: 'Garage Door', icon: 'mdi:garage' },
+      { value: 'lock', label: 'Lock', icon: 'mdi:lock' },
+      { value: 'thermostat', label: 'Thermostat', icon: 'mdi:thermostat' },
+      { value: 'switch', label: 'Switch / Outlet', icon: 'mdi:toggle-switch' },
+    ];
+    
+    this._haEntitySearch = { query: '', domain: '', integration: '' };
+    this._selectedRoomId = roomId;
+    
+    this._modal = `
+      <div class="modal-content" style="max-width:900px;max-height:85vh;">
+        <div class="modal-head">
+          <h3>Add HA Entity to ${room?.name || 'Room'}</h3>
+          <button class="modal-close" data-action="close-modal">&times;</button>
+        </div>
+        
+        <!-- Search/Filter Bar -->
+        <div style="display:grid;grid-template-columns:1fr 150px 150px;gap:12px;margin-bottom:16px;">
+          <div class="fg" style="margin:0;">
+            <input type="text" class="fi" id="ha-entity-search" placeholder="Search by name, entity ID, or integration..." 
+                   style="width:100%;" oninput="this.closest('omniremote-panel')._filterHAEntities()">
+          </div>
+          <div class="fg" style="margin:0;">
+            <select class="fi" id="ha-entity-domain" onchange="this.closest('omniremote-panel')._filterHAEntities()">
+              <option value="">All Domains</option>
+              ${domains.map(d => `<option value="${d}">${d}</option>`).join('')}
+            </select>
+          </div>
+          <div class="fg" style="margin:0;">
+            <select class="fi" id="ha-entity-integration" onchange="this.closest('omniremote-panel')._filterHAEntities()">
+              <option value="">All Integrations</option>
+              ${integrations.map(i => `<option value="${i}">${i}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        
+        <!-- Entity List -->
+        <div id="ha-entity-list" style="max-height:400px;overflow-y:auto;border:1px solid #333;border-radius:8px;">
+          ${this._renderHAEntityList(entities, roomId, deviceTypes)}
+        </div>
+        
+        <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center;">
+          <span style="color:#888;font-size:13px;">
+            <ha-icon icon="mdi:information-outline" style="font-size:16px;"></ha-icon>
+            Select entities to add to this room. You can assign a device type for better icons.
+          </span>
+          <button class="btn btn-s" data-action="close-modal">Done</button>
+        </div>
+      </div>
+    `;
+    this._render();
+  }
+
+  _renderHAEntityList(entities, roomId, deviceTypes) {
+    const search = this._haEntitySearch?.query?.toLowerCase() || '';
+    const domainFilter = this._haEntitySearch?.domain || '';
+    const integrationFilter = this._haEntitySearch?.integration || '';
+    
+    const room = this._data.rooms.find(r => r.id === roomId);
+    const roomEntityIds = room?.entity_ids || [];
+    
+    // Filter entities
+    let filtered = entities.filter(e => {
+      // Domain filter
+      if (domainFilter && e.domain !== domainFilter) return false;
+      
+      // Integration filter
+      if (integrationFilter && e.integration !== integrationFilter && e.platform !== integrationFilter) return false;
+      
+      // Search filter - match name, entity_id, integration, manufacturer, model
+      if (search) {
+        const searchFields = [
+          e.name,
+          e.entity_id,
+          e.integration,
+          e.platform,
+          e.manufacturer,
+          e.model,
+          e.device_name,
+        ].filter(Boolean).join(' ').toLowerCase();
+        
+        if (!searchFields.includes(search)) return false;
+      }
+      
+      return true;
+    });
+    
+    // Sort: already in room first, then by name
+    filtered.sort((a, b) => {
+      const aInRoom = roomEntityIds.includes(a.entity_id);
+      const bInRoom = roomEntityIds.includes(b.entity_id);
+      if (aInRoom && !bInRoom) return -1;
+      if (!aInRoom && bInRoom) return 1;
+      return a.name.localeCompare(b.name);
+    });
+    
+    if (filtered.length === 0) {
+      return `<div style="padding:32px;text-align:center;color:#888;">No entities match your search</div>`;
+    }
+    
+    return filtered.slice(0, 50).map(e => {
+      const inRoom = roomEntityIds.includes(e.entity_id);
+      const deviceType = e.omni_device_type || e.device_class || '';
+      
+      return `
+        <div style="display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid #333;
+                    background:${inRoom ? '#1b3d1b' : 'transparent'};">
+          <div style="width:40px;height:40px;background:#2a2a4a;border-radius:8px;display:flex;align-items:center;justify-content:center;">
+            <ha-icon icon="${this._getEntityIconByDomain(e)}" style="font-size:20px;color:${inRoom ? '#4caf50' : '#888'};"></ha-icon>
+          </div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${e.name}</div>
+            <div style="font-size:11px;color:#888;">
+              ${e.entity_id}
+              ${e.integration ? ` • <span style="background:#333;padding:1px 5px;border-radius:3px;">${e.integration}</span>` : ''}
+              ${e.manufacturer ? ` • ${e.manufacturer}` : ''}
+            </div>
+            ${e.services && e.services.length > 0 ? `
+              <div style="font-size:10px;color:#666;margin-top:2px;">
+                Services: ${e.services.slice(0, 4).join(', ')}${e.services.length > 4 ? '...' : ''}
+              </div>
+            ` : ''}
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <select class="fi" style="width:140px;padding:6px;" 
+                    data-entity-id="${e.entity_id}"
+                    onchange="this.closest('omniremote-panel')._setEntityDeviceType('${e.entity_id}', this.value)">
+              <option value="">Device Type...</option>
+              <option value="projector_screen" ${deviceType === 'projector_screen' ? 'selected' : ''}>Projector Screen</option>
+              <option value="tv" ${deviceType === 'tv' ? 'selected' : ''}>TV / Display</option>
+              <option value="receiver" ${deviceType === 'receiver' ? 'selected' : ''}>Receiver</option>
+              <option value="speaker" ${deviceType === 'speaker' ? 'selected' : ''}>Speaker</option>
+              <option value="light" ${deviceType === 'light' ? 'selected' : ''}>Light</option>
+              <option value="fan" ${deviceType === 'fan' ? 'selected' : ''}>Fan</option>
+              <option value="blind" ${deviceType === 'blind' ? 'selected' : ''}>Blind/Shade</option>
+              <option value="garage" ${deviceType === 'garage' ? 'selected' : ''}>Garage Door</option>
+              <option value="lock" ${deviceType === 'lock' ? 'selected' : ''}>Lock</option>
+              <option value="thermostat" ${deviceType === 'thermostat' ? 'selected' : ''}>Thermostat</option>
+              <option value="switch" ${deviceType === 'switch' ? 'selected' : ''}>Switch/Outlet</option>
+            </select>
+            ${inRoom ? `
+              <button class="btn btn-sm btn-danger" data-action="remove-entity-from-room" 
+                      data-entity-id="${e.entity_id}" data-room-id="${roomId}">
+                <ha-icon icon="mdi:minus"></ha-icon>
+              </button>
+            ` : `
+              <button class="btn btn-sm btn-p" data-action="add-entity-to-room" 
+                      data-entity-id="${e.entity_id}" data-room-id="${roomId}">
+                <ha-icon icon="mdi:plus"></ha-icon>
+              </button>
+            `}
+          </div>
+        </div>
+      `;
+    }).join('') + (filtered.length > 50 ? `
+      <div style="padding:12px;text-align:center;color:#888;font-size:13px;">
+        Showing 50 of ${filtered.length} results. Use search to narrow down.
+      </div>
+    ` : '');
+  }
+
+  _getEntityIconByDomain(entity) {
+    // Check for custom device type first
+    const deviceType = entity.omni_device_type;
+    if (deviceType) {
+      const icons = {
+        'projector_screen': 'mdi:projector-screen',
+        'tv': 'mdi:television',
+        'receiver': 'mdi:audio-video',
+        'speaker': 'mdi:speaker',
+        'light': 'mdi:lightbulb',
+        'fan': 'mdi:fan',
+        'blind': 'mdi:blinds',
+        'garage': 'mdi:garage',
+        'lock': 'mdi:lock',
+        'thermostat': 'mdi:thermostat',
+        'switch': 'mdi:toggle-switch',
+      };
+      if (icons[deviceType]) return icons[deviceType];
+    }
+    
+    // Check device_class
+    if (entity.device_class) {
+      const classIcons = {
+        'garage': 'mdi:garage',
+        'blind': 'mdi:blinds',
+        'shade': 'mdi:roller-shade',
+        'curtain': 'mdi:curtains',
+        'awning': 'mdi:storefront-outline',
+        'shutter': 'mdi:window-shutter',
+        'tv': 'mdi:television',
+        'speaker': 'mdi:speaker',
+        'receiver': 'mdi:audio-video',
+      };
+      if (classIcons[entity.device_class]) return classIcons[entity.device_class];
+    }
+    
+    // Domain fallback
+    const domainIcons = {
+      'light': 'mdi:lightbulb',
+      'switch': 'mdi:toggle-switch',
+      'fan': 'mdi:fan',
+      'cover': 'mdi:window-shutter',
+      'climate': 'mdi:thermostat',
+      'media_player': 'mdi:cast',
+      'remote': 'mdi:remote',
+      'lock': 'mdi:lock',
+      'vacuum': 'mdi:robot-vacuum',
+      'scene': 'mdi:palette',
+      'script': 'mdi:script-text',
+      'automation': 'mdi:robot',
+      'input_boolean': 'mdi:toggle-switch-outline',
+      'input_select': 'mdi:form-dropdown',
+      'input_number': 'mdi:ray-vertex',
+    };
+    
+    return domainIcons[entity.domain] || 'mdi:help-circle';
+  }
+
+  _filterHAEntities() {
+    const searchInput = this.shadowRoot.getElementById('ha-entity-search');
+    const domainSelect = this.shadowRoot.getElementById('ha-entity-domain');
+    const integrationSelect = this.shadowRoot.getElementById('ha-entity-integration');
+    const listDiv = this.shadowRoot.getElementById('ha-entity-list');
+    
+    this._haEntitySearch = {
+      query: searchInput?.value || '',
+      domain: domainSelect?.value || '',
+      integration: integrationSelect?.value || '',
+    };
+    
+    const deviceTypes = []; // We don't need to pass these for re-render
+    if (listDiv) {
+      listDiv.innerHTML = this._renderHAEntityList(
+        this._data.haEntities || [],
+        this._selectedRoomId,
+        deviceTypes
+      );
+    }
+  }
+
+  async _addEntityToRoom(entityId, roomId) {
+    const room = this._data.rooms.find(r => r.id === roomId);
+    if (!room) return;
+    
+    // Initialize entity_ids array if needed
+    if (!room.entity_ids) room.entity_ids = [];
+    
+    // Add if not already present
+    if (!room.entity_ids.includes(entityId)) {
+      room.entity_ids.push(entityId);
+      
+      // Save to backend
+      await this._api('/api/omniremote/rooms', 'POST', {
+        action: 'update',
+        id: roomId,
+        entity_ids: room.entity_ids,
+      });
+    }
+    
+    // Re-render the entity list
+    this._filterHAEntities();
+  }
+
+  _setEntityDeviceType(entityId, deviceType) {
+    // Store device type mapping locally
+    if (!this._entityDeviceTypes) this._entityDeviceTypes = {};
+    this._entityDeviceTypes[entityId] = deviceType;
+    
+    // Also update the entity in our data
+    const entity = (this._data.haEntities || []).find(e => e.entity_id === entityId);
+    if (entity) {
+      entity.omni_device_type = deviceType;
+    }
+  }
+
+  async _callHAService(entityId, service) {
+    try {
+      const [domain, serviceName] = service.split('.');
+      
+      await this.hass.callService(domain, serviceName, {
+        entity_id: entityId,
+      });
+      
+      // Refresh entity states after a short delay
+      setTimeout(() => this._loadData(), 500);
+      
+    } catch (err) {
+      console.error('Error calling HA service:', err);
+      alert(`Failed to call ${service}: ${err.message}`);
+    }
+  }
+
+  async _sendQuickPower(deviceId) {
+    const device = this._data.devices.find(d => d.id === deviceId);
+    if (!device) return;
+    
+    // Try to find a power command
+    const powerCommands = ['power', 'power_toggle', 'Power', 'POWER', 'power_on'];
+    const cmdName = powerCommands.find(c => device.commands && device.commands[c]);
+    
+    if (cmdName) {
+      await this._sendCommand(deviceId, cmdName);
+    } else {
+      alert('No power command found for this device');
+    }
+  }
+
+  async _removeEntityFromRoom(entityId, roomId) {
+    const room = this._data.rooms.find(r => r.id === roomId);
+    if (!room) return;
+    
+    // Remove from entity_ids array
+    room.entity_ids = (room.entity_ids || []).filter(id => id !== entityId);
+    
+    // Save to backend
+    await this._api('/api/omniremote/rooms', 'POST', {
+      action: 'update',
+      id: roomId,
+      entity_ids: room.entity_ids,
+    });
+    
+    // Re-render the entity list
+    this._filterHAEntities();
+  }
+
+  async _deleteRoom(roomId) {
+    if (!confirm('Delete this room? Devices will not be deleted but will no longer be assigned to this room.')) {
+      return;
+    }
+    
+    await this._api('/api/omniremote/rooms', 'POST', {
+      action: 'delete',
+      id: roomId,
+    });
+    
+    // Navigate back to dashboard
+    this._view = 'dashboard';
+    this._modal = null;
+    await this._loadData();
+  }
+
+  async _saveRoomEdit(roomId) {
+    const nameInput = this.shadowRoot.getElementById('edit-room-name');
+    const iconInput = this.shadowRoot.getElementById('edit-room-icon');
+    
+    await this._api('/api/omniremote/rooms', 'POST', {
+      action: 'update',
+      id: roomId,
+      name: nameInput?.value || 'Room',
+      icon: iconInput?.value || 'mdi:sofa',
+    });
+    
+    this._modal = null;
+    await this._loadData();
   }
 
   _renderActionsList(actions, type) {
