@@ -1,5 +1,35 @@
 # OmniRemote Release Notes
 
+## v1.6.3 - Samsung IR Encoding Fix (2024-02-25)
+
+### 🐛 Critical Bug Fixes
+
+#### Samsung32 IR Encoding - Complete Rewrite
+The Samsung IR encoding was fundamentally broken. Fixed two major issues:
+
+**Issue 1: Wrong Time Unit**
+- Before: Used carrier-frequency-based calculation (13.158µs for 38kHz)
+- After: Uses fixed Broadlink time unit (8192/269 ≈ 30.45µs)
+- This is the actual time base Broadlink devices use internally
+
+**Issue 2: Wrong Bit Encoding Method**  
+Samsung TVs controlled via Broadlink use a **mark-based** encoding variant:
+
+| Bit | Before (WRONG)              | After (CORRECT)             |
+|-----|-----------------------------|-----------------------------|
+| 0   | 560µs mark, 560µs space     | 560µs mark, 560µs space     |
+| 1   | 560µs mark, 1690µs space    | **1690µs mark**, 560µs space|
+
+The bit value is determined by the **mark duration**, not the space duration.
+
+**Testing Your Samsung TV:**
+1. Install v1.6.3
+2. Go to IR Debugger in the OmniRemote panel
+3. Click "Power" in Quick Test - Samsung TV section
+4. If power doesn't work, try "power_off" command (0x98) which is a discrete off
+
+---
+
 ## v1.6.2 - Cache Busting Fix (2024-02-25)
 
 ### 🐛 Bug Fixes

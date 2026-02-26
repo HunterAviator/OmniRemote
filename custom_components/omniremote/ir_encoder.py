@@ -131,23 +131,25 @@ def _timings_to_broadlink(timings: list[int], frequency: int = 38000) -> str:
     Convert raw timings (microseconds) to Broadlink format.
     
     Timings are alternating mark/space durations in microseconds.
+    
+    IMPORTANT: Broadlink RM2/RM Mini uses a fixed time unit of approximately
+    30.45µs (8192/269), NOT based on the carrier frequency!
     """
     if not timings:
         return None
     
-    # Broadlink uses a time unit based on the carrier frequency
-    # Time unit = 1 / (frequency * 2) seconds = 500000 / frequency microseconds
-    # For 38kHz: time_unit = 500000 / 38000 = 13.158 microseconds
-    time_unit = 500000 / frequency if frequency > 0 else 13.158
+    # Broadlink time unit is fixed at 8192/269 µs ≈ 30.45µs
+    # This is independent of the carrier frequency!
+    BROADLINK_TIME_UNIT = 8192.0 / 269.0  # ≈ 30.45 µs
     
-    _LOGGER.debug("Converting %d timings to Broadlink format (freq=%d, unit=%.2fµs)", 
-                  len(timings), frequency, time_unit)
+    _LOGGER.debug("Converting %d timings to Broadlink format (time_unit=%.2fµs)", 
+                  len(timings), BROADLINK_TIME_UNIT)
     
     # Convert timings to Broadlink units
     bl_data = []
-    for i, timing in enumerate(timings):
+    for timing in timings:
         # Convert microseconds to Broadlink time units
-        units = int(abs(timing) / time_unit + 0.5)  # Round to nearest
+        units = round(abs(timing) / BROADLINK_TIME_UNIT)
         
         if units == 0:
             units = 1  # Minimum 1 unit
@@ -160,7 +162,7 @@ def _timings_to_broadlink(timings: list[int], frequency: int = 38000) -> str:
     
     # Build Broadlink packet
     # Format: 0x26 0x00 <length_lo> <length_hi> <data...>
-    # 0x26 = IR transmission
+    # 0x26 = IR transmission marker
     # 0x00 = Repeat count (0 = send once)
     packet = [0x26, 0x00]
     
@@ -311,13 +313,32 @@ def _encode_nec_extended(address: int, command: int) -> list[int]:
 # Samsung32 Protocol (38kHz)
 # =============================================================================
 # Leader: 4500µs mark, 4500µs space
-# Logical 0: 560µs mark, 560µs space
-# Logical 1: 560µs mark, 1690µs space
+# 
+# IMPORTANT: There are TWO Samsung IR encoding variants:
+# 
+# Variant 1 (Space-based, traditional):
+#   - Logical 0: 560µs mark, 560µs space
+#   - Logical 1: 560µs mark, 1690µs space
+#   - Bit determined by SPACE duration
+#
+# Variant 2 (Mark-based, used by many Broadlink-controlled TVs):
+#   - Logical 0: 560µs mark, 560µs space  
+#   - Logical 1: 1690µs mark, 560µs space
+#   - Bit determined by MARK duration
+#
+# We use Variant 2 (mark-based) as this matches Broadlink app behavior.
 # Format: Address (8), Address (8), Command (8), ~Command (8)
-# Note: Samsung TVs typically need the signal repeated 2-3 times
 
-def _encode_samsung32(address: int, command: int, repeats: int = 2) -> list[int]:
-    """Encode Samsung32 protocol with repeats."""
+def _encode_samsung32(address: int, command: int, repeats: int = 1) -> list[int]:
+    """Encode Samsung32 protocol (mark-based variant).
+    
+    This uses the mark-duration encoding that matches Broadlink app behavior.
+    
+    Args:
+        address: Device address (typically 0x07 for Samsung TV)
+        command: Command code
+        repeats: Number of times to repeat the frame (default 1)
+    """
     
     def encode_frame():
         """Encode a single Samsung32 frame."""
@@ -335,13 +356,14 @@ def _encode_samsung32(address: int, command: int, repeats: int = 2) -> list[int]
         ]
         
         # Encode each bit (LSB first)
+        # Mark-based encoding: long mark = 1, short mark = 0
         for byte in data:
             for bit in range(8):
-                frame.append(560)  # Mark
                 if (byte >> bit) & 1:
-                    frame.append(1690)  # Space for 1
+                    frame.append(1690)  # Long mark for 1
                 else:
-                    frame.append(560)   # Space for 0
+                    frame.append(560)   # Short mark for 0
+                frame.append(560)       # Space is always short
         
         # End mark
         frame.append(560)
@@ -353,7 +375,7 @@ def _encode_samsung32(address: int, command: int, repeats: int = 2) -> list[int]
     # First frame
     timings.extend(encode_frame())
     
-    # Add repeats with gap
+    # Add repeats with gap if needed
     for _ in range(repeats - 1):
         # Gap between frames (about 46ms for Samsung)
         timings.append(46000)
