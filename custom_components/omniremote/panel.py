@@ -243,6 +243,14 @@ class OmniApiDevices(HomeAssistantView):
             room_id=data.get("room_id"),
         )
         
+        # Set entity_id for HA integration
+        if data.get("entity_id"):
+            device.entity_id = data["entity_id"]
+        
+        # Set catalog_id reference
+        if data.get("catalog_id"):
+            device.catalog_id = data["catalog_id"]
+        
         # Set power commands if provided
         if data.get("power_on_command"):
             device.power_on_command = data["power_on_command"]

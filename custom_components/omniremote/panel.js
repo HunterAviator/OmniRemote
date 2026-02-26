@@ -1,9 +1,9 @@
 /**
- * OmniRemote Manager Panel v1.6.5
+ * OmniRemote Manager Panel v1.7.0
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.6.7";
+const OMNIREMOTE_VERSION = "1.7.0";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -34,7 +34,11 @@ class OmniRemotePanel extends HTMLElement {
 
   async _checkVersion() {
     try {
-      const res = await this._api('/api/omniremote/version');
+      // Add cache-bust to version check
+      const res = await fetch(`/api/omniremote/version?_=${Date.now()}`, {
+        headers: { 'Cache-Control': 'no-cache' }
+      }).then(r => r.json());
+      
       if (res.version && res.version !== this._version) {
         console.warn(`[OmniRemote] Version mismatch! Panel: ${this._version}, Server: ${res.version}`);
         this._versionMismatch = res.version;
@@ -43,6 +47,17 @@ class OmniRemotePanel extends HTMLElement {
     } catch (e) {
       console.debug('[OmniRemote] Version check failed:', e);
     }
+  }
+
+  _forceReload() {
+    // Clear all caches and force reload
+    if ('caches' in window) {
+      caches.keys().then(names => {
+        names.forEach(name => caches.delete(name));
+      });
+    }
+    // Force hard reload bypassing cache
+    window.location.href = window.location.href.split('?')[0] + '?_reload=' + Date.now();
   }
 
   async _loadData() {
@@ -315,13 +330,16 @@ class OmniRemotePanel extends HTMLElement {
             <div>${this._getHeaderButtons()}</div>
           </header>
           ${this._versionMismatch ? `
-            <div class="version-banner">
-              <ha-icon icon="mdi:alert"></ha-icon>
-              <span>
-                <strong>Version Mismatch!</strong> Panel: v${this._version}, Server: v${this._versionMismatch}. 
-                Try: <a href="#" onclick="location.reload(true); return false;">Hard Reload</a> (Ctrl+Shift+R) 
-                or <a href="#" onclick="caches.keys().then(k => k.forEach(n => caches.delete(n))).then(() => location.reload(true)); return false;">Clear Cache & Reload</a>
-              </span>
+            <div class="version-banner" style="background:#ff5722;padding:16px;margin-bottom:16px;border-radius:8px;display:flex;align-items:center;gap:12px;">
+              <ha-icon icon="mdi:alert" style="font-size:32px;"></ha-icon>
+              <div style="flex:1;">
+                <strong style="font-size:16px;">Panel Update Required!</strong><br>
+                <span style="font-size:13px;">Panel: v${this._version} → Server: v${this._versionMismatch}</span>
+              </div>
+              <button class="btn" onclick="window.location.href=window.location.href.split('?')[0]+'?_reload='+Date.now();" 
+                      style="background:#fff;color:#ff5722;font-weight:bold;padding:12px 24px;">
+                <ha-icon icon="mdi:refresh"></ha-icon> Reload Panel
+              </button>
             </div>
           ` : ''}
           <div class="content">${this._getContent()}</div>
@@ -408,6 +426,12 @@ class OmniRemotePanel extends HTMLElement {
         break;
       case 'show-add-device':
         this._showAddDeviceModal();
+        break;
+      case 'show-import-ha-entity':
+        await this._showImportHaEntityModal();
+        break;
+      case 'import-ha-entity':
+        await this._importHaEntity(data.entityId);
         break;
       case 'save-device':
         await this._saveDevice();
@@ -835,22 +859,52 @@ class OmniRemotePanel extends HTMLElement {
 
   _devicesView() {
     if (!this._data.devices.length) {
-      return `<div class="empty"><ha-icon icon="mdi:devices"></ha-icon><h3>No Devices</h3><p>Add your first device</p><button class="btn btn-p" data-action="show-add-device">Add Device</button></div>`;
-    }
-    return `<div class="grid">${this._data.devices.map(d => `
-      <div class="card">
-        <div class="card-head">
-          <div class="card-icon"><ha-icon icon="${this._catIcon(d.category)}"></ha-icon></div>
-          <div class="card-info">
-            <div class="card-title">${d.name}</div>
-            <div class="card-sub">${d.brand || ''} ${d.model || ''}</div>
+      return `
+        <div class="empty">
+          <ha-icon icon="mdi:devices"></ha-icon>
+          <h3>No Devices</h3>
+          <p>Add devices from the IR catalog or import from Home Assistant</p>
+          <div style="display:flex;gap:12px;justify-content:center;margin-top:16px;">
+            <button class="btn btn-p" data-action="show-add-device">
+              <ha-icon icon="mdi:plus"></ha-icon> Add IR Device
+            </button>
+            <button class="btn btn-s" data-action="show-import-ha-entity">
+              <ha-icon icon="mdi:home-assistant"></ha-icon> Import from HA
+            </button>
           </div>
         </div>
-        <div class="card-btns">
-          <button class="btn btn-s" data-action="open-device" data-device-id="${d.id}">Control</button>
+      `;
+    }
+    return `
+      <div class="page-header" style="margin-bottom:16px;">
+        <h2><ha-icon icon="mdi:devices"></ha-icon> Devices</h2>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-s" data-action="show-import-ha-entity">
+            <ha-icon icon="mdi:home-assistant"></ha-icon> Import from HA
+          </button>
+          <button class="btn btn-p" data-action="show-add-device">
+            <ha-icon icon="mdi:plus"></ha-icon> Add Device
+          </button>
         </div>
       </div>
-    `).join('')}</div>`;
+      <div class="grid">${this._data.devices.map(d => `
+        <div class="card">
+          <div class="card-head">
+            <div class="card-icon" style="${d.entity_id ? 'background:#1b3d1b;' : ''}">
+              <ha-icon icon="${d.entity_id ? 'mdi:home-assistant' : this._catIcon(d.category)}" 
+                       style="${d.entity_id ? 'color:#4caf50;' : ''}"></ha-icon>
+            </div>
+            <div class="card-info">
+              <div class="card-title">${d.name}</div>
+              <div class="card-sub">${d.entity_id || (d.brand || '') + ' ' + (d.model || '')}</div>
+            </div>
+          </div>
+          <div class="card-btns">
+            <button class="btn btn-s" data-action="open-device" data-device-id="${d.id}">Control</button>
+          </div>
+        </div>
+      `).join('')}</div>
+    `;
   }
 
   _scenesView() {
@@ -1733,6 +1787,144 @@ class OmniRemotePanel extends HTMLElement {
       <button class="btn btn-p" data-action="save-device">Save Device</button>
     `;
     this._render();
+  }
+
+  async _showImportHaEntityModal() {
+    // Get HA entities
+    const domains = ['media_player', 'light', 'switch', 'fan', 'climate', 'cover', 'remote'];
+    const entities = [];
+    
+    if (this._hass && this._hass.states) {
+      for (const entityId of Object.keys(this._hass.states)) {
+        const domain = entityId.split('.')[0];
+        if (domains.includes(domain)) {
+          const state = this._hass.states[entityId];
+          entities.push({
+            entity_id: entityId,
+            name: state.attributes.friendly_name || entityId,
+            domain: domain,
+            icon: state.attributes.icon || this._domainIcon(domain),
+          });
+        }
+      }
+    }
+    
+    // Group by domain
+    const byDomain = {};
+    entities.forEach(e => {
+      if (!byDomain[e.domain]) byDomain[e.domain] = [];
+      byDomain[e.domain].push(e);
+    });
+    
+    this._haEntities = entities;
+    this._haEntitiesByDomain = byDomain;
+    
+    this._modal = `
+      <div class="modal-head">
+        <h3><ha-icon icon="mdi:home-assistant"></ha-icon> Import from Home Assistant</h3>
+        <button class="modal-close" data-action="close-modal">&times;</button>
+      </div>
+      <p style="color:#888;margin-top:0;">
+        Import existing Home Assistant entities as OmniRemote devices for unified control.
+      </p>
+      <div class="fg">
+        <label class="fl">Filter</label>
+        <input type="text" class="fi" id="ha-entity-search" placeholder="Search entities...">
+      </div>
+      <div style="max-height:400px;overflow-y:auto;">
+        ${Object.keys(byDomain).sort().map(domain => `
+          <div style="margin-bottom:16px;">
+            <h4 style="margin:0 0 8px;color:#888;font-size:12px;text-transform:uppercase;">
+              <ha-icon icon="${this._domainIcon(domain)}" style="font-size:14px;"></ha-icon> ${domain}
+            </h4>
+            <div style="display:flex;flex-direction:column;gap:4px;">
+              ${byDomain[domain].map(e => `
+                <div style="display:flex;align-items:center;gap:12px;padding:8px;background:#1a1a2e;border-radius:4px;">
+                  <ha-icon icon="${e.icon}" style="color:#4caf50;"></ha-icon>
+                  <div style="flex:1;">
+                    <div style="font-weight:500;">${e.name}</div>
+                    <div style="font-size:11px;color:#666;">${e.entity_id}</div>
+                  </div>
+                  <button class="btn btn-sm btn-p" data-action="import-ha-entity" data-entity-id="${e.entity_id}">
+                    Import
+                  </button>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    this._render();
+    
+    // Setup search filter
+    setTimeout(() => {
+      const searchInput = this.shadowRoot.getElementById('ha-entity-search');
+      if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+          const query = e.target.value.toLowerCase();
+          const items = this.shadowRoot.querySelectorAll('[data-action="import-ha-entity"]');
+          items.forEach(item => {
+            const parent = item.closest('[style*="display:flex"][style*="padding:8px"]');
+            if (parent) {
+              const text = parent.textContent.toLowerCase();
+              parent.style.display = text.includes(query) ? 'flex' : 'none';
+            }
+          });
+        });
+      }
+    }, 100);
+  }
+
+  _domainIcon(domain) {
+    const icons = {
+      'media_player': 'mdi:cast',
+      'light': 'mdi:lightbulb',
+      'switch': 'mdi:toggle-switch',
+      'fan': 'mdi:fan',
+      'climate': 'mdi:thermostat',
+      'cover': 'mdi:window-shutter',
+      'remote': 'mdi:remote',
+    };
+    return icons[domain] || 'mdi:devices';
+  }
+
+  async _importHaEntity(entityId) {
+    const state = this._hass?.states?.[entityId];
+    if (!state) {
+      alert('Entity not found');
+      return;
+    }
+    
+    const domain = entityId.split('.')[0];
+    const name = state.attributes.friendly_name || entityId;
+    
+    // Map domain to category
+    const categoryMap = {
+      'media_player': 'streaming',
+      'light': 'light',
+      'switch': 'other',
+      'fan': 'fan',
+      'climate': 'ac',
+      'cover': 'other',
+      'remote': 'other',
+    };
+    
+    const res = await this._api('/api/omniremote/devices', 'POST', {
+      name: name,
+      category: categoryMap[domain] || 'other',
+      entity_id: entityId,
+      brand: 'Home Assistant',
+      model: domain,
+    });
+    
+    if (res.device) {
+      alert(`Imported: ${name}`);
+      this._modal = null;
+      await this._loadData();
+    } else {
+      alert('Failed to import: ' + (res.error || 'Unknown error'));
+    }
   }
 
   _showAddSceneModal() {
@@ -2666,6 +2858,8 @@ class OmniRemotePanel extends HTMLElement {
     const roomId = this.shadowRoot.getElementById('scene-room')?.value || null;
     const blasterId = this.shadowRoot.getElementById('scene-blaster')?.value || null;
     
+    console.log('[OmniRemote] Saving scene:', { sceneId, name, roomId, blasterId });
+    
     if (!name) {
       alert('Please enter a scene name');
       return;
@@ -2674,8 +2868,8 @@ class OmniRemotePanel extends HTMLElement {
     const sceneData = {
       name,
       icon,
-      room_id: roomId,
-      blaster_id: blasterId,
+      room_id: roomId === '' ? null : roomId,  // Ensure empty string becomes null
+      blaster_id: blasterId === '' ? null : blasterId,
       on_actions: this._editingScene.on_actions,
       off_actions: this._editingScene.off_actions,
       controlled_device_ids: this._editingScene.on_actions
@@ -2685,6 +2879,8 @@ class OmniRemotePanel extends HTMLElement {
         .filter(a => a.action_type === 'ha_service' && a.entity_id)
         .map(a => a.entity_id),
     };
+    
+    console.log('[OmniRemote] Scene data:', sceneData);
     
     let res;
     if (sceneId) {

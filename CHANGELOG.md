@@ -1,5 +1,40 @@
 # OmniRemote Release Notes
 
+## v1.7.0 - HA Entity Import & Cache Fix (2024-02-26)
+
+### ✨ New Features
+
+#### Import Home Assistant Entities as Devices
+Add existing HA entities (media players, lights, switches, fans, climate, covers) to OmniRemote for unified control:
+
+1. Go to **Devices** tab
+2. Click **Import from HA**
+3. Browse entities by domain (media_player, light, switch, etc.)
+4. Search/filter to find specific entities
+5. Click **Import** to add
+
+Imported devices show with the HA icon and can be used in scenes alongside IR devices.
+
+### 🐛 Bug Fixes
+
+#### Improved Cache Busting
+- More aggressive version mismatch detection
+- Prominent orange "Reload Panel" banner when update available
+- Direct reload button (no manual cache clearing needed)
+- URL parameter cache-busting for version API
+
+#### Scene Room Assignment
+- Added debug logging for scene save
+- Fixed empty string vs null handling for room_id
+- Check browser console for save details
+
+### 📝 Also Includes
+- All fixes from v1.6.9 (API auth)
+- Corrected Onkyo IR codes (v1.6.8)
+- Flipper Zero support (v1.6.7)
+
+---
+
 ## v1.6.9 - API Auth Fix (2024-02-26)
 
 ### 🐛 Bug Fixes

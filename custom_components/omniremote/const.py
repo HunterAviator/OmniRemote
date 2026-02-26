@@ -7,7 +7,7 @@ from typing import Any
 import uuid
 
 DOMAIN = "omniremote"
-VERSION = "1.6.9"
+VERSION = "1.7.0"
 
 # Storage
 STORAGE_VERSION = 1
@@ -175,6 +175,10 @@ class Device:
     room_id: str | None = None
     commands: dict[str, RemoteCode] = field(default_factory=dict)
     
+    # Home Assistant entity integration
+    entity_id: str | None = None  # e.g., "media_player.living_room_tv"
+    catalog_id: str | None = None  # Reference to catalog profile
+    
     # State tracking
     power_state: bool = False  # On/Off
     current_input: str | None = None  # Current input (HDMI1, etc.)
@@ -200,6 +204,8 @@ class Device:
             "brand": self.brand,
             "model": self.model,
             "room_id": self.room_id,
+            "entity_id": self.entity_id,
+            "catalog_id": self.catalog_id,
             "commands": {k: v.to_dict() for k, v in self.commands.items()},
             "power_state": self.power_state,
             "current_input": self.current_input,
@@ -225,6 +231,8 @@ class Device:
             brand=data.get("brand", ""),
             model=data.get("model", ""),
             room_id=data.get("room_id"),
+            entity_id=data.get("entity_id"),
+            catalog_id=data.get("catalog_id"),
             commands=commands,
             power_state=data.get("power_state", False),
             current_input=data.get("current_input"),
