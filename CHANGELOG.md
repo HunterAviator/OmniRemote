@@ -1,5 +1,25 @@
 # OmniRemote Release Notes
 
+## v1.6.5 - Debugger Fixes & Encoding Help (2024-02-26)
+
+### 🐛 Bug Fixes
+
+#### Quick Test from Catalog Fixed
+- Fixed HTTP 400 error when testing catalog commands from debugger
+- Separated debugger catalog test (`debug-catalog-test`) from catalog preview test (`test-catalog-cmd`)
+- Both now work correctly with their respective contexts
+
+### 📝 Enhanced Documentation
+
+#### Expanded IR Encoding Help
+Click "Help" button in IR Debugger for comprehensive encoding reference:
+- **Protocol descriptions** - Which brands use which protocol
+- **Common address codes** - Samsung (07), LG (04), Sony (01), NEC (00/04)
+- **Common command codes** - Power, volume, mute for each protocol
+- **Resource links** - IRDB Wiki, GitHub IRDB for code lookups
+
+---
+
 ## v1.6.4 - Debugger UX & Jensen Radio Support (2024-02-26)
 
 ### ✨ New Features

@@ -1,9 +1,9 @@
 /**
- * OmniRemote Manager Panel v1.6.4
+ * OmniRemote Manager Panel v1.6.5
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.6.4";
+const OMNIREMOTE_VERSION = "1.6.5";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -576,7 +576,12 @@ class OmniRemotePanel extends HTMLElement {
         this._render();
         break;
       case 'test-catalog-cmd':
-        await this._testCatalogCommand(data.deviceId, data.cmd);
+        // Called from catalog preview - uses profileId
+        await this._testCatalogCommand(data.profileId, data.cmd);
+        break;
+      case 'debug-catalog-test':
+        // Called from debugger - uses deviceId
+        await this._debugCatalogTest(data.deviceId, data.cmd);
         break;
     }
   }
@@ -1128,16 +1133,39 @@ class OmniRemotePanel extends HTMLElement {
       <div id="encoding-help" class="card" style="margin-bottom:12px;display:${this._showEncodingHelp ? 'block' : 'none'};background:#1a2a1a;border-color:#4caf50;">
         <h4 style="margin-top:0;color:#81c784;"><ha-icon icon="mdi:information"></ha-icon> How to Use Test Encoding</h4>
         <div style="color:#a5d6a7;font-size:13px;line-height:1.6;">
-          <p><strong>Protocol:</strong> The IR protocol your device uses. Most TVs use Samsung32, NEC, or RC5/RC6.</p>
-          <p><strong>Address:</strong> Device address in hex (e.g., "07" for Samsung TVs, "04" for many NEC devices).</p>
-          <p><strong>Command:</strong> The command code in hex (e.g., "02" for power on Samsung).</p>
+          <p><strong>Protocol:</strong> The IR encoding protocol. Each manufacturer typically uses one:</p>
+          <ul style="margin:4px 0 12px 0;padding-left:20px;">
+            <li><strong>Samsung32</strong> - Samsung TVs, monitors, home theater (addr: 07)</li>
+            <li><strong>NEC</strong> - LG, Vizio, many Asian brands (8-bit address)</li>
+            <li><strong>NEC Extended</strong> - LG, some Sony (16-bit address)</li>
+            <li><strong>Sony SIRC</strong> - Sony TVs, PlayStation, audio (12/15/20 bit)</li>
+            <li><strong>RC5/RC6</strong> - Philips, European brands, some Microsoft</li>
+            <li><strong>Panasonic</strong> - Panasonic (Kaseikyo protocol)</li>
+            <li><strong>JVC</strong> - JVC audio/video equipment</li>
+          </ul>
+          <p><strong>Address (hex):</strong> Identifies the device type/brand. Examples:</p>
+          <ul style="margin:4px 0 12px 0;padding-left:20px;">
+            <li>Samsung TV: <code>07</code></li>
+            <li>LG TV: <code>04</code></li>
+            <li>Sony TV: <code>01</code></li>
+            <li>NEC generic: <code>00</code> or <code>04</code></li>
+          </ul>
+          <p><strong>Command (hex):</strong> The specific button/function. Common codes:</p>
+          <ul style="margin:4px 0 12px 0;padding-left:20px;">
+            <li>Power toggle: <code>02</code> (Samsung), <code>08</code> (NEC)</li>
+            <li>Power off: <code>98</code> (Samsung discrete)</li>
+            <li>Volume up: <code>07</code> (Samsung), <code>02</code> (NEC)</li>
+            <li>Volume down: <code>0B</code> (Samsung), <code>03</code> (NEC)</li>
+            <li>Mute: <code>0F</code> (Samsung), <code>09</code> (NEC)</li>
+          </ul>
           <p style="margin-top:12px;"><strong>Buttons:</strong></p>
           <ul style="margin:4px 0;padding-left:20px;">
-            <li><strong>Encode Only</strong> - Convert to Broadlink format without sending (see raw bytes in log)</li>
+            <li><strong>Encode Only</strong> - Convert to Broadlink packet without sending (see bytes in log)</li>
             <li><strong>Send</strong> - Encode AND transmit via selected blaster</li>
           </ul>
           <p style="margin-top:12px;border-top:1px solid #4caf50;padding-top:12px;">
-            <strong>Finding codes:</strong> Check service manual, search "DEVICE_NAME IR hex codes", or use Learn feature.
+            <strong>Finding codes:</strong> Search "DEVICE_NAME IR codes hex" or check <a href="http://www.hifi-remote.com/wiki/index.php?title=Main_Page" target="_blank" style="color:#81c784;">IRDB Wiki</a>, 
+            <a href="https://github.com/probonopd/irdb" target="_blank" style="color:#81c784;">GitHub IRDB</a>, or your device service manual.
           </p>
         </div>
       </div>
@@ -1205,7 +1233,7 @@ class OmniRemotePanel extends HTMLElement {
             const commands = device.commands || device.ir_codes || {};
             const cmdList = Object.keys(commands).slice(0, 20);
             return cmdList.map(cmd => 
-              '<button class="btn" data-action="test-catalog-cmd" data-device-id="' + device.id + '" data-cmd="' + cmd + '">' + cmd + '</button>'
+              '<button class="btn" data-action="debug-catalog-test" data-device-id="' + device.id + '" data-cmd="' + cmd + '">' + cmd + '</button>'
             ).join('') + (Object.keys(commands).length > 20 ? '<span style="color:#888;align-self:center;">+' + (Object.keys(commands).length - 20) + ' more</span>' : '');
           })() : '<span style="color:#666;font-style:italic;">Select a category and device above</span>'}
         </div>
@@ -3398,7 +3426,7 @@ class OmniRemotePanel extends HTMLElement {
     }
   }
 
-  async _testCatalogCommand(deviceId, cmdName) {
+  async _debugCatalogTest(deviceId, cmdName) {
     // Get selected blaster
     const blasterSelect = this.shadowRoot.getElementById('debug-blaster');
     const blasterId = blasterSelect?.value || this._debugBlaster || '';
