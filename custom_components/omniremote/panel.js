@@ -1,9 +1,9 @@
 /**
- * OmniRemote Manager Panel v1.7.0
+ * OmniRemote Manager Panel v1.8.2
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.7.0";
+const OMNIREMOTE_VERSION = "1.8.2";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -16,6 +16,7 @@ class OmniRemotePanel extends HTMLElement {
     this._roomId = null;
     this._deviceId = null;
     this._version = OMNIREMOTE_VERSION;
+    this._versionMismatch = null;
     
     // Log panel load for debugging cache issues
     console.log(`[OmniRemote] Panel v${OMNIREMOTE_VERSION} loaded at ${new Date().toISOString()}`);
@@ -34,19 +35,132 @@ class OmniRemotePanel extends HTMLElement {
 
   async _checkVersion() {
     try {
-      // Add cache-bust to version check
-      const res = await fetch(`/api/omniremote/version?_=${Date.now()}`, {
-        headers: { 'Cache-Control': 'no-cache' }
+      // Aggressive cache-busting for version check
+      const cacheBuster = `${Date.now()}-${Math.random().toString(36).substring(7)}`;
+      const res = await fetch(`/api/omniremote/version?_=${cacheBuster}`, {
+        method: 'GET',
+        cache: 'no-store',
+        headers: { 
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        }
       }).then(r => r.json());
       
       if (res.version && res.version !== this._version) {
         console.warn(`[OmniRemote] Version mismatch! Panel: ${this._version}, Server: ${res.version}`);
         this._versionMismatch = res.version;
         this._render();
+      } else {
+        console.log(`[OmniRemote] Version OK: ${this._version}`);
+        // Clear mismatch if versions now match
+        if (this._versionMismatch) {
+          this._versionMismatch = null;
+          this._render();
+        }
       }
     } catch (e) {
       console.debug('[OmniRemote] Version check failed:', e);
     }
+  }
+  
+  async _forceReload() {
+    // Clear all caches and force reload
+    console.log('[OmniRemote] Force reloading panel...');
+    
+    // Show loading indicator
+    const banner = this.shadowRoot?.querySelector('.version-banner');
+    if (banner) {
+      banner.innerHTML = `
+        <ha-icon icon="mdi:loading" style="animation: spin 1s linear infinite;"></ha-icon>
+        <div style="flex:1;">
+          <strong>Reloading OmniRemote...</strong><br>
+          <span style="font-size:12px;">Please wait...</span>
+        </div>
+      `;
+    }
+    
+    try {
+      // Step 1: Try to reload the integration via HA websocket (this re-registers the panel with new version)
+      if (this._hass) {
+        try {
+          // Get the config entry ID for OmniRemote
+          const configEntries = await this._hass.callWS({ type: 'config_entries/get', domain: 'omniremote' });
+          if (configEntries && configEntries.length > 0) {
+            const entryId = configEntries[0].entry_id;
+            console.log('[OmniRemote] Reloading config entry:', entryId);
+            await this._hass.callWS({ type: 'config_entries/reload', entry_id: entryId });
+            console.log('[OmniRemote] Config entry reloaded');
+            
+            // Wait for reload to complete
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        } catch (wsErr) {
+          console.warn('[OmniRemote] Could not reload via websocket:', wsErr);
+        }
+      }
+      
+      // Step 2: Clear browser caches
+      if ('serviceWorker' in navigator) {
+        const registrations = await navigator.serviceWorker.getRegistrations();
+        for (const reg of registrations) {
+          await reg.unregister();
+        }
+      }
+      
+      if ('caches' in window) {
+        const names = await caches.keys();
+        for (const name of names) {
+          await caches.delete(name);
+        }
+      }
+      
+      // Step 3: Clear local storage cache if any
+      try {
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+          const key = localStorage.key(i);
+          if (key && (key.includes('omniremote') || key.includes('hass') || key.includes('frontend'))) {
+            localStorage.removeItem(key);
+          }
+        }
+      } catch (e) {}
+      
+      // Step 4: Force hard reload - navigate away and back
+      // This ensures the browser fetches fresh resources
+      const currentUrl = window.location.href.split('?')[0];
+      
+      // Navigate to HA root first to clear panel state
+      window.location.href = '/_my_redirect/config?reload=' + Date.now();
+      
+      // After 500ms redirect back (the browser will have cleared the panel)
+      setTimeout(() => {
+        window.location.href = currentUrl + '?_=' + Date.now();
+      }, 500);
+      
+    } catch (e) {
+      console.error('[OmniRemote] Reload failed:', e);
+      // Fallback: simple reload
+      window.location.reload(true);
+    }
+  }
+  
+  async _hardRefresh() {
+    // Alternative: fetch new JS directly and reload
+    try {
+      const cacheBuster = Date.now() + '-' + Math.random().toString(36).substring(7);
+      const response = await fetch(`/api/omniremote/panel.js?_=${cacheBuster}`, {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' }
+      });
+      const newVersion = response.headers.get('X-OmniRemote-Version');
+      console.log('[OmniRemote] Server version:', newVersion);
+      
+      // Force reload with cache bypass
+      window.location.reload(true);
+    } catch (e) {
+      window.location.reload(true);
+    }
+  }
   }
 
   _forceReload() {
@@ -333,16 +447,29 @@ class OmniRemotePanel extends HTMLElement {
             <div>${this._getHeaderButtons()}</div>
           </header>
           ${this._versionMismatch ? `
-            <div class="version-banner" style="background:#ff5722;padding:16px;margin-bottom:16px;border-radius:8px;display:flex;align-items:center;gap:12px;">
-              <ha-icon icon="mdi:alert" style="font-size:32px;"></ha-icon>
-              <div style="flex:1;">
-                <strong style="font-size:16px;">Panel Update Required!</strong><br>
-                <span style="font-size:13px;">Panel: v${this._version} → Server: v${this._versionMismatch}</span>
+            <div class="version-banner" style="background:linear-gradient(135deg, #ff5722 0%, #e64a19 100%);padding:20px;margin-bottom:16px;border-radius:12px;box-shadow:0 4px 12px rgba(0,0,0,0.3);">
+              <div style="display:flex;align-items:center;gap:16px;margin-bottom:12px;">
+                <ha-icon icon="mdi:alert-circle" style="font-size:36px;color:#fff;"></ha-icon>
+                <div style="flex:1;">
+                  <strong style="font-size:18px;color:#fff;">Panel Update Available</strong>
+                  <div style="font-size:13px;color:rgba(255,255,255,0.9);margin-top:4px;">
+                    Current: v${this._version} → Available: v${this._versionMismatch}
+                  </div>
+                </div>
               </div>
-              <button class="btn" onclick="window.location.href=window.location.href.split('?')[0]+'?_reload='+Date.now();" 
-                      style="background:#fff;color:#ff5722;font-weight:bold;padding:12px 24px;">
-                <ha-icon icon="mdi:refresh"></ha-icon> Reload Panel
-              </button>
+              <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                <button class="btn" data-action="force-reload"
+                        style="background:#fff;color:#ff5722;font-weight:bold;padding:12px 20px;border-radius:8px;display:flex;align-items:center;gap:8px;">
+                  <ha-icon icon="mdi:refresh"></ha-icon> Reload Integration
+                </button>
+                <button class="btn" data-action="hard-refresh"
+                        style="background:rgba(255,255,255,0.2);color:#fff;font-weight:500;padding:12px 20px;border-radius:8px;border:1px solid rgba(255,255,255,0.3);display:flex;align-items:center;gap:8px;">
+                  <ha-icon icon="mdi:web-refresh"></ha-icon> Hard Refresh (Ctrl+Shift+R)
+                </button>
+              </div>
+              <div style="font-size:11px;color:rgba(255,255,255,0.7);margin-top:12px;">
+                If buttons don't work: Settings → Devices & Services → OmniRemote → ⋮ → Reload, then Ctrl+Shift+R
+              </div>
             </div>
           ` : ''}
           <div class="content">${this._getContent()}</div>
@@ -421,6 +548,12 @@ class OmniRemotePanel extends HTMLElement {
     console.log('[OmniRemote] Action:', action, data);
     
     switch (action) {
+      case 'force-reload':
+        this._forceReload();
+        return; // Don't continue after reload
+      case 'hard-refresh':
+        this._hardRefresh();
+        return;
       case 'show-add-room':
         this._showAddRoomModal();
         break;
