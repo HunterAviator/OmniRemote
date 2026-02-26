@@ -1857,22 +1857,22 @@ data:
     
     const currentSection = sections[this._wikiSection] || sections['getting-started'];
     
-    return \`
+    return `
       <div class="wiki-container" style="display:flex;gap:24px;">
         <!-- Wiki Navigation -->
         <div class="wiki-nav" style="width:220px;flex-shrink:0;">
           <div class="card" style="padding:0;">
-            \${Object.entries(sections).map(([key, section]) => \`
-              <div class="wiki-nav-item \${this._wikiSection === key ? 'active' : ''}" 
-                   data-action="wiki-section" data-section="\${key}"
+            ${Object.entries(sections).map(([key, section]) => `
+              <div class="wiki-nav-item ${this._wikiSection === key ? 'active' : ''}" 
+                   data-action="wiki-section" data-section="${key}"
                    style="display:flex;align-items:center;gap:8px;padding:12px 16px;cursor:pointer;
                           border-bottom:1px solid #333;
-                          background:\${this._wikiSection === key ? '#2a2a4a' : 'transparent'};
-                          color:\${this._wikiSection === key ? '#64b5f6' : '#888'};">
-                <ha-icon icon="\${section.icon}" style="font-size:18px;"></ha-icon>
-                <span>\${section.title}</span>
+                          background:${this._wikiSection === key ? '#2a2a4a' : 'transparent'};
+                          color:${this._wikiSection === key ? '#64b5f6' : '#888'};">
+                <ha-icon icon="${section.icon}" style="font-size:18px;"></ha-icon>
+                <span>${section.title}</span>
               </div>
-            \`).join('')}
+            `).join('')}
           </div>
         </div>
         
@@ -1880,12 +1880,12 @@ data:
         <div class="wiki-content" style="flex:1;min-width:0;">
           <div class="card">
             <div class="wiki-article" style="line-height:1.7;color:#ccc;">
-              \${currentSection.content}
+              ${currentSection.content}
             </div>
           </div>
         </div>
       </div>
-    \`;
+    `;
   }
 
   _remotesView() {
