@@ -3,7 +3,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.6.5";
+const OMNIREMOTE_VERSION = "1.6.6";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -581,6 +581,7 @@ class OmniRemotePanel extends HTMLElement {
         break;
       case 'debug-catalog-test':
         // Called from debugger - uses deviceId
+        console.log('[OmniRemote] debug-catalog-test data:', data);
         await this._debugCatalogTest(data.deviceId, data.cmd);
         break;
     }
@@ -3431,6 +3432,8 @@ class OmniRemotePanel extends HTMLElement {
     const blasterSelect = this.shadowRoot.getElementById('debug-blaster');
     const blasterId = blasterSelect?.value || this._debugBlaster || '';
     
+    console.log('[OmniRemote] debugCatalogTest:', { deviceId, cmdName, blasterId });
+    
     // Send the catalog command via the test API
     const res = await this._api('/api/omniremote/test', 'POST', {
       action: 'send_catalog_code',
@@ -3438,6 +3441,8 @@ class OmniRemotePanel extends HTMLElement {
       command: cmdName,
       blaster_id: blasterId || undefined,
     });
+    
+    console.log('[OmniRemote] debugCatalogTest result:', res);
     
     // Refresh log
     await this._refreshDebugLog();

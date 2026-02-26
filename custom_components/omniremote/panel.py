@@ -1246,6 +1246,8 @@ class OmniApiTest(HomeAssistantView):
         data = await request.json()
         action = data.get("action", "test_command")
         
+        _LOGGER.info("OmniApiTest.post: action=%s, data_keys=%s", action, list(data.keys()))
+        
         if action == "test_command":
             # Test a specific command from a device
             device_id = data.get("device_id")
@@ -1451,38 +1453,54 @@ class OmniApiTest(HomeAssistantView):
             command = data.get("command")
             blaster_id = data.get("blaster_id")
             
+            _LOGGER.info("send_catalog_code: catalog_id=%s, command=%s, blaster_id=%s", 
+                        catalog_id, command, blaster_id)
+            
             if not catalog_id or not command:
+                _LOGGER.error("send_catalog_code: missing catalog_id or command")
                 return web.json_response({"error": "catalog_id and command required"}, status=400)
             
-            profile = get_profile(catalog_id)
-            if not profile:
-                return web.json_response({"error": f"Profile not found: {catalog_id}"}, status=404)
-            
-            ir_codes = profile.ir_codes if hasattr(profile, 'ir_codes') else {}
-            ir_code = ir_codes.get(command)
-            if not ir_code:
-                return web.json_response({"error": f"Command not found: {command}"}, status=404)
-            
-            from .ir_encoder import _log_debug
-            
-            _log_debug({
-                "action": "send_catalog_code_request",
-                "catalog_id": catalog_id,
-                "command": command,
-                "protocol": getattr(ir_code, 'protocol', '?'),
-                "blaster_id": blaster_id,
-            })
-            
-            success = await database.async_send_catalog_code(ir_code, blaster_id)
-            
-            return web.json_response({
-                "success": success,
-                "catalog_id": catalog_id,
-                "command": command,
-                "protocol": str(getattr(ir_code, 'protocol', '')),
-            })
+            try:
+                profile = get_profile(catalog_id)
+                if not profile:
+                    _LOGGER.error("send_catalog_code: profile not found: %s", catalog_id)
+                    return web.json_response({"error": f"Profile not found: {catalog_id}"}, status=404)
+                
+                ir_codes = getattr(profile, 'ir_codes', {})
+                ir_code = ir_codes.get(command)
+                if not ir_code:
+                    _LOGGER.error("send_catalog_code: command not found: %s in %s (available: %s)", 
+                                 command, catalog_id, list(ir_codes.keys())[:10])
+                    return web.json_response({"error": f"Command not found: {command}"}, status=404)
+                
+                from .ir_encoder import _log_debug
+                
+                _log_debug({
+                    "action": "send_catalog_code_request",
+                    "catalog_id": catalog_id,
+                    "command": command,
+                    "protocol": str(getattr(ir_code, 'protocol', '?')),
+                    "address": getattr(ir_code, 'address', '?'),
+                    "command_hex": getattr(ir_code, 'command', '?'),
+                    "blaster_id": blaster_id,
+                })
+                
+                success = await database.async_send_catalog_code(ir_code, blaster_id)
+                
+                _LOGGER.info("send_catalog_code: success=%s", success)
+                
+                return web.json_response({
+                    "success": success,
+                    "catalog_id": catalog_id,
+                    "command": command,
+                    "protocol": str(getattr(ir_code, 'protocol', '')),
+                })
+            except Exception as ex:
+                _LOGGER.exception("send_catalog_code error: %s", ex)
+                return web.json_response({"error": str(ex)}, status=500)
         
-        return web.json_response({"error": "Unknown action"}, status=400)
+        _LOGGER.warning("OmniApiTest: Unknown action '%s' (valid: test_command, test_catalog, list_profiles, get_profile_commands, switch_profile, send_raw, send_catalog_code)", action)
+        return web.json_response({"error": f"Unknown action in /api/omniremote/test: {action}"}, status=400)
 
 
 class OmniApiVersion(HomeAssistantView):

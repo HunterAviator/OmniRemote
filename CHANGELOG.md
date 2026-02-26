@@ -1,5 +1,25 @@
 # OmniRemote Release Notes
 
+## v1.6.6 - Debug Logging for Catalog Test (2024-02-26)
+
+### 🔧 Debugging
+
+Added extensive logging to diagnose "Quick Test from Catalog" 400 error:
+- Browser console: Logs data attributes from button clicks
+- Browser console: Logs API request and response
+- HA logs: Logs action and data keys received
+- HA logs: Logs catalog lookup results
+
+**To debug:**
+1. Install v1.6.6, restart HA
+2. Open browser dev tools (F12) → Console tab
+3. Go to OmniRemote → IR Debugger
+4. Select a category, device, click a command button
+5. Check browser console for `[OmniRemote]` messages
+6. Check HA logs for `omniremote` messages
+
+---
+
 ## v1.6.5 - Debugger Fixes & Encoding Help (2024-02-26)
 
 ### 🐛 Bug Fixes
