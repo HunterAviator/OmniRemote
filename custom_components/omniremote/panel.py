@@ -1728,7 +1728,9 @@ class OmniApiDebug(HomeAssistantView):
         
         elif action == "test_send":
             # Test send a code
-            database = self.hass.data[DOMAIN]["database"]
+            database = _get_database(self.hass)
+        if not database:
+            return web.json_response({"error": "Integration not configured"}, status=500)
             
             profile_id = data.get("profile_id")
             command_name = data.get("command")
@@ -1770,7 +1772,9 @@ class OmniApiDebug(HomeAssistantView):
         
         elif action == "blaster_status":
             # Get blaster connection status
-            database = self.hass.data[DOMAIN]["database"]
+            database = _get_database(self.hass)
+        if not database:
+            return web.json_response({"error": "Integration not configured"}, status=500)
             
             blasters_status = []
             for blaster in database.blasters.values():
@@ -1865,7 +1869,9 @@ class OmniApiPhysicalRemotes(HomeAssistantView):
     
     async def get(self, request: web.Request) -> web.Response:
         """Get all physical remotes."""
-        database = self.hass.data[DOMAIN]["database"]
+        database = _get_database(self.hass)
+        if not database:
+            return web.json_response({"error": "Integration not configured"}, status=500)
         
         remotes = []
         for remote in database.physical_remotes.values():
@@ -1881,7 +1887,9 @@ class OmniApiPhysicalRemotes(HomeAssistantView):
     
     async def post(self, request: web.Request) -> web.Response:
         """Add or update a physical remote."""
-        database = self.hass.data[DOMAIN]["database"]
+        database = _get_database(self.hass)
+        if not database:
+            return web.json_response({"error": "Integration not configured"}, status=500)
         data = await request.json()
         
         action = data.get("action", "add")
@@ -2020,7 +2028,9 @@ class OmniApiRemoteBridges(HomeAssistantView):
     
     async def get(self, request: web.Request) -> web.Response:
         """Get all remote bridges."""
-        database = self.hass.data[DOMAIN]["database"]
+        database = _get_database(self.hass)
+        if not database:
+            return web.json_response({"error": "Integration not configured"}, status=500)
         
         bridges = []
         for bridge in database.remote_bridges.values():
@@ -2036,7 +2046,9 @@ class OmniApiRemoteBridges(HomeAssistantView):
     
     async def post(self, request: web.Request) -> web.Response:
         """Add or update a remote bridge."""
-        database = self.hass.data[DOMAIN]["database"]
+        database = _get_database(self.hass)
+        if not database:
+            return web.json_response({"error": "Integration not configured"}, status=500)
         data = await request.json()
         
         action = data.get("action", "add")

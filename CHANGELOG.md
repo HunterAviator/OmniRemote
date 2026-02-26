@@ -92,3 +92,19 @@ Imported devices show with the HA icon and can be used in scenes alongside IR de
 
 - **Corrected Onkyo IR codes** (from v1.6.8)
   - Power toggle: `0x04` (was `0x1D`)
+
+## [1.8.1] - 2024-02-26
+
+### Fixed
+- **CRITICAL: Blank page fix** - Fixed JavaScript syntax error (escaped backticks) in wiki view that caused panel to show blank page
+- **API Error fix** - Fixed KeyError: 'database' in physical remotes and remote bridges API endpoints by using safe `_get_database()` helper
+- All API endpoints now gracefully handle cases where integration isn't fully configured
+
+
+## [1.8.3] - 2024-02-26
+
+### Fixed
+- **CRITICAL: Blank page fix** - Fixed JavaScript syntax error (escaped backticks) in wiki view that caused panel to show blank page
+- **API Error fix** - Fixed KeyError: 'database' in physical remotes and remote bridges API endpoints by using safe `_get_database()` helper
+- All API endpoints now gracefully handle cases where integration isn't fully configured
+
