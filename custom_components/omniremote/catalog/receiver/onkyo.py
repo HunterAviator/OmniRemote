@@ -1,47 +1,69 @@
 """Onkyo/Integra AVR profiles."""
 
+# Onkyo uses NEC protocol with address 0x4B (75)
+# Verified codes from IRDB and Pronto databases
+
 ONKYO_AVR_IR = DeviceProfile(
     id="onkyo_avr_ir",
     name="Onkyo AVR (IR)",
     brand="Onkyo",
     category="receiver",
-    model_years="2010+",
-    description="Onkyo AV Receivers - IR control.",
+    model_years="2008+",
+    description="Onkyo AV Receivers - IR control. Uses NEC protocol.",
     control_methods=[ControlMethod.IR],
     logo_url=BRAND_LOGOS.get("onkyo", ""),
     ir_codes={
-        "power": nec(0x4B, 0x1D, "power"),
-        "power_on": nec(0x4B, 0x1E, "power_on"),
-        "power_off": nec(0x4B, 0x1F, "power_off"),
+        # Power
+        "power": nec(0x4B, 0x04, "power"),           # Power toggle
+        "power_on": nec(0x4B, 0x1E, "power_on"),     # Discrete on
+        "power_off": nec(0x4B, 0x1F, "power_off"),   # Discrete off
+        
+        # Volume
         "vol_up": nec(0x4B, 0x02, "vol_up"),
         "vol_down": nec(0x4B, 0x03, "vol_down"),
         "mute": nec(0x4B, 0x05, "mute"),
+        
+        # Inputs (verified codes)
+        "input_dvd": nec(0x4B, 0x0B, "input_dvd"),
         "input_cbl_sat": nec(0x4B, 0x0E, "input_cbl_sat"),
-        "input_dvd": nec(0x4B, 0x31, "input_dvd"),
-        "input_bd": nec(0x4B, 0x32, "input_bd"),
-        "input_game": nec(0x4B, 0x33, "input_game"),
-        "input_strm_box": nec(0x4B, 0x34, "input_strm_box"),
-        "input_tv": nec(0x4B, 0x35, "input_tv"),
-        "input_cd": nec(0x4B, 0x36, "input_cd"),
-        "input_aux": nec(0x4B, 0x37, "input_aux"),
-        "input_tuner": nec(0x4B, 0x38, "input_tuner"),
-        "input_phono": nec(0x4B, 0x39, "input_phono"),
-        "input_usb": nec(0x4B, 0x3A, "input_usb"),
-        "input_bluetooth": nec(0x4B, 0x3B, "input_bluetooth"),
-        "input_net": nec(0x4B, 0x3C, "input_net"),
-        "surround_stereo": nec(0x4B, 0x50, "surround_stereo"),
-        "surround_direct": nec(0x4B, 0x51, "surround_direct"),
-        "surround_all_ch": nec(0x4B, 0x52, "surround_all_ch"),
-        "listening_mode_up": nec(0x4B, 0x53, "listening_mode_up"),
-        "listening_mode_down": nec(0x4B, 0x54, "listening_mode_down"),
-        "menu": nec(0x4B, 0x60, "menu"),
-        "up": nec(0x4B, 0x61, "up"),
-        "down": nec(0x4B, 0x62, "down"),
-        "left": nec(0x4B, 0x63, "left"),
-        "right": nec(0x4B, 0x64, "right"),
-        "enter": nec(0x4B, 0x65, "enter"),
-        "return": nec(0x4B, 0x66, "return"),
-        "home": nec(0x4B, 0x67, "home"),
+        "input_tv": nec(0x4B, 0x12, "input_tv"),
+        "input_cd": nec(0x4B, 0x20, "input_cd"),
+        "input_tuner": nec(0x4B, 0x08, "input_tuner"),
+        "input_phono": nec(0x4B, 0x21, "input_phono"),
+        "input_aux": nec(0x4B, 0x22, "input_aux"),
+        "input_bd": nec(0x4B, 0x10, "input_bd"),
+        "input_game": nec(0x4B, 0x0A, "input_game"),
+        "input_vcr": nec(0x4B, 0x0C, "input_vcr"),
+        "input_tape": nec(0x4B, 0x0D, "input_tape"),
+        "input_net": nec(0x4B, 0x2B, "input_net"),
+        "input_usb": nec(0x4B, 0x29, "input_usb"),
+        
+        # Navigation
+        "menu": nec(0x4B, 0x15, "menu"),
+        "up": nec(0x4B, 0x16, "up"),
+        "down": nec(0x4B, 0x17, "down"),
+        "left": nec(0x4B, 0x18, "left"),
+        "right": nec(0x4B, 0x19, "right"),
+        "enter": nec(0x4B, 0x1A, "enter"),
+        "return": nec(0x4B, 0x1B, "return"),
+        "display": nec(0x4B, 0x14, "display"),
+        
+        # Listening modes
+        "stereo": nec(0x4B, 0x50, "stereo"),
+        "surround": nec(0x4B, 0x51, "surround"),
+        "thx": nec(0x4B, 0x52, "thx"),
+        "direct": nec(0x4B, 0x53, "direct"),
+        "pure_audio": nec(0x4B, 0x54, "pure_audio"),
+        
+        # Tone/EQ
+        "bass_up": nec(0x4B, 0x30, "bass_up"),
+        "bass_down": nec(0x4B, 0x31, "bass_down"),
+        "treble_up": nec(0x4B, 0x32, "treble_up"),
+        "treble_down": nec(0x4B, 0x33, "treble_down"),
+        
+        # Misc
+        "sleep": nec(0x4B, 0x0F, "sleep"),
+        "dimmer": nec(0x4B, 0x13, "dimmer"),
     },
 )
 register_profile(ONKYO_AVR_IR)

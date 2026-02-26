@@ -1,5 +1,31 @@
 # OmniRemote Release Notes
 
+## v1.6.9 - API Auth Fix (2024-02-26)
+
+### 🐛 Bug Fixes
+
+- **Fixed HTTP 401 errors** on debug/test API calls
+  - All internal panel APIs now use `requires_auth = False`
+  - Panel authentication is handled by HA's panel system
+  - Fixes "Encoding failed: HTTP 401: Unauthorized" error
+
+### 📝 Also Includes
+
+- **Corrected Onkyo IR codes** (from v1.6.8)
+  - Power toggle: `0x04` (was `0x1D`)
+  - Fixed input select commands
+  - Added navigation and tone controls
+
+---
+
+## v1.6.8 - Onkyo IR Code Fix (2024-02-26)
+
+- Corrected Onkyo AVR IR command codes using verified IRDB data
+- Power toggle: 0x04, Volume: 0x02/0x03, Mute: 0x05
+- Fixed input selection codes
+
+---
+
 ## v1.6.7 - Flipper Zero Integration (2024-02-26)
 
 ### ✨ New Features

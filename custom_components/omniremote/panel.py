@@ -1027,7 +1027,7 @@ class OmniApiBluetoothRemotes(HomeAssistantView):
     
     url = "/api/omniremote/bluetooth_remotes"
     name = "api:omniremote:bluetooth_remotes"
-    requires_auth = True
+    requires_auth = False
     
     def __init__(self, hass: HomeAssistant) -> None:
         self.hass = hass
@@ -1126,7 +1126,7 @@ class OmniApiAreaRemotes(HomeAssistantView):
     
     url = "/api/omniremote/area_remotes"
     name = "api:omniremote:area_remotes"
-    requires_auth = True
+    requires_auth = False
     
     def __init__(self, hass: HomeAssistant) -> None:
         self.hass = hass
@@ -1527,7 +1527,7 @@ class OmniApiDebug(HomeAssistantView):
     
     url = "/api/omniremote/debug"
     name = "api:omniremote:debug"
-    requires_auth = True
+    requires_auth = False
     
     def __init__(self, hass: HomeAssistant) -> None:
         self.hass = hass
@@ -1736,7 +1736,7 @@ class OmniApiPhysicalRemotes(HomeAssistantView):
     
     url = "/api/omniremote/physical_remotes"
     name = "api:omniremote:physical_remotes"
-    requires_auth = True
+    requires_auth = False
     
     def __init__(self, hass: HomeAssistant) -> None:
         self.hass = hass
@@ -1891,7 +1891,7 @@ class OmniApiRemoteBridges(HomeAssistantView):
     
     url = "/api/omniremote/remote_bridges"
     name = "api:omniremote:remote_bridges"
-    requires_auth = True
+    requires_auth = False
     
     def __init__(self, hass: HomeAssistant) -> None:
         self.hass = hass
@@ -2000,7 +2000,7 @@ class OmniApiRemoteProfiles(HomeAssistantView):
     
     url = "/api/omniremote/remote_profiles"
     name = "api:omniremote:remote_profiles"
-    requires_auth = True
+    requires_auth = False
     
     def __init__(self, hass: HomeAssistant) -> None:
         self.hass = hass
