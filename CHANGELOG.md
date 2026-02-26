@@ -1,5 +1,39 @@
 # OmniRemote Release Notes
 
+## v1.6.4 - Debugger UX & Jensen Radio Support (2024-02-26)
+
+### ✨ New Features
+
+#### Enhanced IR Debugger
+- **Blaster Selection**: Clear dropdown to select which IR blaster to use for all tests
+- **Embedded Help**: Toggle "Help" button explains how to use Test IR Encoding
+- **Quick Test Any Device**: Select any device from catalog by category → device → command
+- **Full Debug Log**: All commands show protocol, address, command, blaster used, bytes sent
+
+#### Jensen Radio Support
+- Added Jensen car stereo, marine/RV stereo, and portable radio profiles
+- 4 profiles with 30+ commands each (NEC protocol)
+- New "Radio/Car Stereo" category in catalog
+
+### 🐛 Bug Fixes
+
+#### Catalog Search Fixed
+- Fixed keyboard input being captured by Home Assistant shortcuts
+- Search now properly debounces and maintains focus
+- Event propagation stopped on all input fields
+
+#### API Improvements
+- New `send_catalog_code` action for testing catalog commands with specific blaster
+- All debug commands now respect selected blaster
+- Better error messages in debug log
+
+### 📝 Documentation
+- Added "Adding Devices to Catalog" section in Debugger
+- Clearer troubleshooting tips
+- Help button for Test IR Encoding explains protocol, address, command
+
+---
+
 ## v1.6.3 - Samsung IR Encoding Fix (2024-02-25)
 
 ### 🐛 Critical Bug Fixes

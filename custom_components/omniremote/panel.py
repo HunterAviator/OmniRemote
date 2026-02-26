@@ -1445,6 +1445,43 @@ class OmniApiTest(HomeAssistantView):
                     })
                     return web.json_response({"error": str(ex)}, status=500)
         
+        elif action == "send_catalog_code":
+            # Send a command from a catalog device
+            catalog_id = data.get("catalog_id")
+            command = data.get("command")
+            blaster_id = data.get("blaster_id")
+            
+            if not catalog_id or not command:
+                return web.json_response({"error": "catalog_id and command required"}, status=400)
+            
+            profile = get_profile(catalog_id)
+            if not profile:
+                return web.json_response({"error": f"Profile not found: {catalog_id}"}, status=404)
+            
+            ir_codes = profile.ir_codes if hasattr(profile, 'ir_codes') else {}
+            ir_code = ir_codes.get(command)
+            if not ir_code:
+                return web.json_response({"error": f"Command not found: {command}"}, status=404)
+            
+            from .ir_encoder import _log_debug
+            
+            _log_debug({
+                "action": "send_catalog_code_request",
+                "catalog_id": catalog_id,
+                "command": command,
+                "protocol": getattr(ir_code, 'protocol', '?'),
+                "blaster_id": blaster_id,
+            })
+            
+            success = await database.async_send_catalog_code(ir_code, blaster_id)
+            
+            return web.json_response({
+                "success": success,
+                "catalog_id": catalog_id,
+                "command": command,
+                "protocol": str(getattr(ir_code, 'protocol', '')),
+            })
+        
         return web.json_response({"error": "Unknown action"}, status=400)
 
 

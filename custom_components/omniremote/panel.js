@@ -1,9 +1,9 @@
 /**
- * OmniRemote Manager Panel v1.6.3
+ * OmniRemote Manager Panel v1.6.4
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.6.3";
+const OMNIREMOTE_VERSION = "1.6.4";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -387,6 +387,11 @@ class OmniRemotePanel extends HTMLElement {
     if (this._view === 'catalog') {
       this._setupCatalogFilters();
     }
+    
+    // Debugger input handlers
+    if (this._view === 'debugger') {
+      this._setupDebuggerInputs();
+    }
   }
 
   async _handleAction(action, data) {
@@ -566,7 +571,52 @@ class OmniRemotePanel extends HTMLElement {
       case 'quick-test':
         await this._quickTest(data.protocol, data.addr, data.cmd);
         break;
+      case 'toggle-encoding-help':
+        this._showEncodingHelp = !this._showEncodingHelp;
+        this._render();
+        break;
+      case 'test-catalog-cmd':
+        await this._testCatalogCommand(data.deviceId, data.cmd);
+        break;
     }
+  }
+
+  _setupDebuggerInputs() {
+    // Setup debugger-specific input handlers
+    const blasterSelect = this.shadowRoot.getElementById('debug-blaster');
+    const categorySelect = this.shadowRoot.getElementById('debug-category');
+    const deviceSelect = this.shadowRoot.getElementById('debug-device');
+    
+    if (blasterSelect) {
+      blasterSelect.addEventListener('change', () => {
+        this._debugBlaster = blasterSelect.value;
+      });
+    }
+    
+    if (categorySelect) {
+      categorySelect.addEventListener('change', () => {
+        this._debugCategory = categorySelect.value;
+        this._debugDevice = '';  // Reset device selection
+        this._render();
+      });
+    }
+    
+    if (deviceSelect) {
+      deviceSelect.addEventListener('change', () => {
+        this._debugDevice = deviceSelect.value;
+        this._render();
+      });
+    }
+    
+    // Prevent HA keyboard shortcuts in debug inputs
+    ['debug-address', 'debug-command'].forEach(id => {
+      const input = this.shadowRoot.getElementById(id);
+      if (input) {
+        input.addEventListener('keydown', e => e.stopPropagation());
+        input.addEventListener('keyup', e => e.stopPropagation());
+        input.addEventListener('keypress', e => e.stopPropagation());
+      }
+    });
   }
 
   _setupCatalogFilters() {
@@ -575,10 +625,29 @@ class OmniRemotePanel extends HTMLElement {
     const brand = this.shadowRoot.getElementById('catalog-brand');
     
     if (search) {
-      search.addEventListener('input', () => {
-        this._catalogFilter = this._catalogFilter || {};
-        this._catalogFilter.search = search.value;
-        this._render();
+      // Prevent HA keyboard shortcuts from firing when typing
+      search.addEventListener('keydown', (e) => {
+        e.stopPropagation();
+      });
+      search.addEventListener('keyup', (e) => {
+        e.stopPropagation();
+      });
+      search.addEventListener('keypress', (e) => {
+        e.stopPropagation();
+      });
+      
+      // Debounced search to avoid constant re-renders
+      let searchTimeout;
+      search.addEventListener('input', (e) => {
+        e.stopPropagation();
+        clearTimeout(searchTimeout);
+        const value = search.value;
+        searchTimeout = setTimeout(() => {
+          this._catalogFilter = this._catalogFilter || {};
+          this._catalogFilter.search = value;
+          this._catalogSearchFocus = true;  // Remember to refocus
+          this._render();
+        }, 300);
       });
     }
     if (category) {
@@ -594,6 +663,13 @@ class OmniRemotePanel extends HTMLElement {
         this._catalogFilter.brand = brand.value;
         this._render();
       });
+    }
+    
+    // Refocus search if it was focused before render
+    if (this._catalogSearchFocus && search) {
+      search.focus();
+      search.setSelectionRange(search.value.length, search.value.length);
+      this._catalogSearchFocus = false;
     }
   }
 
@@ -870,6 +946,7 @@ class OmniRemotePanel extends HTMLElement {
       'fan': { icon: 'mdi:fan', color: '#8bc34a', label: 'Fans' },
       'garage': { icon: 'mdi:garage', color: '#ff9800', label: 'Garage Doors' },
       'lighting': { icon: 'mdi:lightbulb', color: '#ffc107', label: 'Lighting' },
+      'radio': { icon: 'mdi:radio', color: '#9e9e9e', label: 'Radios/Car Stereo' },
     };
     
     // Count devices per category
@@ -997,6 +1074,10 @@ class OmniRemotePanel extends HTMLElement {
     const blasters = this._data.blasters || [];
     const haBlasters = this._data.haBlasters || [];
     const allBlasters = [...blasters, ...haBlasters];
+    const catalog = this._data.catalog || [];
+    
+    // Get unique categories from catalog
+    const categories = [...new Set(catalog.map(d => d.category))].sort();
     
     return `
       <div class="page-header">
@@ -1007,37 +1088,60 @@ class OmniRemotePanel extends HTMLElement {
         </div>
       </div>
       
-      <!-- Blaster Status -->
+      <!-- Blaster Selection -->
       <div class="section-header">
-        <h3><ha-icon icon="mdi:access-point"></ha-icon> Blaster Status</h3>
-        <button class="btn btn-sm" data-action="check-blasters"><ha-icon icon="mdi:refresh"></ha-icon> Check</button>
+        <h3><ha-icon icon="mdi:access-point"></ha-icon> Select IR Blaster</h3>
+        <button class="btn btn-sm" data-action="check-blasters"><ha-icon icon="mdi:refresh"></ha-icon> Check Status</button>
       </div>
-      <div id="blaster-status" class="grid" style="margin-bottom:24px;">
+      <div class="card" style="margin-bottom:24px;">
+        <p style="color:#888;margin-top:0;font-size:13px;">Select which IR blaster to use for testing. All test commands will be sent through the selected blaster.</p>
         ${allBlasters.length === 0 ? `
-          <div class="card" style="grid-column:1/-1;">
-            <p style="color:#888;text-align:center;margin:0;">No blasters configured. Add one in the Blasters section.</p>
+          <div style="padding:16px;background:#2a1a1a;border:1px solid #f44336;border-radius:8px;color:#ef9a9a;">
+            <ha-icon icon="mdi:alert"></ha-icon> No blasters configured. Go to <strong>Blasters</strong> section to add one.
           </div>
-        ` : allBlasters.map(b => `
-          <div class="card blaster-status-card" data-blaster-id="${b.id || b.entity_id}">
-            <div style="display:flex;align-items:center;gap:12px;">
-              <ha-icon icon="mdi:access-point" style="font-size:24px;color:#888;"></ha-icon>
-              <div style="flex:1;">
-                <div style="font-weight:600;">${b.name}</div>
-                <div style="font-size:12px;color:#888;">${b.mac || b.entity_id || 'Unknown'}</div>
-                ${b.host ? `<div style="font-size:11px;color:#666;">${b.host}</div>` : ''}
-              </div>
-              <span class="status-indicator" style="width:12px;height:12px;border-radius:50%;background:#666;"></span>
+        ` : `
+          <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;">
+            <div class="fg" style="margin:0;flex:1;min-width:200px;">
+              <label class="fl">Active Blaster</label>
+              <select class="fi" id="debug-blaster">
+                <option value="">Auto (first available)</option>
+                ${allBlasters.map(b => `
+                  <option value="${b.id || b.entity_id}" ${this._debugBlaster === (b.id || b.entity_id) ? 'selected' : ''}>
+                    ${b.name} ${b.host ? '(' + b.host + ')' : ''}
+                  </option>
+                `).join('')}
+              </select>
+            </div>
+            <div id="blaster-status-indicator" style="display:flex;align-items:center;gap:8px;padding:8px 16px;background:#1a1a2e;border-radius:8px;">
+              <span class="status-dot" style="width:10px;height:10px;border-radius:50%;background:#666;"></span>
+              <span style="color:#888;font-size:13px;">Click "Check Status" to verify</span>
             </div>
           </div>
-        `).join('')}
+        `}
       </div>
       
       <!-- Test IR Encoding -->
       <div class="section-header">
         <h3><ha-icon icon="mdi:code-braces"></ha-icon> Test IR Encoding</h3>
+        <button class="btn btn-sm" data-action="toggle-encoding-help" style="font-size:11px;"><ha-icon icon="mdi:help-circle"></ha-icon> Help</button>
+      </div>
+      <div id="encoding-help" class="card" style="margin-bottom:12px;display:${this._showEncodingHelp ? 'block' : 'none'};background:#1a2a1a;border-color:#4caf50;">
+        <h4 style="margin-top:0;color:#81c784;"><ha-icon icon="mdi:information"></ha-icon> How to Use Test Encoding</h4>
+        <div style="color:#a5d6a7;font-size:13px;line-height:1.6;">
+          <p><strong>Protocol:</strong> The IR protocol your device uses. Most TVs use Samsung32, NEC, or RC5/RC6.</p>
+          <p><strong>Address:</strong> Device address in hex (e.g., "07" for Samsung TVs, "04" for many NEC devices).</p>
+          <p><strong>Command:</strong> The command code in hex (e.g., "02" for power on Samsung).</p>
+          <p style="margin-top:12px;"><strong>Buttons:</strong></p>
+          <ul style="margin:4px 0;padding-left:20px;">
+            <li><strong>Encode Only</strong> - Convert to Broadlink format without sending (see raw bytes in log)</li>
+            <li><strong>Send</strong> - Encode AND transmit via selected blaster</li>
+          </ul>
+          <p style="margin-top:12px;border-top:1px solid #4caf50;padding-top:12px;">
+            <strong>Finding codes:</strong> Check service manual, search "DEVICE_NAME IR hex codes", or use Learn feature.
+          </p>
+        </div>
       </div>
       <div class="card" style="margin-bottom:24px;">
-        <p style="color:#888;margin-top:0;">Test encoding an IR code without sending it.</p>
         <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
           <div class="fg" style="margin:0;">
             <label class="fl">Protocol</label>
@@ -1054,14 +1158,14 @@ class OmniRemotePanel extends HTMLElement {
           </div>
           <div class="fg" style="margin:0;">
             <label class="fl">Address (hex)</label>
-            <input type="text" class="fi" id="debug-address" value="07" style="width:80px;">
+            <input type="text" class="fi" id="debug-address" value="07" style="width:80px;" placeholder="07">
           </div>
           <div class="fg" style="margin:0;">
             <label class="fl">Command (hex)</label>
-            <input type="text" class="fi" id="debug-command" value="02" style="width:80px;">
+            <input type="text" class="fi" id="debug-command" value="02" style="width:80px;" placeholder="02">
           </div>
-          <button class="btn btn-p" data-action="test-encode"><ha-icon icon="mdi:play"></ha-icon> Encode</button>
-          <button class="btn btn-s" data-action="test-send-debug"><ha-icon icon="mdi:send"></ha-icon> Send</button>
+          <button class="btn btn-s" data-action="test-encode"><ha-icon icon="mdi:code-tags"></ha-icon> Encode Only</button>
+          <button class="btn btn-p" data-action="test-send-debug"><ha-icon icon="mdi:send"></ha-icon> Send</button>
         </div>
         <div id="encode-result" style="margin-top:16px;display:none;">
           <div style="background:#1a1a2e;border:1px solid #333;border-radius:8px;padding:12px;font-family:monospace;font-size:12px;">
@@ -1070,71 +1174,102 @@ class OmniRemotePanel extends HTMLElement {
         </div>
       </div>
       
-      <!-- Quick Test Common Commands -->
+      <!-- Quick Test from Catalog -->
       <div class="section-header">
-        <h3><ha-icon icon="mdi:remote"></ha-icon> Quick Test - Samsung TV</h3>
+        <h3><ha-icon icon="mdi:remote"></ha-icon> Quick Test from Catalog</h3>
       </div>
       <div class="card" style="margin-bottom:24px;">
-        <p style="color:#888;margin-top:0;">Quick test buttons for Samsung TV commands (Samsung32 protocol).</p>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn" data-action="quick-test" data-protocol="samsung32" data-addr="07" data-cmd="02">Power</button>
-          <button class="btn" data-action="quick-test" data-protocol="samsung32" data-addr="07" data-cmd="07">Vol+</button>
-          <button class="btn" data-action="quick-test" data-protocol="samsung32" data-addr="07" data-cmd="0B">Vol-</button>
-          <button class="btn" data-action="quick-test" data-protocol="samsung32" data-addr="07" data-cmd="0F">Mute</button>
-          <button class="btn" data-action="quick-test" data-protocol="samsung32" data-addr="07" data-cmd="12">Ch+</button>
-          <button class="btn" data-action="quick-test" data-protocol="samsung32" data-addr="07" data-cmd="10">Ch-</button>
-          <button class="btn" data-action="quick-test" data-protocol="samsung32" data-addr="07" data-cmd="01">Source</button>
-          <button class="btn" data-action="quick-test" data-protocol="samsung32" data-addr="07" data-cmd="79">Home</button>
+        <p style="color:#888;margin-top:0;font-size:13px;">Test commands from any device in the catalog. Select a device, then click a command to send it.</p>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:16px;">
+          <div class="fg" style="margin:0;flex:1;min-width:150px;">
+            <label class="fl">Category</label>
+            <select class="fi" id="debug-category">
+              <option value="">Select category...</option>
+              ${categories.map(c => '<option value="' + c + '"' + (this._debugCategory === c ? ' selected' : '') + '>' + c + '</option>').join('')}
+            </select>
+          </div>
+          <div class="fg" style="margin:0;flex:2;min-width:200px;">
+            <label class="fl">Device</label>
+            <select class="fi" id="debug-device" ${!this._debugCategory ? 'disabled' : ''}>
+              <option value="">Select device...</option>
+              ${this._debugCategory ? catalog.filter(d => d.category === this._debugCategory).map(d => 
+                '<option value="' + d.id + '"' + (this._debugDevice === d.id ? ' selected' : '') + '>' + d.brand + ' - ' + d.name + '</option>'
+              ).join('') : ''}
+            </select>
+          </div>
+        </div>
+        <div id="debug-commands" style="display:flex;gap:8px;flex-wrap:wrap;">
+          ${this._debugDevice ? (() => {
+            const device = catalog.find(d => d.id === this._debugDevice);
+            if (!device) return '<span style="color:#888;">Device not found</span>';
+            const commands = device.commands || device.ir_codes || {};
+            const cmdList = Object.keys(commands).slice(0, 20);
+            return cmdList.map(cmd => 
+              '<button class="btn" data-action="test-catalog-cmd" data-device-id="' + device.id + '" data-cmd="' + cmd + '">' + cmd + '</button>'
+            ).join('') + (Object.keys(commands).length > 20 ? '<span style="color:#888;align-self:center;">+' + (Object.keys(commands).length - 20) + ' more</span>' : '');
+          })() : '<span style="color:#666;font-style:italic;">Select a category and device above</span>'}
         </div>
       </div>
       
       <!-- Debug Log -->
       <div class="section-header">
         <h3><ha-icon icon="mdi:text-box-outline"></ha-icon> Command Log</h3>
-        <span style="color:#888;font-size:12px;">Last ${this._debugLog?.length || 0} entries</span>
+        <span style="color:#888;font-size:12px;">${this._debugLog?.length || 0} entries</span>
       </div>
       <div id="debug-log" style="background:#0d0d1a;border:1px solid #333;border-radius:8px;max-height:400px;overflow-y:auto;">
         ${this._debugLog && this._debugLog.length > 0 ? 
-          this._debugLog.slice().reverse().map(entry => `
-            <div style="padding:12px;border-bottom:1px solid #222;font-family:monospace;font-size:12px;">
-              <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
-                <span style="color:${entry.status === 'success' ? '#4caf50' : entry.status === 'error' ? '#f44336' : '#ff9800'};">
-                  ${entry.action || 'unknown'}
-                </span>
-                <span style="color:#666;">${entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString() : ''}</span>
-              </div>
-              ${entry.protocol ? `<div style="color:#888;">Protocol: ${entry.protocol}, Addr: ${entry.address || entry.input?.address}, Cmd: ${entry.command_hex || entry.command || entry.input?.command}</div>` : ''}
-              ${entry.blaster_name ? `<div style="color:#888;">Blaster: ${entry.blaster_name}</div>` : ''}
-              ${entry.error ? `<div style="color:#f44336;">Error: ${entry.error}</div>` : ''}
-              ${entry.timings ? `<div style="color:#666;">Timings: ${entry.timings.count} pulses, ${entry.timings.total_duration_ms?.toFixed(1)}ms total</div>` : ''}
-              ${entry.output?.broadlink_bytes ? `<div style="color:#666;">Packet: ${entry.output.broadlink_bytes} bytes</div>` : ''}
-            </div>
-          `).join('') 
-          : `
-            <div style="padding:24px;text-align:center;color:#666;">
-              <ha-icon icon="mdi:text-box-outline" style="font-size:32px;margin-bottom:8px;"></ha-icon>
-              <p>No commands logged yet. Send a command to see the debug output.</p>
-            </div>
-          `
+          this._debugLog.slice().reverse().map(entry => '<div style="padding:12px;border-bottom:1px solid #222;font-family:monospace;font-size:12px;">' +
+            '<div style="display:flex;justify-content:space-between;margin-bottom:4px;">' +
+              '<span style="color:' + (entry.status === 'success' ? '#4caf50' : entry.status === 'error' ? '#f44336' : '#ff9800') + ';">● ' + (entry.action || 'unknown') + '</span>' +
+              '<span style="color:#666;">' + (entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString() : '') + '</span>' +
+            '</div>' +
+            (entry.protocol ? '<div style="color:#888;">Protocol: <strong>' + entry.protocol + '</strong>, Addr: <strong>0x' + (entry.address || entry.input?.address || '??') + '</strong>, Cmd: <strong>0x' + (entry.command_hex || entry.command || entry.input?.command || '??') + '</strong></div>' : '') +
+            (entry.blaster_name ? '<div style="color:#888;">Blaster: <strong>' + entry.blaster_name + '</strong></div>' : '') +
+            (entry.error ? '<div style="color:#f44336;margin-top:4px;">Error: ' + entry.error + '</div>' : '') +
+            (entry.timings ? '<div style="color:#666;">Timings: ' + entry.timings.count + ' pulses, ' + (entry.timings.total_duration_ms?.toFixed(1) || '?') + 'ms</div>' : '') +
+            (entry.output?.broadlink_bytes ? '<div style="color:#666;">Packet: ' + entry.output.broadlink_bytes + ' bytes</div>' : '') +
+            (entry.bytes_sent ? '<div style="color:#4caf50;">Sent ' + entry.bytes_sent + ' bytes</div>' : '') +
+          '</div>').join('') 
+          : '<div style="padding:32px;text-align:center;color:#666;">' +
+              '<ha-icon icon="mdi:text-box-outline" style="font-size:48px;margin-bottom:12px;display:block;opacity:0.5;"></ha-icon>' +
+              '<p style="margin:0;">No commands logged yet.</p>' +
+              '<p style="margin:4px 0 0 0;font-size:12px;">Send a command to see debug output here.</p>' +
+            '</div>'
         }
       </div>
       
-      <!-- Tips -->
+      <!-- Adding Devices to Catalog -->
       <div class="section-header" style="margin-top:24px;">
-        <h3><ha-icon icon="mdi:lightbulb-outline"></ha-icon> Troubleshooting Tips</h3>
+        <h3><ha-icon icon="mdi:plus-circle"></ha-icon> Adding Devices to Catalog</h3>
+      </div>
+      <div class="card" style="margin-bottom:24px;">
+        <p style="margin-top:0;color:#888;font-size:13px;">The device catalog includes 94+ built-in IR profiles. To add a custom device:</p>
+        <ol style="margin:12px 0;padding-left:20px;color:#ccc;line-height:2;">
+          <li><strong>Request via GitHub:</strong> Open an issue with device brand, model, and IR codes</li>
+          <li><strong>Use IR Learner:</strong> Go to a device, click Learn Code, capture from your remote</li>
+          <li><strong>Import Flipper Zero:</strong> Import .ir files via device options</li>
+          <li><strong>Manual Entry:</strong> Add protocol/address/command codes manually</li>
+        </ol>
+        <p style="margin-bottom:0;color:#666;font-size:12px;">
+          Catalog source: <code>custom_components/omniremote/catalog/</code>
+        </p>
+      </div>
+      
+      <!-- Troubleshooting Tips -->
+      <div class="section-header">
+        <h3><ha-icon icon="mdi:lightbulb-outline"></ha-icon> Troubleshooting</h3>
       </div>
       <div class="card">
-        <ul style="margin:0;padding-left:20px;color:#888;line-height:1.8;">
-          <li><strong>Samsung TV not responding?</strong> Try power_off (0x98) instead of power toggle (0x02)</li>
-          <li><strong>Commands sent but nothing happens?</strong> Check blaster is pointed at device IR receiver</li>
-          <li><strong>Intermittent response?</strong> Some devices need the signal sent 2-3 times quickly</li>
-          <li><strong>Wrong device responds?</strong> The address byte might be incorrect for your model</li>
-          <li><strong>Check HA logs:</strong> Filter by "omniremote" for detailed protocol encoding info</li>
+        <ul style="margin:0;padding-left:20px;color:#888;line-height:1.8;font-size:13px;">
+          <li><strong>No response?</strong> Check blaster LED flashes (use phone camera for invisible IR)</li>
+          <li><strong>Samsung TV?</strong> Try discrete power_off (0x98) instead of toggle (0x02)</li>
+          <li><strong>Nothing happens?</strong> Verify blaster points at device IR receiver</li>
+          <li><strong>Wrong device responds?</strong> Try different address values</li>
+          <li><strong>Check HA logs:</strong> Filter by "omniremote" for encoding details</li>
         </ul>
       </div>
     `;
   }
-
   _remotesView() {
     // Physical Remotes view - manage Zigbee, RF, BT, and USB remotes
     const remotes = this._data.physicalRemotes || [];
@@ -3232,40 +3367,11 @@ class OmniRemotePanel extends HTMLElement {
     await this._refreshDebugLog();
   }
 
-  async _testSendDebug() {
-    const protocol = this.shadowRoot.getElementById('debug-protocol')?.value;
-    const address = this.shadowRoot.getElementById('debug-address')?.value;
-    const command = this.shadowRoot.getElementById('debug-command')?.value;
-    
-    // Find a catalog profile that matches or create a test
-    // For now, we'll use the test API endpoint
-    const res = await this._api('/api/omniremote/debug', 'POST', {
-      action: 'test_encode',
-      protocol,
-      address,
-      command,
-    });
-    
-    if (res.success && res.broadlink_base64) {
-      // Send the encoded command
-      const sendRes = await this._api('/api/omniremote/test', 'POST', {
-        action: 'send_raw',
-        broadlink_code: res.broadlink_base64,
-      });
-      
-      if (sendRes.success) {
-        alert('Command sent!');
-      } else {
-        alert('Send failed: ' + (sendRes.error || 'Unknown error'));
-      }
-    } else {
-      alert('Encoding failed - cannot send');
-    }
-    
-    await this._refreshDebugLog();
-  }
-
   async _quickTest(protocol, addr, cmd) {
+    // Get selected blaster
+    const blasterSelect = this.shadowRoot.getElementById('debug-blaster');
+    const blasterId = blasterSelect?.value || this._debugBlaster || '';
+    
     const res = await this._api('/api/omniremote/debug', 'POST', {
       action: 'test_encode',
       protocol,
@@ -3274,10 +3380,11 @@ class OmniRemotePanel extends HTMLElement {
     });
     
     if (res.success && res.broadlink_base64) {
-      // Try to send it
+      // Try to send it via selected blaster
       const sendRes = await this._api('/api/omniremote/test', 'POST', {
         action: 'send_raw',
         broadlink_code: res.broadlink_base64,
+        blaster_id: blasterId || undefined,
       });
       
       // Refresh log
@@ -3288,6 +3395,79 @@ class OmniRemotePanel extends HTMLElement {
       }
     } else {
       alert('Encoding failed: ' + (res.error || 'Unknown error'));
+    }
+  }
+
+  async _testCatalogCommand(deviceId, cmdName) {
+    // Get selected blaster
+    const blasterSelect = this.shadowRoot.getElementById('debug-blaster');
+    const blasterId = blasterSelect?.value || this._debugBlaster || '';
+    
+    // Send the catalog command via the test API
+    const res = await this._api('/api/omniremote/test', 'POST', {
+      action: 'send_catalog_code',
+      catalog_id: deviceId,
+      command: cmdName,
+      blaster_id: blasterId || undefined,
+    });
+    
+    // Refresh log
+    await this._refreshDebugLog();
+    
+    if (!res.success) {
+      alert('Send failed: ' + (res.error || 'Unknown error'));
+    }
+  }
+
+  async _testSendDebug() {
+    // Get selected blaster
+    const blasterSelect = this.shadowRoot.getElementById('debug-blaster');
+    const blasterId = blasterSelect?.value || this._debugBlaster || '';
+    
+    const protocol = this.shadowRoot.getElementById('debug-protocol')?.value || 'samsung32';
+    const address = this.shadowRoot.getElementById('debug-address')?.value || '07';
+    const command = this.shadowRoot.getElementById('debug-command')?.value || '02';
+    
+    // First encode
+    const encRes = await this._api('/api/omniremote/debug', 'POST', {
+      action: 'test_encode',
+      protocol,
+      address,
+      command,
+    });
+    
+    if (!encRes.success || !encRes.broadlink_base64) {
+      alert('Encoding failed: ' + (encRes.error || 'Unknown error'));
+      return;
+    }
+    
+    // Show encoding result
+    const resultDiv = this.shadowRoot.getElementById('encode-result');
+    const outputDiv = this.shadowRoot.getElementById('encode-output');
+    if (resultDiv && outputDiv) {
+      resultDiv.style.display = 'block';
+      outputDiv.innerHTML = `
+        <div style="color:#4caf50;margin-bottom:8px;">✓ Encoded successfully</div>
+        <div>Protocol: <span style="color:#64b5f6;">${protocol}</span></div>
+        <div>Address: <span style="color:#64b5f6;">0x${address}</span></div>
+        <div>Command: <span style="color:#64b5f6;">0x${command}</span></div>
+        <div>Packet size: <span style="color:#64b5f6;">${encRes.byte_count || '?'} bytes</span></div>
+        <div style="margin-top:8px;word-break:break-all;">Base64: <span style="color:#888;">${encRes.broadlink_base64.substring(0, 60)}...</span></div>
+      `;
+    }
+    
+    // Send via selected blaster
+    const sendRes = await this._api('/api/omniremote/test', 'POST', {
+      action: 'send_raw',
+      broadlink_code: encRes.broadlink_base64,
+      blaster_id: blasterId || undefined,
+    });
+    
+    // Refresh log
+    await this._refreshDebugLog();
+    
+    if (!sendRes.success) {
+      alert('Send failed: ' + (sendRes.error || 'Unknown error'));
     }
   }
 }

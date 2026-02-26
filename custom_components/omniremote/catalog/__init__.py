@@ -274,6 +274,7 @@ BRAND_LOGOS = {
     "hampton_bay": "https://upload.wikimedia.org/wikipedia/commons/d/d3/Hampton_Bay_Logo.svg",
     "daikin": "https://upload.wikimedia.org/wikipedia/commons/a/a3/Daikin_logo.svg",
     "lg_ac": "https://cdn.simpleicons.org/lg",
+    "jensen": "https://upload.wikimedia.org/wikipedia/commons/1/1b/Jensen_logo.svg",
 }
 
 
