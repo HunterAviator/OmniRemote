@@ -1,5 +1,36 @@
 # OmniRemote Release Notes
 
+## v1.6.7 - Flipper Zero Integration (2024-02-26)
+
+### ✨ New Features
+
+#### Flipper Zero Support
+Connect your Flipper Zero directly to OmniRemote via USB or Bluetooth!
+
+**Features:**
+- **USB Connection**: Auto-detect Flipper on USB ports
+- **Bluetooth LE**: Scan and connect wirelessly
+- **Send IR Commands**: Use Flipper as an IR blaster with any protocol
+- **Browse SD Card**: View and import .ir files from Flipper's SD card
+- **Real-time Learning**: Capture IR codes from other remotes (coming soon)
+
+**To Use:**
+1. Go to **Blasters** tab
+2. Click **Find USB** or **Find Bluetooth** in Flipper section
+3. Select your Flipper from discovered devices
+4. Click **Connect**
+5. Use **Test** to send IR commands
+
+**Requirements:**
+- For USB: `pyserial` and `pyserial-asyncio` packages
+- For Bluetooth: `bleak` package
+- Flipper Zero with IR module
+
+**Protocols Supported:**
+Samsung32, NEC, NECext, Sony SIRC, RC5, RC6, Kaseikyo (Panasonic), and more
+
+---
+
 ## v1.6.6 - Debug Logging for Catalog Test (2024-02-26)
 
 ### 🔧 Debugging

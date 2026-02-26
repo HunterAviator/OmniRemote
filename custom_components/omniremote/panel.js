@@ -3,7 +3,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.6.6";
+const OMNIREMOTE_VERSION = "1.6.7";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -58,6 +58,7 @@ class OmniRemotePanel extends HTMLElement {
         this._api('/api/omniremote/remote_bridges'),
         this._api('/api/omniremote/remote_profiles'),
         this._api('/api/omniremote/debug'),
+        this._api('/api/omniremote/flipper'),
       ]);
       
       this._data = {
@@ -72,6 +73,7 @@ class OmniRemotePanel extends HTMLElement {
         remoteBridges: results[6]?.bridges || [],
         remoteProfiles: results[7]?.profiles || [],
         dbOk: results[3]?.database_available !== false,
+        flippers: results[9]?.devices || [],
       };
       
       // Store debug log separately (can get large)
@@ -437,6 +439,36 @@ class OmniRemotePanel extends HTMLElement {
       case 'save-blaster':
         await this._saveBlaster();
         break;
+      
+      // Flipper Zero actions
+      case 'flipper-discover':
+        await this._flipperDiscover('all');
+        break;
+      case 'flipper-discover-usb':
+        await this._flipperDiscover('usb');
+        break;
+      case 'flipper-discover-ble':
+        await this._flipperDiscover('bluetooth');
+        break;
+      case 'flipper-connect':
+        await this._flipperConnect(data.flipperId);
+        break;
+      case 'flipper-disconnect':
+        await this._flipperDisconnect(data.flipperId);
+        break;
+      case 'flipper-remove':
+        await this._flipperRemove(data.flipperId);
+        break;
+      case 'flipper-test':
+        await this._flipperTest(data.flipperId);
+        break;
+      case 'flipper-files':
+        await this._flipperShowFiles(data.flipperId);
+        break;
+      case 'flipper-add':
+        await this._flipperAdd(data);
+        break;
+      
       case 'close-modal':
         this._modal = null;
         this._render();
@@ -894,43 +926,134 @@ class OmniRemotePanel extends HTMLElement {
 
   _blastersView() {
     const all = [...this._data.blasters, ...this._data.haBlasters];
-    if (!all.length) {
-      return `
-        <div class="empty">
-          <ha-icon icon="mdi:access-point"></ha-icon>
-          <h3>No Blasters Found</h3>
-          <p>Click Discover to find Broadlink devices, or add one manually by IP address</p>
-          <button class="btn btn-p" data-action="discover" style="margin-right:8px;"><ha-icon icon="mdi:magnify"></ha-icon>Discover</button>
-          <button class="btn btn-s" data-action="discover-mdns" style="margin-right:8px;"><ha-icon icon="mdi:access-point-network"></ha-icon>mDNS</button>
-          <button class="btn btn-s" data-action="show-add-blaster"><ha-icon icon="mdi:plus"></ha-icon>Add by IP</button>
+    const flippers = this._data.flippers || [];
+    
+    return `
+      <div class="page-header">
+        <h2><ha-icon icon="mdi:access-point"></ha-icon> IR Blasters</h2>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-p" data-action="discover"><ha-icon icon="mdi:magnify"></ha-icon> Discover</button>
+          <button class="btn btn-s" data-action="show-add-blaster"><ha-icon icon="mdi:plus"></ha-icon> Add by IP</button>
         </div>
-      `;
-    }
-    return `<div class="grid">
-      ${this._data.blasters.map(b => `
-        <div class="card">
-          <div class="card-head">
-            <div class="card-icon"><ha-icon icon="mdi:access-point"></ha-icon></div>
-            <div class="card-info">
-              <div class="card-title">${b.name}</div>
-              <div class="card-sub">${b.host} • ${b.mac}</div>
+      </div>
+      
+      <!-- Broadlink Blasters -->
+      <div class="section-header">
+        <h3><ha-icon icon="mdi:access-point"></ha-icon> Broadlink Devices</h3>
+        <button class="btn btn-sm" data-action="discover-mdns"><ha-icon icon="mdi:access-point-network"></ha-icon> mDNS</button>
+      </div>
+      ${all.length === 0 ? `
+        <div class="card" style="text-align:center;padding:32px;margin-bottom:24px;">
+          <ha-icon icon="mdi:access-point-off" style="font-size:48px;color:#666;margin-bottom:16px;display:block;"></ha-icon>
+          <p style="color:#888;margin:0;">No Broadlink blasters found. Click Discover to search.</p>
+        </div>
+      ` : `
+        <div class="grid" style="margin-bottom:24px;">
+          ${this._data.blasters.map(b => `
+            <div class="card">
+              <div class="card-head">
+                <div class="card-icon"><ha-icon icon="mdi:access-point"></ha-icon></div>
+                <div class="card-info">
+                  <div class="card-title">${b.name}</div>
+                  <div class="card-sub">${b.host} • ${b.mac}</div>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      `).join('')}
-      ${this._data.haBlasters.map(b => `
-        <div class="card" style="border-color:#4caf50;">
-          <div class="card-head">
-            <div class="card-icon" style="background:#1b3d1b;"><ha-icon icon="mdi:home-assistant" style="color:#4caf50;"></ha-icon></div>
-            <div class="card-info">
-              <div class="card-title">${b.name}</div>
-              <div class="card-sub">${b.entity_id}</div>
+          `).join('')}
+          ${this._data.haBlasters.map(b => `
+            <div class="card" style="border-color:#4caf50;">
+              <div class="card-head">
+                <div class="card-icon" style="background:#1b3d1b;"><ha-icon icon="mdi:home-assistant" style="color:#4caf50;"></ha-icon></div>
+                <div class="card-info">
+                  <div class="card-title">${b.name}</div>
+                  <div class="card-sub">${b.entity_id}</div>
+                </div>
+              </div>
+              <div class="ha-badge">From HA Broadlink Integration</div>
             </div>
-          </div>
-          <div class="ha-badge">From HA Broadlink Integration</div>
+          `).join('')}
         </div>
-      `).join('')}
-    </div>`;
+      `}
+      
+      <!-- Flipper Zero Section -->
+      <div class="section-header">
+        <h3><ha-icon icon="mdi:dolphin"></ha-icon> Flipper Zero</h3>
+        <button class="btn btn-sm" data-action="flipper-discover"><ha-icon icon="mdi:magnify"></ha-icon> Discover</button>
+      </div>
+      <div class="card" style="margin-bottom:24px;">
+        <p style="color:#888;margin-top:0;font-size:13px;">
+          Connect Flipper Zero via USB or Bluetooth to use as an IR blaster and code learner.
+        </p>
+        ${flippers.length === 0 ? `
+          <div style="text-align:center;padding:16px;background:#1a1a2e;border-radius:8px;">
+            <ha-icon icon="mdi:dolphin" style="font-size:32px;color:#666;margin-bottom:8px;display:block;"></ha-icon>
+            <p style="color:#888;margin:0 0 12px 0;">No Flipper Zero connected</p>
+            <button class="btn btn-s" data-action="flipper-discover-usb" style="margin-right:8px;">
+              <ha-icon icon="mdi:usb"></ha-icon> Find USB
+            </button>
+            <button class="btn btn-s" data-action="flipper-discover-ble">
+              <ha-icon icon="mdi:bluetooth"></ha-icon> Find Bluetooth
+            </button>
+          </div>
+        ` : `
+          <div style="display:flex;flex-direction:column;gap:12px;">
+            ${flippers.map(f => `
+              <div style="display:flex;align-items:center;gap:12px;padding:12px;background:#1a1a2e;border-radius:8px;">
+                <ha-icon icon="${f.connection_type === 'bluetooth' ? 'mdi:bluetooth' : 'mdi:usb'}" 
+                         style="font-size:24px;color:${f.connected ? '#4caf50' : '#666'};"></ha-icon>
+                <div style="flex:1;">
+                  <div style="font-weight:600;">${f.name}</div>
+                  <div style="font-size:12px;color:#888;">
+                    ${f.port} • ${f.connected ? 'Connected' : 'Disconnected'}
+                    ${f.firmware_version ? ' • FW: ' + f.firmware_version : ''}
+                  </div>
+                </div>
+                <div style="display:flex;gap:8px;">
+                  ${f.connected ? `
+                    <button class="btn btn-sm" data-action="flipper-test" data-flipper-id="${f.id}">
+                      <ha-icon icon="mdi:play"></ha-icon> Test
+                    </button>
+                    <button class="btn btn-sm" data-action="flipper-files" data-flipper-id="${f.id}">
+                      <ha-icon icon="mdi:folder"></ha-icon> Files
+                    </button>
+                    <button class="btn btn-sm btn-danger" data-action="flipper-disconnect" data-flipper-id="${f.id}">
+                      Disconnect
+                    </button>
+                  ` : `
+                    <button class="btn btn-sm btn-p" data-action="flipper-connect" data-flipper-id="${f.id}">
+                      Connect
+                    </button>
+                    <button class="btn btn-sm btn-danger" data-action="flipper-remove" data-flipper-id="${f.id}">
+                      Remove
+                    </button>
+                  `}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `}
+      </div>
+      
+      <!-- Flipper Discovery Results (shown after discover) -->
+      <div id="flipper-discovered" style="display:none;margin-bottom:24px;">
+        <div class="section-header">
+          <h3><ha-icon icon="mdi:radar"></ha-icon> Discovered Flippers</h3>
+        </div>
+        <div id="flipper-discovered-list" class="card"></div>
+      </div>
+      
+      <!-- Help Section -->
+      <div class="section-header">
+        <h3><ha-icon icon="mdi:help-circle"></ha-icon> About Blasters</h3>
+      </div>
+      <div class="card">
+        <div style="color:#888;font-size:13px;line-height:1.6;">
+          <p><strong>Broadlink RM Mini/RM4:</strong> Wi-Fi IR blasters. Discover automatically or add by IP address.</p>
+          <p><strong>Home Assistant Entities:</strong> Any <code>remote.*</code> entity from HA integrations (Broadlink, SwitchBot Hub, etc).</p>
+          <p><strong>Flipper Zero:</strong> Connect via USB cable or Bluetooth. Can send IR and learn codes from other remotes.</p>
+        </div>
+      </div>
+    `;
   }
 
   _catalogView() {
@@ -3502,6 +3625,210 @@ class OmniRemotePanel extends HTMLElement {
     if (!sendRes.success) {
       alert('Send failed: ' + (sendRes.error || 'Unknown error'));
     }
+  }
+
+  // =============================================================================
+  // Flipper Zero Methods
+  // =============================================================================
+
+  async _flipperDiscover(connectionType) {
+    const statusDiv = this.shadowRoot.getElementById('flipper-discovered');
+    const listDiv = this.shadowRoot.getElementById('flipper-discovered-list');
+    
+    if (statusDiv) statusDiv.style.display = 'block';
+    if (listDiv) listDiv.innerHTML = '<p style="text-align:center;padding:16px;"><ha-icon icon="mdi:loading" class="spin"></ha-icon> Scanning...</p>';
+    
+    const res = await this._api('/api/omniremote/flipper', 'POST', {
+      action: 'discover',
+      connection_type: connectionType,
+    });
+    
+    if (res.devices && res.devices.length > 0) {
+      if (listDiv) {
+        listDiv.innerHTML = res.devices.map(d => `
+          <div style="display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid #333;">
+            <ha-icon icon="${d.connection_type === 'bluetooth' ? 'mdi:bluetooth' : 'mdi:usb'}" 
+                     style="font-size:24px;color:#2196f3;"></ha-icon>
+            <div style="flex:1;">
+              <div style="font-weight:600;">${d.name}</div>
+              <div style="font-size:12px;color:#888;">${d.port} ${d.rssi ? '• RSSI: ' + d.rssi : ''}</div>
+            </div>
+            <button class="btn btn-sm btn-p" data-action="flipper-add" 
+                    data-device-id="${d.id}" data-name="${d.name}" 
+                    data-connection-type="${d.connection_type}" data-port="${d.port}">
+              <ha-icon icon="mdi:plus"></ha-icon> Add
+            </button>
+          </div>
+        `).join('');
+      }
+    } else {
+      if (listDiv) {
+        listDiv.innerHTML = `
+          <p style="text-align:center;padding:16px;color:#888;">
+            No Flipper Zero devices found. Make sure your Flipper is:
+            <br>• Powered on
+            <br>• Connected via USB or Bluetooth enabled
+            <br>• Not in use by another application
+          </p>
+        `;
+      }
+    }
+  }
+
+  async _flipperAdd(data) {
+    const res = await this._api('/api/omniremote/flipper', 'POST', {
+      action: 'add',
+      device_id: data.deviceId,
+      name: data.name,
+      connection_type: data.connectionType,
+      port: data.port,
+    });
+    
+    if (res.success) {
+      // Try to connect immediately
+      await this._flipperConnect(data.deviceId);
+      await this._loadFlipperDevices();
+      this._render();
+    } else {
+      alert('Failed to add Flipper: ' + (res.error || 'Unknown error'));
+    }
+  }
+
+  async _flipperConnect(deviceId) {
+    const res = await this._api('/api/omniremote/flipper', 'POST', {
+      action: 'connect',
+      device_id: deviceId,
+    });
+    
+    if (res.success) {
+      await this._loadFlipperDevices();
+      this._render();
+    } else {
+      alert('Failed to connect to Flipper: ' + (res.error || 'Unknown error'));
+    }
+  }
+
+  async _flipperDisconnect(deviceId) {
+    await this._api('/api/omniremote/flipper', 'POST', {
+      action: 'disconnect',
+      device_id: deviceId,
+    });
+    await this._loadFlipperDevices();
+    this._render();
+  }
+
+  async _flipperRemove(deviceId) {
+    if (!confirm('Remove this Flipper Zero?')) return;
+    
+    await this._api('/api/omniremote/flipper', 'POST', {
+      action: 'remove',
+      device_id: deviceId,
+    });
+    await this._loadFlipperDevices();
+    this._render();
+  }
+
+  async _flipperTest(deviceId) {
+    // Show test modal
+    this._modal = `
+      <div class="modal-head">
+        <h3>Test Flipper IR</h3>
+        <button class="modal-close" data-action="close-modal">&times;</button>
+      </div>
+      <p style="color:#888;">Send a test IR command via Flipper Zero.</p>
+      <div class="fg">
+        <label class="fl">Protocol</label>
+        <select class="fi" id="flipper-protocol">
+          <option value="Samsung32">Samsung32</option>
+          <option value="NEC">NEC</option>
+          <option value="SIRC">Sony SIRC</option>
+          <option value="RC5">RC5</option>
+          <option value="RC6">RC6</option>
+        </select>
+      </div>
+      <div style="display:flex;gap:12px;">
+        <div class="fg" style="flex:1;">
+          <label class="fl">Address (hex)</label>
+          <input type="text" class="fi" id="flipper-address" value="07" placeholder="07">
+        </div>
+        <div class="fg" style="flex:1;">
+          <label class="fl">Command (hex)</label>
+          <input type="text" class="fi" id="flipper-command" value="02" placeholder="02">
+        </div>
+      </div>
+      <div style="margin-top:16px;text-align:right;">
+        <button class="btn btn-p" id="flipper-send-btn" data-flipper-id="${deviceId}">
+          <ha-icon icon="mdi:send"></ha-icon> Send IR
+        </button>
+      </div>
+    `;
+    this._render();
+    
+    // Add send handler
+    setTimeout(() => {
+      const sendBtn = this.shadowRoot.getElementById('flipper-send-btn');
+      if (sendBtn) {
+        sendBtn.addEventListener('click', async () => {
+          const protocol = this.shadowRoot.getElementById('flipper-protocol').value;
+          const address = this.shadowRoot.getElementById('flipper-address').value;
+          const command = this.shadowRoot.getElementById('flipper-command').value;
+          
+          const res = await this._api('/api/omniremote/flipper', 'POST', {
+            action: 'send_ir',
+            device_id: deviceId,
+            protocol,
+            address,
+            command,
+          });
+          
+          if (res.success) {
+            alert('IR command sent!');
+          } else {
+            alert('Failed: ' + (res.error || 'Unknown error'));
+          }
+        });
+      }
+    }, 100);
+  }
+
+  async _flipperShowFiles(deviceId) {
+    const res = await this._api('/api/omniremote/flipper', 'POST', {
+      action: 'list_files',
+      device_id: deviceId,
+    });
+    
+    if (res.success) {
+      const files = res.files || [];
+      this._modal = `
+        <div class="modal-head">
+          <h3>Flipper IR Files</h3>
+          <button class="modal-close" data-action="close-modal">&times;</button>
+        </div>
+        <p style="color:#888;">IR files stored on Flipper Zero SD card.</p>
+        ${files.length === 0 ? `
+          <p style="text-align:center;color:#666;">No IR files found on SD card.</p>
+        ` : `
+          <div style="max-height:300px;overflow-y:auto;">
+            ${files.map(f => `
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:8px;border-bottom:1px solid #333;">
+                <span><ha-icon icon="mdi:file"></ha-icon> ${f}</span>
+                <button class="btn btn-sm" data-action="flipper-import-file" data-flipper-id="${deviceId}" data-filename="${f}">
+                  Import
+                </button>
+              </div>
+            `).join('')}
+          </div>
+        `}
+      `;
+      this._render();
+    } else {
+      alert('Failed to list files: ' + (res.error || 'Unknown error'));
+    }
+  }
+
+  async _loadFlipperDevices() {
+    const res = await this._api('/api/omniremote/flipper', 'GET');
+    this._data.flippers = res.devices || [];
   }
 }
 

@@ -70,6 +70,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     hass.http.register_view(OmniRemoteCardResource(hass))
     hass.http.register_view(OmniApiVersion(hass))
     hass.http.register_view(OmniApiTest(hass))
+    hass.http.register_view(OmniApiFlipperZero(hass))
     hass.http.register_view(OmniApiPhysicalRemotes(hass))
     hass.http.register_view(OmniApiRemoteBridges(hass))
     hass.http.register_view(OmniApiRemoteProfiles(hass))
@@ -2019,3 +2020,180 @@ class OmniApiRemoteProfiles(HomeAssistantView):
             })
         
         return web.json_response({"profiles": profiles})
+
+
+class OmniApiFlipperZero(HomeAssistantView):
+    """API for Flipper Zero management."""
+    
+    url = "/api/omniremote/flipper"
+    name = "api:omniremote:flipper"
+    requires_auth = False
+    
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+        self._manager = None
+    
+    def _get_manager(self):
+        """Get or create Flipper Zero manager."""
+        if self._manager is None:
+            from .flipper_zero import FlipperZeroManager
+            self._manager = FlipperZeroManager(self.hass)
+        return self._manager
+    
+    async def get(self, request: web.Request) -> web.Response:
+        """Get Flipper Zero devices and status."""
+        manager = self._get_manager()
+        return web.json_response({
+            "devices": manager.list_devices(),
+        })
+    
+    async def post(self, request: web.Request) -> web.Response:
+        """Manage Flipper Zero devices."""
+        manager = self._get_manager()
+        data = await request.json()
+        action = data.get("action", "")
+        
+        if action == "discover":
+            # Discover Flipper devices
+            connection_type = data.get("connection_type", "all")
+            
+            if connection_type == "usb":
+                devices = await manager.async_discover_usb()
+            elif connection_type == "bluetooth":
+                devices = await manager.async_discover_bluetooth()
+            else:
+                devices = await manager.async_discover_all()
+            
+            return web.json_response({
+                "success": True,
+                "devices": devices,
+            })
+        
+        elif action == "add":
+            # Add a discovered Flipper device
+            device_id = data.get("device_id")
+            name = data.get("name", "Flipper Zero")
+            connection_type = data.get("connection_type")
+            port = data.get("port")
+            
+            if not all([device_id, connection_type, port]):
+                return web.json_response({
+                    "error": "device_id, connection_type, and port required"
+                }, status=400)
+            
+            device = manager.add_device(device_id, name, connection_type, port)
+            
+            return web.json_response({
+                "success": True,
+                "device": device.to_dict(),
+            })
+        
+        elif action == "remove":
+            device_id = data.get("device_id")
+            if device_id:
+                await manager.async_disconnect(device_id)
+                manager.remove_device(device_id)
+                return web.json_response({"success": True})
+            return web.json_response({"error": "device_id required"}, status=400)
+        
+        elif action == "connect":
+            device_id = data.get("device_id")
+            if not device_id:
+                return web.json_response({"error": "device_id required"}, status=400)
+            
+            success = await manager.async_connect(device_id)
+            device = manager.get_device(device_id)
+            
+            return web.json_response({
+                "success": success,
+                "device": device.to_dict() if device else None,
+            })
+        
+        elif action == "disconnect":
+            device_id = data.get("device_id")
+            if device_id:
+                await manager.async_disconnect(device_id)
+                return web.json_response({"success": True})
+            return web.json_response({"error": "device_id required"}, status=400)
+        
+        elif action == "send_ir":
+            # Send IR command via Flipper
+            device_id = data.get("device_id")
+            protocol = data.get("protocol")
+            address = data.get("address")
+            command = data.get("command")
+            
+            if not all([device_id, protocol, address, command]):
+                return web.json_response({
+                    "error": "device_id, protocol, address, and command required"
+                }, status=400)
+            
+            success = await manager.async_send_ir(
+                device_id, protocol, address, command
+            )
+            
+            return web.json_response({"success": success})
+        
+        elif action == "list_files":
+            # List IR files on Flipper SD card
+            device_id = data.get("device_id")
+            if not device_id:
+                return web.json_response({"error": "device_id required"}, status=400)
+            
+            files = await manager.async_list_ir_files(device_id)
+            return web.json_response({
+                "success": True,
+                "files": files,
+            })
+        
+        elif action == "read_file":
+            # Read IR file from Flipper
+            device_id = data.get("device_id")
+            filename = data.get("filename")
+            
+            if not device_id or not filename:
+                return web.json_response({
+                    "error": "device_id and filename required"
+                }, status=400)
+            
+            content = await manager.async_read_ir_file(device_id, filename)
+            
+            # Parse the file content
+            from .flipper_parser import parse_flipper_ir
+            codes = parse_flipper_ir(content)
+            
+            return web.json_response({
+                "success": True,
+                "filename": filename,
+                "content": content,
+                "codes": codes,
+            })
+        
+        elif action == "start_learning":
+            # Start IR learning mode
+            device_id = data.get("device_id")
+            if not device_id:
+                return web.json_response({"error": "device_id required"}, status=400)
+            
+            # Learning results will be stored temporarily
+            learned_codes = []
+            
+            def on_code_received(code):
+                learned_codes.append(code)
+            
+            success = await manager.async_start_learning(
+                device_id, 
+                on_code_received,
+                timeout=data.get("timeout", 30.0)
+            )
+            
+            return web.json_response({
+                "success": success,
+                "message": "Learning started. Point remote at Flipper and press buttons.",
+            })
+        
+        elif action == "stop_learning":
+            await manager.async_stop_learning()
+            return web.json_response({"success": True})
+        
+        return web.json_response({"error": f"Unknown action: {action}"}, status=400)
