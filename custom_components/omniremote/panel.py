@@ -67,6 +67,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     hass.http.register_view(OmniApiActivities(hass))
     hass.http.register_view(OmniApiNetworkDevices(hass))
     hass.http.register_view(OmniApiBluetoothRemotes(hass))
+    hass.http.register_view(OmniApiBluetooth(hass))
     hass.http.register_view(OmniApiAreaRemotes(hass))
     hass.http.register_view(OmniRemoteCardResource(hass))
     hass.http.register_view(OmniApiVersion(hass))
@@ -1255,6 +1256,226 @@ class OmniApiBluetoothRemotes(HomeAssistantView):
             return self.json({"success": True})
         
         return self.json({"success": False, "error": "Unknown action"})
+
+
+# === Bluetooth API (HA Built-in Adapter) ===
+class OmniApiBluetooth(HomeAssistantView):
+    """API for HA's built-in Bluetooth adapter scanning and pairing."""
+    
+    url = "/api/omniremote/bluetooth"
+    name = "api:omniremote:bluetooth"
+    requires_auth = False
+    
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+    
+    async def post(self, request):
+        """Handle Bluetooth operations."""
+        import asyncio
+        
+        try:
+            data = await request.json()
+        except Exception:
+            return self.json({"success": False, "error": "Invalid JSON"})
+        
+        action = data.get("action")
+        adapter = data.get("adapter", "hci0")
+        
+        if action == "scan":
+            # Try to use HA's bluetooth component if available
+            try:
+                from homeassistant.components import bluetooth
+                
+                devices = []
+                
+                # Get discovered devices from HA's bluetooth component
+                discovered = bluetooth.async_discovered_service_info(self.hass)
+                for info in discovered:
+                    devices.append({
+                        "mac": info.address,
+                        "name": info.name or info.advertisement.local_name or "Unknown",
+                        "rssi": info.rssi,
+                        "paired": False,  # HA doesn't track pairing status directly
+                    })
+                
+                # Also try to get scanner results if we have access
+                try:
+                    scanner = bluetooth.async_get_scanner(self.hass)
+                    if scanner:
+                        for address, (service_info, _) in scanner.discovered_devices_and_advertisement_data.items():
+                            if not any(d["mac"] == address for d in devices):
+                                devices.append({
+                                    "mac": address,
+                                    "name": service_info.name or "Unknown",
+                                    "rssi": service_info.rssi,
+                                    "paired": False,
+                                })
+                except Exception as e:
+                    _LOGGER.debug("Could not get scanner results: %s", e)
+                
+                return self.json({"success": True, "devices": devices})
+                
+            except ImportError:
+                _LOGGER.warning("HA Bluetooth component not available")
+                
+                # Fallback: Try using bluetoothctl directly
+                try:
+                    duration = data.get("duration", 10)
+                    devices = await self._scan_with_bluetoothctl(duration)
+                    return self.json({"success": True, "devices": devices})
+                except Exception as e:
+                    return self.json({"success": False, "error": f"Bluetooth scan failed: {e}"})
+        
+        elif action == "pair":
+            mac = data.get("mac")
+            if not mac:
+                return self.json({"success": False, "error": "MAC address required"})
+            
+            try:
+                # Try to pair using bluetoothctl
+                result = await self._pair_with_bluetoothctl(mac)
+                return self.json(result)
+            except Exception as e:
+                return self.json({"success": False, "error": f"Pairing failed: {e}"})
+        
+        elif action == "unpair":
+            mac = data.get("mac")
+            if not mac:
+                return self.json({"success": False, "error": "MAC address required"})
+            
+            try:
+                result = await self._unpair_with_bluetoothctl(mac)
+                return self.json(result)
+            except Exception as e:
+                return self.json({"success": False, "error": f"Unpairing failed: {e}"})
+        
+        elif action == "list_paired":
+            try:
+                devices = await self._list_paired_devices()
+                return self.json({"success": True, "devices": devices})
+            except Exception as e:
+                return self.json({"success": False, "error": f"Failed to list devices: {e}"})
+        
+        return self.json({"success": False, "error": "Unknown action"})
+    
+    async def _scan_with_bluetoothctl(self, duration: int = 10) -> list:
+        """Scan for Bluetooth devices using bluetoothctl."""
+        import subprocess
+        import asyncio
+        
+        devices = []
+        
+        # Start scan
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "bluetoothctl", "--timeout", str(duration), "scan", "on",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=duration + 5)
+            
+            # Parse output for devices
+            for line in stdout.decode().split("\n"):
+                if "Device" in line:
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        mac_idx = next((i for i, p in enumerate(parts) if ":" in p and len(p) == 17), None)
+                        if mac_idx is not None:
+                            mac = parts[mac_idx]
+                            name = " ".join(parts[mac_idx + 1:]) or "Unknown"
+                            if not any(d["mac"] == mac for d in devices):
+                                devices.append({
+                                    "mac": mac,
+                                    "name": name,
+                                    "rssi": None,
+                                    "paired": False,
+                                })
+        except Exception as e:
+            _LOGGER.error("Bluetooth scan error: %s", e)
+        
+        return devices
+    
+    async def _pair_with_bluetoothctl(self, mac: str) -> dict:
+        """Pair with a Bluetooth device using bluetoothctl."""
+        import subprocess
+        import asyncio
+        
+        try:
+            # Trust the device first
+            await asyncio.create_subprocess_exec(
+                "bluetoothctl", "trust", mac,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            # Then pair
+            process = await asyncio.create_subprocess_exec(
+                "bluetoothctl", "pair", mac,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=30)
+            
+            output = stdout.decode() + stderr.decode()
+            if "Pairing successful" in output or "already paired" in output.lower():
+                # Connect after pairing
+                await asyncio.create_subprocess_exec(
+                    "bluetoothctl", "connect", mac,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                return {"success": True, "message": "Paired successfully"}
+            else:
+                return {"success": False, "error": "Pairing failed: " + output[:100]}
+        except asyncio.TimeoutError:
+            return {"success": False, "error": "Pairing timed out"}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    async def _unpair_with_bluetoothctl(self, mac: str) -> dict:
+        """Remove a paired Bluetooth device."""
+        import asyncio
+        
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "bluetoothctl", "remove", mac,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=10)
+            
+            output = stdout.decode() + stderr.decode()
+            if "Device has been removed" in output or "not available" in output.lower():
+                return {"success": True}
+            else:
+                return {"success": False, "error": output[:100]}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    async def _list_paired_devices(self) -> list:
+        """List paired Bluetooth devices."""
+        import asyncio
+        
+        devices = []
+        try:
+            process = await asyncio.create_subprocess_exec(
+                "bluetoothctl", "paired-devices",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=5)
+            
+            for line in stdout.decode().split("\n"):
+                if "Device" in line:
+                    parts = line.split()
+                    if len(parts) >= 3:
+                        mac = parts[1]
+                        name = " ".join(parts[2:])
+                        devices.append({"mac": mac, "name": name, "paired": True})
+        except Exception as e:
+            _LOGGER.error("Failed to list paired devices: %s", e)
+        
+        return devices
 
 
 # === Area Remotes API ===

@@ -3,7 +3,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.9.2";
+const OMNIREMOTE_VERSION = "1.9.4";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -2600,24 +2600,79 @@ data:
   }
 
   async _showImportHaEntityModal() {
-    // Get HA entities
-    const domains = ['media_player', 'light', 'switch', 'fan', 'climate', 'cover', 'remote'];
+    // Get HA entities with integration info
+    const domains = ['media_player', 'light', 'switch', 'fan', 'climate', 'cover', 'remote', 'sensor', 'binary_sensor', 'button', 'scene'];
     const entities = [];
+    const integrations = new Set();
+    
+    // Try to get entity registry for integration info
+    let entityRegistry = {};
+    let deviceRegistry = {};
+    
+    try {
+      // Fetch entity registry
+      const entityRegResult = await this._hass.callWS({ type: 'config/entity_registry/list' });
+      if (entityRegResult) {
+        entityRegResult.forEach(e => {
+          entityRegistry[e.entity_id] = e;
+        });
+      }
+      
+      // Fetch device registry
+      const deviceRegResult = await this._hass.callWS({ type: 'config/device_registry/list' });
+      if (deviceRegResult) {
+        deviceRegResult.forEach(d => {
+          deviceRegistry[d.id] = d;
+        });
+      }
+    } catch (e) {
+      console.log('[OmniRemote] Could not fetch registries:', e);
+    }
     
     if (this._hass && this._hass.states) {
       for (const entityId of Object.keys(this._hass.states)) {
         const domain = entityId.split('.')[0];
         if (domains.includes(domain)) {
           const state = this._hass.states[entityId];
+          const regEntry = entityRegistry[entityId] || {};
+          const deviceId = regEntry.device_id;
+          const device = deviceId ? deviceRegistry[deviceId] : null;
+          
+          // Get integration name from platform or device
+          let integration = regEntry.platform || '';
+          if (!integration && device && device.identifiers && device.identifiers.length > 0) {
+            integration = device.identifiers[0][0] || '';
+          }
+          if (!integration) {
+            // Fallback: try to parse from entity_id
+            const parts = entityId.split('.');
+            if (parts.length > 1 && parts[1].includes('_')) {
+              // e.g., media_player.onkyo_tx_nr838 -> onkyo
+              const possibleInt = parts[1].split('_')[0];
+              if (possibleInt.length > 2) integration = possibleInt;
+            }
+          }
+          
+          if (integration) {
+            integrations.add(integration);
+          }
+          
           entities.push({
             entity_id: entityId,
             name: state.attributes.friendly_name || entityId,
             domain: domain,
             icon: state.attributes.icon || this._domainIcon(domain),
+            integration: integration || 'unknown',
+            device_name: device?.name || '',
+            manufacturer: device?.manufacturer || '',
+            model: device?.model || '',
           });
         }
       }
     }
+    
+    // Sort integrations
+    const sortedIntegrations = Array.from(integrations).sort();
     
     // Group by domain
     const byDomain = {};
@@ -2628,6 +2683,7 @@ data:
     
     this._haEntities = entities;
     this._haEntitiesByDomain = byDomain;
+    this._haIntegrations = sortedIntegrations;
     
     this._modal = `
       <div class="modal-head">
@@ -2637,53 +2693,126 @@ data:
       <p style="color:#888;margin-top:0;">
         Import existing Home Assistant entities as OmniRemote devices for unified control.
       </p>
-      <div class="fg">
-        <label class="fl">Filter</label>
-        <input type="text" class="fi" id="ha-entity-search" placeholder="Search entities...">
+      
+      <!-- Filter Controls -->
+      <div style="display:flex;gap:12px;margin-bottom:16px;">
+        <div class="fg" style="flex:1;margin:0;">
+          <label class="fl">Search</label>
+          <input type="text" class="fi" id="ha-entity-search" placeholder="Search name, entity, or integration...">
+        </div>
+        <div class="fg" style="flex:1;margin:0;">
+          <label class="fl">Integration</label>
+          <select class="fi" id="ha-integration-filter">
+            <option value="">All Integrations (${sortedIntegrations.length})</option>
+            ${sortedIntegrations.map(i => `<option value="${i}">${i} (${entities.filter(e => e.integration === i).length})</option>`).join('')}
+          </select>
+        </div>
+        <div class="fg" style="flex:1;margin:0;">
+          <label class="fl">Domain</label>
+          <select class="fi" id="ha-domain-filter">
+            <option value="">All Domains</option>
+            ${Object.keys(byDomain).sort().map(d => `<option value="${d}">${d} (${byDomain[d].length})</option>`).join('')}
+          </select>
+        </div>
       </div>
-      <div style="max-height:400px;overflow-y:auto;">
-        ${Object.keys(byDomain).sort().map(domain => `
-          <div style="margin-bottom:16px;">
-            <h4 style="margin:0 0 8px;color:#888;font-size:12px;text-transform:uppercase;">
-              <ha-icon icon="${this._domainIcon(domain)}" style="font-size:14px;"></ha-icon> ${domain}
-            </h4>
-            <div style="display:flex;flex-direction:column;gap:4px;">
-              ${byDomain[domain].map(e => `
-                <div style="display:flex;align-items:center;gap:12px;padding:8px;background:#1a1a2e;border-radius:4px;">
-                  <ha-icon icon="${e.icon}" style="color:#4caf50;"></ha-icon>
-                  <div style="flex:1;">
-                    <div style="font-weight:500;">${e.name}</div>
-                    <div style="font-size:11px;color:#666;">${e.entity_id}</div>
-                  </div>
-                  <button class="btn btn-sm btn-p" data-action="import-ha-entity" data-entity-id="${e.entity_id}">
-                    Import
-                  </button>
-                </div>
-              `).join('')}
-            </div>
-          </div>
-        `).join('')}
+      
+      <!-- Entity List -->
+      <div id="ha-entity-list" style="max-height:400px;overflow-y:auto;">
+        ${this._renderHaEntityList(entities)}
+      </div>
+      
+      <div style="margin-top:12px;padding-top:12px;border-top:1px solid #333;color:#888;font-size:12px;">
+        Showing <span id="ha-entity-count">${entities.length}</span> of ${entities.length} entities
       </div>
     `;
     this._render();
     
-    // Setup search filter
+    // Setup filter handlers
     setTimeout(() => {
       const searchInput = this.shadowRoot.getElementById('ha-entity-search');
-      if (searchInput) {
-        searchInput.addEventListener('input', (e) => {
-          const query = e.target.value.toLowerCase();
-          const items = this.shadowRoot.querySelectorAll('[data-action="import-ha-entity"]');
-          items.forEach(item => {
-            const parent = item.closest('[style*="display:flex"][style*="padding:8px"]');
-            if (parent) {
-              const text = parent.textContent.toLowerCase();
-              parent.style.display = text.includes(query) ? 'flex' : 'none';
-            }
-          });
-        });
-      }
+      const integrationFilter = this.shadowRoot.getElementById('ha-integration-filter');
+      const domainFilter = this.shadowRoot.getElementById('ha-domain-filter');
+      
+      const applyFilters = () => {
+        const query = (searchInput?.value || '').toLowerCase();
+        const integration = integrationFilter?.value || '';
+        const domain = domainFilter?.value || '';
+        
+        let filtered = this._haEntities;
+        
+        if (integration) {
+          filtered = filtered.filter(e => e.integration === integration);
+        }
+        if (domain) {
+          filtered = filtered.filter(e => e.domain === domain);
+        }
+        if (query) {
+          filtered = filtered.filter(e => 
+            e.name.toLowerCase().includes(query) ||
+            e.entity_id.toLowerCase().includes(query) ||
+            e.integration.toLowerCase().includes(query) ||
+            (e.manufacturer || '').toLowerCase().includes(query) ||
+            (e.model || '').toLowerCase().includes(query)
+          );
+        }
+        
+        const listEl = this.shadowRoot.getElementById('ha-entity-list');
+        const countEl = this.shadowRoot.getElementById('ha-entity-count');
+        if (listEl) {
+          listEl.innerHTML = this._renderHaEntityList(filtered);
+        }
+        if (countEl) {
+          countEl.textContent = filtered.length;
+        }
+      };
+      
+      if (searchInput) searchInput.addEventListener('input', applyFilters);
+      if (integrationFilter) integrationFilter.addEventListener('change', applyFilters);
+      if (domainFilter) domainFilter.addEventListener('change', applyFilters);
     }, 100);
+  }
+  
+  _renderHaEntityList(entities) {
+    if (entities.length === 0) {
+      return `<div style="text-align:center;padding:40px;color:#666;">No entities match your filters</div>`;
+    }
+    
+    // Group by integration for better organization
+    const byIntegration = {};
+    entities.forEach(e => {
+      const key = e.integration || 'other';
+      if (!byIntegration[key]) byIntegration[key] = [];
+      byIntegration[key].push(e);
+    });
+    
+    return Object.keys(byIntegration).sort().map(integration => `
+      <div style="margin-bottom:16px;">
+        <h4 style="margin:0 0 8px;color:#03a9f4;font-size:13px;text-transform:uppercase;display:flex;align-items:center;gap:8px;">
+          <ha-icon icon="mdi:puzzle" style="font-size:14px;"></ha-icon> 
+          ${integration}
+          <span style="color:#666;font-size:11px;font-weight:normal;">(${byIntegration[integration].length})</span>
+        </h4>
+        <div style="display:flex;flex-direction:column;gap:4px;">
+          ${byIntegration[integration].map(e => `
+            <div class="ha-entity-row" style="display:flex;align-items:center;gap:12px;padding:10px;background:#1a1a2e;border-radius:6px;">
+              <ha-icon icon="${e.icon}" style="color:#4caf50;font-size:20px;"></ha-icon>
+              <div style="flex:1;min-width:0;">
+                <div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${e.name}</div>
+                <div style="font-size:11px;color:#666;display:flex;gap:8px;flex-wrap:wrap;">
+                  <span>${e.entity_id}</span>
+                  ${e.manufacturer ? `<span>• ${e.manufacturer}</span>` : ''}
+                  ${e.model ? `<span>• ${e.model}</span>` : ''}
+                </div>
+              </div>
+              <span style="background:#333;padding:2px 8px;border-radius:4px;font-size:10px;color:#888;">${e.domain}</span>
+              <button class="btn btn-sm btn-p" data-action="import-ha-entity" data-entity-id="${e.entity_id}">
+                Import
+              </button>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `).join('');
   }
 
   _domainIcon(domain) {
@@ -4547,6 +4676,7 @@ data:
           <select class="fi" id="remote-type">
             <option value="zigbee" ${remoteType === 'zigbee' ? 'selected' : ''}>Zigbee (IKEA, Aqara, Hue)</option>
             <option value="rf_433" ${remoteType === 'rf_433' ? 'selected' : ''}>433MHz RF (Sonoff Bridge)</option>
+            <option value="bluetooth_ha" ${remoteType === 'bluetooth_ha' ? 'selected' : ''}>Bluetooth (HA Yellow / Built-in)</option>
             <option value="bluetooth" ${remoteType === 'bluetooth' ? 'selected' : ''}>Bluetooth (ESP32 Proxy)</option>
             <option value="usb_keyboard" ${remoteType === 'usb_keyboard' ? 'selected' : ''}>USB Keyboard (Pi Bridge)</option>
           </select>
@@ -4585,6 +4715,34 @@ data:
           <small style="color:#888;">Common prefix of all RF codes from this remote</small>
         </div>
         
+        <!-- HA Bluetooth Section (for Yellow/built-in) -->
+        <div id="bt-ha-group" style="display:${remoteType === 'bluetooth_ha' ? 'block' : 'none'};">
+          <div class="fg">
+            <label class="fl">Bluetooth Adapter</label>
+            <select class="fi" id="remote-bt-adapter">
+              <option value="hci0">hci0 (Built-in / HA Yellow)</option>
+              <option value="hci1">hci1 (USB Dongle)</option>
+            </select>
+          </div>
+          <div style="margin:12px 0;">
+            <button class="btn btn-s" data-action="bt-scan-start" id="bt-scan-btn">
+              <ha-icon icon="mdi:bluetooth-searching"></ha-icon> Scan for Devices
+            </button>
+            <span id="bt-scan-status" style="margin-left:12px;color:#888;"></span>
+          </div>
+          <div id="bt-discovered-list" style="max-height:200px;overflow-y:auto;background:#0d0d1a;border-radius:8px;margin-bottom:12px;">
+            <div style="padding:20px;text-align:center;color:#666;">
+              <ha-icon icon="mdi:bluetooth" style="font-size:32px;"></ha-icon>
+              <p style="margin:8px 0 0;">Click "Scan" to find nearby Bluetooth devices</p>
+            </div>
+          </div>
+          <div class="fg">
+            <label class="fl">Or Enter MAC Address Manually</label>
+            <input type="text" class="fi" id="remote-bt-mac-ha" placeholder="AA:BB:CC:DD:EE:FF">
+          </div>
+        </div>
+        
+        <!-- ESP32 Bluetooth Section -->
         <div class="fg" id="bt-mac-group" style="display:${remoteType === 'bluetooth' ? 'block' : 'none'};">
           <label class="fl">Bluetooth MAC Address</label>
           <input type="text" class="fi" id="remote-bt-mac" placeholder="AA:BB:CC:DD:EE:FF">
@@ -4616,14 +4774,109 @@ data:
           const zigbeeGroup = this.shadowRoot.getElementById('zigbee-ieee-group');
           const rfGroup = this.shadowRoot.getElementById('rf-code-group');
           const btGroup = this.shadowRoot.getElementById('bt-mac-group');
+          const btHaGroup = this.shadowRoot.getElementById('bt-ha-group');
           
           if (bridgeGroup) bridgeGroup.style.display = ['usb_keyboard', 'bluetooth'].includes(type) ? 'block' : 'none';
           if (zigbeeGroup) zigbeeGroup.style.display = type === 'zigbee' ? 'block' : 'none';
           if (rfGroup) rfGroup.style.display = type === 'rf_433' ? 'block' : 'none';
           if (btGroup) btGroup.style.display = type === 'bluetooth' ? 'block' : 'none';
+          if (btHaGroup) btHaGroup.style.display = type === 'bluetooth_ha' ? 'block' : 'none';
+        });
+      }
+      
+      // Add Bluetooth scan handler
+      const scanBtn = this.shadowRoot.getElementById('bt-scan-btn');
+      if (scanBtn) {
+        scanBtn.addEventListener('click', async () => {
+          await this._scanBluetoothDevices();
         });
       }
     }, 100);
+  }
+  
+  async _scanBluetoothDevices() {
+    const statusEl = this.shadowRoot.getElementById('bt-scan-status');
+    const listEl = this.shadowRoot.getElementById('bt-discovered-list');
+    const adapterEl = this.shadowRoot.getElementById('remote-bt-adapter');
+    const adapter = adapterEl?.value || 'hci0';
+    
+    if (statusEl) statusEl.innerHTML = '<ha-icon icon="mdi:loading" class="spin"></ha-icon> Scanning...';
+    if (listEl) listEl.innerHTML = '<div style="padding:20px;text-align:center;color:#888;">Scanning for Bluetooth devices...</div>';
+    
+    try {
+      const res = await this._api('/api/omniremote/bluetooth', 'POST', {
+        action: 'scan',
+        adapter: adapter,
+        duration: 10,
+      });
+      
+      if (res.success && res.devices && res.devices.length > 0) {
+        if (statusEl) statusEl.textContent = `Found ${res.devices.length} devices`;
+        if (listEl) {
+          listEl.innerHTML = res.devices.map(d => `
+            <div style="display:flex;align-items:center;gap:12px;padding:10px;border-bottom:1px solid #333;cursor:pointer;" 
+                 class="bt-device-row" data-mac="${d.mac}" data-name="${d.name || 'Unknown'}">
+              <ha-icon icon="${d.paired ? 'mdi:bluetooth-connect' : 'mdi:bluetooth'}" 
+                       style="color:${d.paired ? '#4caf50' : '#2196f3'};"></ha-icon>
+              <div style="flex:1;">
+                <div style="font-weight:500;">${d.name || 'Unknown Device'}</div>
+                <div style="font-size:11px;color:#888;">${d.mac}${d.rssi ? ' • RSSI: ' + d.rssi : ''}</div>
+              </div>
+              <button class="btn btn-sm btn-p" data-action="bt-select-device" data-mac="${d.mac}" data-name="${d.name || 'Unknown'}">
+                ${d.paired ? 'Select' : 'Pair & Select'}
+              </button>
+            </div>
+          `).join('');
+          
+          // Add click handlers for device selection
+          listEl.querySelectorAll('[data-action="bt-select-device"]').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+              const mac = e.target.dataset.mac;
+              const name = e.target.dataset.name;
+              const macInput = this.shadowRoot.getElementById('remote-bt-mac-ha');
+              const nameInput = this.shadowRoot.getElementById('remote-name');
+              if (macInput) macInput.value = mac;
+              if (nameInput && !nameInput.value) nameInput.value = name;
+              
+              // Try to pair if not already paired
+              const device = res.devices.find(d => d.mac === mac);
+              if (device && !device.paired) {
+                if (statusEl) statusEl.innerHTML = '<ha-icon icon="mdi:loading" class="spin"></ha-icon> Pairing...';
+                try {
+                  const pairRes = await this._api('/api/omniremote/bluetooth', 'POST', {
+                    action: 'pair',
+                    adapter: adapter,
+                    mac: mac,
+                  });
+                  if (pairRes.success) {
+                    if (statusEl) statusEl.textContent = 'Paired successfully!';
+                  } else {
+                    if (statusEl) statusEl.textContent = 'Pairing failed: ' + (pairRes.error || 'Unknown error');
+                  }
+                } catch (err) {
+                  if (statusEl) statusEl.textContent = 'Pairing error: ' + err.message;
+                }
+              } else {
+                if (statusEl) statusEl.textContent = 'Device selected: ' + name;
+              }
+            });
+          });
+        }
+      } else {
+        if (statusEl) statusEl.textContent = 'No devices found';
+        if (listEl) {
+          listEl.innerHTML = `
+            <div style="padding:20px;text-align:center;color:#888;">
+              <p style="margin:0;">No Bluetooth devices found.</p>
+              <p style="margin:8px 0 0;font-size:12px;">Make sure your device is in pairing mode and nearby.</p>
+            </div>
+          `;
+        }
+      }
+    } catch (err) {
+      console.error('[OmniRemote] Bluetooth scan error:', err);
+      if (statusEl) statusEl.textContent = 'Scan failed: ' + err.message;
+    }
   }
 
   _showEditRemoteModal(remoteId) {
@@ -5269,21 +5522,39 @@ data:
   }
 
   async _flipperAdd(data) {
-    const res = await this._api('/api/omniremote/flipper', 'POST', {
-      action: 'add',
-      device_id: data.deviceId,
-      name: data.name,
-      connection_type: data.connectionType,
-      port: data.port,
-    });
+    console.log('[OmniRemote] Flipper add called with:', data);
     
-    if (res.success) {
-      // Try to connect immediately
-      await this._flipperConnect(data.deviceId);
-      await this._loadFlipperDevices();
-      this._render();
-    } else {
-      alert('Failed to add Flipper: ' + (res.error || 'Unknown error'));
+    // Validate data
+    if (!data.deviceId) {
+      console.error('[OmniRemote] Missing deviceId in flipper-add');
+      alert('Error: Missing device ID');
+      return;
+    }
+    
+    try {
+      const res = await this._api('/api/omniremote/flipper', 'POST', {
+        action: 'add',
+        device_id: data.deviceId,
+        name: data.name || 'Flipper Zero',
+        connection_type: data.connectionType || 'usb',
+        port: data.port || '',
+      });
+      
+      console.log('[OmniRemote] Flipper add response:', res);
+      
+      if (res.success) {
+        // Try to connect immediately
+        await this._flipperConnect(data.deviceId);
+        await this._loadFlipperDevices();
+        this._modal = null;
+        this._render();
+        alert('Flipper Zero added successfully!');
+      } else {
+        alert('Failed to add Flipper: ' + (res.error || 'Unknown error'));
+      }
+    } catch (err) {
+      console.error('[OmniRemote] Flipper add error:', err);
+      alert('Error adding Flipper: ' + err.message);
     }
   }
 
@@ -5438,15 +5709,26 @@ data:
   _profilesListView() {
     const profiles = this._data.remoteProfiles || [];
     const templates = [
-      { id: 'tv_basic', name: 'Basic TV', icon: 'mdi:television', device_type: 'tv', rows: 10, cols: 4 },
-      { id: 'tv_full', name: 'Full TV Remote', icon: 'mdi:television-classic', device_type: 'tv', rows: 14, cols: 4 },
-      { id: 'receiver', name: 'AV Receiver', icon: 'mdi:speaker', device_type: 'receiver', rows: 12, cols: 4 },
-      { id: 'streaming', name: 'Streaming Device', icon: 'mdi:cast', device_type: 'streaming', rows: 8, cols: 3 },
-      { id: 'soundbar', name: 'Soundbar', icon: 'mdi:speaker-wireless', device_type: 'soundbar', rows: 6, cols: 3 },
-      { id: 'projector', name: 'Projector', icon: 'mdi:projector', device_type: 'projector', rows: 10, cols: 4 },
-      { id: 'ac', name: 'Air Conditioner', icon: 'mdi:air-conditioner', device_type: 'ac', rows: 8, cols: 4 },
-      { id: 'universal', name: 'Blank Universal', icon: 'mdi:remote', device_type: 'universal', rows: 8, cols: 4 },
+      // Basic device templates
+      { id: 'tv_basic', name: 'TV Remote', icon: 'mdi:television', device_type: 'tv', rows: 10, cols: 4, category: 'basic' },
+      { id: 'receiver', name: 'AV Receiver', icon: 'mdi:speaker', device_type: 'receiver', rows: 12, cols: 4, category: 'basic' },
+      { id: 'streaming', name: 'Streaming', icon: 'mdi:cast', device_type: 'streaming', rows: 8, cols: 3, category: 'basic' },
+      { id: 'soundbar', name: 'Soundbar', icon: 'mdi:speaker-wireless', device_type: 'soundbar', rows: 6, cols: 3, category: 'basic' },
+      { id: 'projector', name: 'Projector', icon: 'mdi:projector', device_type: 'projector', rows: 10, cols: 4, category: 'basic' },
+      { id: 'ac', name: 'Air Conditioner', icon: 'mdi:air-conditioner', device_type: 'ac', rows: 8, cols: 4, category: 'basic' },
+      { id: 'fan', name: 'Ceiling Fan', icon: 'mdi:ceiling-fan', device_type: 'fan', rows: 6, cols: 3, category: 'basic' },
+      // Design variations
+      { id: 'tv_blackout', name: 'TV Blackout', icon: 'mdi:television', device_type: 'tv', rows: 10, cols: 4, category: 'design', desc: 'Dark stealth' },
+      { id: 'tv_backlit', name: 'TV Backlit', icon: 'mdi:led-strip-variant', device_type: 'tv', rows: 10, cols: 4, category: 'design', desc: 'Neon glow' },
+      { id: 'minimal_circle', name: 'Minimal', icon: 'mdi:circle-outline', device_type: 'universal', rows: 8, cols: 3, category: 'design', desc: 'Clean circles' },
+      { id: 'gaming', name: 'Gaming', icon: 'mdi:gamepad-variant', device_type: 'gaming', rows: 8, cols: 4, category: 'design', desc: 'Controller' },
+      // Blank
+      { id: 'universal', name: 'Blank Canvas', icon: 'mdi:remote', device_type: 'universal', rows: 8, cols: 4, category: 'blank' },
     ];
+    
+    const basicTemplates = templates.filter(t => t.category === 'basic');
+    const designTemplates = templates.filter(t => t.category === 'design');
+    const blankTemplates = templates.filter(t => t.category === 'blank');
 
     return `
       <div class="builder-container">
@@ -5493,19 +5775,37 @@ data:
           </div>
         `}
 
-        <!-- Templates Section -->
+        <!-- Device Templates Section -->
         <div class="section-header" style="margin-top:32px;">
-          <h3><ha-icon icon="mdi:palette"></ha-icon> Start from Template</h3>
+          <h3><ha-icon icon="mdi:devices"></ha-icon> Device Templates</h3>
         </div>
-        <p style="color:#888;margin-bottom:16px;">Choose a template with pre-configured buttons, then customize to your needs.</p>
+        <p style="color:#888;margin-bottom:16px;">Pre-configured remotes for common devices.</p>
         
         <div class="grid templates-grid">
-          ${templates.map(t => `
+          ${basicTemplates.map(t => `
             <div class="card template-card" data-template-id="${t.id}" data-action="builder-from-template" style="cursor:pointer;transition:all 0.2s;">
               <div style="text-align:center;padding:20px 0;">
                 <ha-icon icon="${t.icon}" style="font-size:36px;color:#64b5f6;"></ha-icon>
                 <h4 style="margin:12px 0 4px;font-size:15px;">${t.name}</h4>
                 <div style="color:#888;font-size:12px;">${t.rows}×${t.cols} grid</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        
+        <!-- Design Variations Section -->
+        <div class="section-header" style="margin-top:32px;">
+          <h3><ha-icon icon="mdi:palette"></ha-icon> Design Variations</h3>
+        </div>
+        <p style="color:#888;margin-bottom:16px;">Alternative button styles and color schemes.</p>
+        
+        <div class="grid templates-grid">
+          ${designTemplates.map(t => `
+            <div class="card template-card" data-template-id="${t.id}" data-action="builder-from-template" style="cursor:pointer;transition:all 0.2s;position:relative;">
+              <div style="text-align:center;padding:20px 0;">
+                <ha-icon icon="${t.icon}" style="font-size:36px;color:${t.id.includes('backlit') ? '#00e5ff' : t.id.includes('blackout') ? '#333' : '#64b5f6'};"></ha-icon>
+                <h4 style="margin:12px 0 4px;font-size:15px;">${t.name}</h4>
+                <div style="color:#888;font-size:11px;">${t.desc || ''}</div>
               </div>
             </div>
           `).join('')}
@@ -5957,6 +6257,7 @@ data:
 
   async _createFromTemplate(templateId) {
     const templates = {
+      // === BASIC TEMPLATES ===
       tv_basic: {
         name: 'TV Remote', rows: 10, cols: 4, device_type: 'tv', icon: 'mdi:television',
         buttons: [
@@ -6031,6 +6332,143 @@ data:
           { id: 'hdmi', label: 'HDMI', icon: 'mdi:hdmi-port', row: 2, col: 2, command_name: 'hdmi_arc' },
           { id: 'bass_up', label: 'Bass +', icon: 'mdi:plus', row: 4, col: 0, command_name: 'bass_up' },
           { id: 'bass_down', label: 'Bass -', icon: 'mdi:minus', row: 4, col: 2, command_name: 'bass_down' },
+        ]
+      },
+      projector: {
+        name: 'Projector', rows: 10, cols: 4, device_type: 'projector', icon: 'mdi:projector',
+        buttons: [
+          { id: 'power', label: 'Power', icon: 'mdi:power', row: 0, col: 0, col_span: 2, color: '#f44336', command_name: 'power' },
+          { id: 'power_off', label: 'Off', icon: 'mdi:power-off', row: 0, col: 2, col_span: 2, color: '#616161', command_name: 'power_off' },
+          { id: 'input', label: 'Input', icon: 'mdi:import', row: 1, col: 0, command_name: 'source' },
+          { id: 'hdmi1', label: 'HDMI 1', icon: 'mdi:hdmi-port', row: 1, col: 1, command_name: 'hdmi1' },
+          { id: 'hdmi2', label: 'HDMI 2', icon: 'mdi:hdmi-port', row: 1, col: 2, command_name: 'hdmi2' },
+          { id: 'vga', label: 'VGA', icon: 'mdi:video-input-component', row: 1, col: 3, command_name: 'vga' },
+          { id: 'blank', label: 'Blank', icon: 'mdi:rectangle', row: 2, col: 0, color: '#000000', command_name: 'blank' },
+          { id: 'freeze', label: 'Freeze', icon: 'mdi:snowflake', row: 2, col: 1, color: '#2196f3', command_name: 'freeze' },
+          { id: 'aspect', label: 'Aspect', icon: 'mdi:aspect-ratio', row: 2, col: 2, command_name: 'aspect' },
+          { id: 'keystone', label: 'Keystone', icon: 'mdi:shape-polygon-plus', row: 2, col: 3, command_name: 'keystone' },
+          { id: 'up', label: '', icon: 'mdi:chevron-up', row: 4, col: 1, col_span: 2, command_name: 'up' },
+          { id: 'left', label: '', icon: 'mdi:chevron-left', row: 5, col: 0, command_name: 'left' },
+          { id: 'ok', label: 'OK', icon: 'mdi:check-circle', row: 5, col: 1, col_span: 2, color: '#4caf50', command_name: 'ok' },
+          { id: 'right', label: '', icon: 'mdi:chevron-right', row: 5, col: 3, command_name: 'right' },
+          { id: 'down', label: '', icon: 'mdi:chevron-down', row: 6, col: 1, col_span: 2, command_name: 'down' },
+          { id: 'menu', label: 'Menu', icon: 'mdi:menu', row: 7, col: 0, command_name: 'menu' },
+          { id: 'back', label: 'Back', icon: 'mdi:arrow-left', row: 7, col: 1, command_name: 'back' },
+          { id: 'auto', label: 'Auto', icon: 'mdi:auto-fix', row: 7, col: 2, command_name: 'auto' },
+          { id: 'eco', label: 'Eco', icon: 'mdi:leaf', row: 7, col: 3, color: '#4caf50', command_name: 'eco' },
+          { id: 'zoom_in', label: 'Zoom +', icon: 'mdi:magnify-plus', row: 8, col: 0, command_name: 'zoom_in' },
+          { id: 'zoom_out', label: 'Zoom -', icon: 'mdi:magnify-minus', row: 8, col: 1, command_name: 'zoom_out' },
+          { id: 'focus_near', label: 'Focus -', icon: 'mdi:camera-metering-center', row: 8, col: 2, command_name: 'focus_near' },
+          { id: 'focus_far', label: 'Focus +', icon: 'mdi:camera-metering-spot', row: 8, col: 3, command_name: 'focus_far' },
+        ]
+      },
+      ac: {
+        name: 'Air Conditioner', rows: 8, cols: 4, device_type: 'ac', icon: 'mdi:air-conditioner',
+        buttons: [
+          { id: 'power', label: 'Power', icon: 'mdi:power', row: 0, col: 1, col_span: 2, color: '#f44336', command_name: 'power' },
+          { id: 'temp_up', label: '', icon: 'mdi:thermometer-chevron-up', row: 1, col: 0, col_span: 2, row_span: 2, color: '#ff5722', command_name: 'temp_up' },
+          { id: 'temp_down', label: '', icon: 'mdi:thermometer-chevron-down', row: 1, col: 2, col_span: 2, row_span: 2, color: '#2196f3', command_name: 'temp_down' },
+          { id: 'cool', label: 'Cool', icon: 'mdi:snowflake', row: 4, col: 0, color: '#2196f3', command_name: 'cool' },
+          { id: 'heat', label: 'Heat', icon: 'mdi:fire', row: 4, col: 1, color: '#ff5722', command_name: 'heat' },
+          { id: 'auto', label: 'Auto', icon: 'mdi:autorenew', row: 4, col: 2, color: '#4caf50', command_name: 'auto' },
+          { id: 'dry', label: 'Dry', icon: 'mdi:water-percent', row: 4, col: 3, color: '#ff9800', command_name: 'dry' },
+          { id: 'fan_low', label: 'Low', icon: 'mdi:fan-speed-1', row: 5, col: 0, command_name: 'fan_low' },
+          { id: 'fan_med', label: 'Med', icon: 'mdi:fan-speed-2', row: 5, col: 1, command_name: 'fan_med' },
+          { id: 'fan_high', label: 'High', icon: 'mdi:fan-speed-3', row: 5, col: 2, command_name: 'fan_high' },
+          { id: 'fan_auto', label: 'Auto', icon: 'mdi:fan-auto', row: 5, col: 3, command_name: 'fan_auto' },
+          { id: 'swing', label: 'Swing', icon: 'mdi:arrow-oscillating', row: 6, col: 0, command_name: 'swing' },
+          { id: 'timer', label: 'Timer', icon: 'mdi:timer', row: 6, col: 1, command_name: 'timer' },
+          { id: 'sleep', label: 'Sleep', icon: 'mdi:bed', row: 6, col: 2, command_name: 'sleep' },
+          { id: 'turbo', label: 'Turbo', icon: 'mdi:lightning-bolt', row: 6, col: 3, color: '#ff9800', command_name: 'turbo' },
+        ]
+      },
+      fan: {
+        name: 'Ceiling Fan', rows: 6, cols: 3, device_type: 'fan', icon: 'mdi:ceiling-fan',
+        buttons: [
+          { id: 'power', label: 'Power', icon: 'mdi:power', row: 0, col: 1, color: '#f44336', command_name: 'power' },
+          { id: 'light', label: 'Light', icon: 'mdi:lightbulb', row: 0, col: 2, color: '#ffeb3b', command_name: 'light' },
+          { id: 'speed_1', label: 'Low', icon: 'mdi:fan-speed-1', row: 2, col: 0, command_name: 'speed_1' },
+          { id: 'speed_2', label: 'Med', icon: 'mdi:fan-speed-2', row: 2, col: 1, command_name: 'speed_2' },
+          { id: 'speed_3', label: 'High', icon: 'mdi:fan-speed-3', row: 2, col: 2, command_name: 'speed_3' },
+          { id: 'reverse', label: 'Reverse', icon: 'mdi:rotate-3d-variant', row: 4, col: 0, command_name: 'reverse' },
+          { id: 'timer', label: 'Timer', icon: 'mdi:timer', row: 4, col: 1, command_name: 'timer' },
+          { id: 'breeze', label: 'Breeze', icon: 'mdi:weather-windy', row: 4, col: 2, command_name: 'breeze' },
+        ]
+      },
+      // === DESIGN VARIATIONS ===
+      tv_blackout: {
+        name: 'TV Blackout', rows: 10, cols: 4, device_type: 'tv', icon: 'mdi:television',
+        description: 'Dark theme with subtle button outlines',
+        buttons: [
+          { id: 'power', label: '', icon: 'mdi:power', row: 0, col: 1, col_span: 2, color: '#1a1a1a', command_name: 'power', shape: 'circle' },
+          { id: 'input', label: '', icon: 'mdi:import', row: 1, col: 0, color: '#1a1a1a', command_name: 'source' },
+          { id: 'mute', label: '', icon: 'mdi:volume-off', row: 1, col: 3, color: '#1a1a1a', command_name: 'mute' },
+          { id: 'vol_up', label: '', icon: 'mdi:volume-plus', row: 2, col: 0, color: '#1a1a1a', command_name: 'volume_up' },
+          { id: 'ch_up', label: '', icon: 'mdi:chevron-up', row: 2, col: 3, color: '#1a1a1a', command_name: 'channel_up' },
+          { id: 'vol_down', label: '', icon: 'mdi:volume-minus', row: 3, col: 0, color: '#1a1a1a', command_name: 'volume_down' },
+          { id: 'ch_down', label: '', icon: 'mdi:chevron-down', row: 3, col: 3, color: '#1a1a1a', command_name: 'channel_down' },
+          { id: 'up', label: '', icon: 'mdi:chevron-up', row: 5, col: 1, col_span: 2, color: '#1a1a1a', command_name: 'up' },
+          { id: 'left', label: '', icon: 'mdi:chevron-left', row: 6, col: 0, color: '#1a1a1a', command_name: 'left' },
+          { id: 'ok', label: '', icon: 'mdi:circle-outline', row: 6, col: 1, col_span: 2, color: '#1a1a1a', command_name: 'ok', shape: 'circle' },
+          { id: 'right', label: '', icon: 'mdi:chevron-right', row: 6, col: 3, color: '#1a1a1a', command_name: 'right' },
+          { id: 'down', label: '', icon: 'mdi:chevron-down', row: 7, col: 1, col_span: 2, color: '#1a1a1a', command_name: 'down' },
+          { id: 'back', label: '', icon: 'mdi:arrow-left', row: 8, col: 0, color: '#1a1a1a', command_name: 'back' },
+          { id: 'home', label: '', icon: 'mdi:home', row: 8, col: 1, col_span: 2, color: '#1a1a1a', command_name: 'home' },
+          { id: 'menu', label: '', icon: 'mdi:menu', row: 8, col: 3, color: '#1a1a1a', command_name: 'menu' },
+        ]
+      },
+      tv_backlit: {
+        name: 'TV Backlit', rows: 10, cols: 4, device_type: 'tv', icon: 'mdi:television',
+        description: 'Glowing buttons with neon accents',
+        buttons: [
+          { id: 'power', label: 'Power', icon: 'mdi:power', row: 0, col: 1, col_span: 2, color: '#ff1744', command_name: 'power', shape: 'circle' },
+          { id: 'input', label: 'Input', icon: 'mdi:import', row: 1, col: 0, color: '#00e5ff', command_name: 'source' },
+          { id: 'mute', label: 'Mute', icon: 'mdi:volume-off', row: 1, col: 3, color: '#ff9100', command_name: 'mute' },
+          { id: 'vol_up', label: '+', icon: 'mdi:volume-plus', row: 2, col: 0, color: '#00e676', command_name: 'volume_up' },
+          { id: 'ch_up', label: '∧', icon: 'mdi:chevron-up', row: 2, col: 3, color: '#651fff', command_name: 'channel_up' },
+          { id: 'vol_down', label: '-', icon: 'mdi:volume-minus', row: 3, col: 0, color: '#00e676', command_name: 'volume_down' },
+          { id: 'ch_down', label: '∨', icon: 'mdi:chevron-down', row: 3, col: 3, color: '#651fff', command_name: 'channel_down' },
+          { id: 'up', label: '', icon: 'mdi:triangle', row: 5, col: 1, col_span: 2, color: '#2979ff', command_name: 'up' },
+          { id: 'left', label: '', icon: 'mdi:menu-left', row: 6, col: 0, color: '#2979ff', command_name: 'left' },
+          { id: 'ok', label: 'OK', icon: 'mdi:radiobox-marked', row: 6, col: 1, col_span: 2, color: '#00e5ff', command_name: 'ok', shape: 'circle' },
+          { id: 'right', label: '', icon: 'mdi:menu-right', row: 6, col: 3, color: '#2979ff', command_name: 'right' },
+          { id: 'down', label: '', icon: 'mdi:triangle-down', row: 7, col: 1, col_span: 2, color: '#2979ff', command_name: 'down' },
+          { id: 'back', label: 'Back', icon: 'mdi:keyboard-return', row: 8, col: 0, color: '#ff6e40', command_name: 'back' },
+          { id: 'home', label: 'Home', icon: 'mdi:home-circle', row: 8, col: 1, col_span: 2, color: '#64ffda', command_name: 'home' },
+          { id: 'menu', label: 'Menu', icon: 'mdi:dots-grid', row: 8, col: 3, color: '#ea80fc', command_name: 'menu' },
+        ]
+      },
+      minimal_circle: {
+        name: 'Minimal Circles', rows: 8, cols: 3, device_type: 'universal', icon: 'mdi:circle-outline',
+        description: 'Clean circular button design',
+        buttons: [
+          { id: 'power', label: '', icon: 'mdi:power', row: 0, col: 1, color: '#f44336', command_name: 'power', shape: 'circle' },
+          { id: 'up', label: '', icon: 'mdi:chevron-up', row: 2, col: 1, color: '#424242', command_name: 'up', shape: 'circle' },
+          { id: 'left', label: '', icon: 'mdi:chevron-left', row: 3, col: 0, color: '#424242', command_name: 'left', shape: 'circle' },
+          { id: 'ok', label: '', icon: 'mdi:checkbox-blank-circle', row: 3, col: 1, color: '#2196f3', command_name: 'ok', shape: 'circle' },
+          { id: 'right', label: '', icon: 'mdi:chevron-right', row: 3, col: 2, color: '#424242', command_name: 'right', shape: 'circle' },
+          { id: 'down', label: '', icon: 'mdi:chevron-down', row: 4, col: 1, color: '#424242', command_name: 'down', shape: 'circle' },
+          { id: 'back', label: '', icon: 'mdi:arrow-left', row: 6, col: 0, color: '#616161', command_name: 'back', shape: 'circle' },
+          { id: 'home', label: '', icon: 'mdi:home', row: 6, col: 1, color: '#616161', command_name: 'home', shape: 'circle' },
+          { id: 'menu', label: '', icon: 'mdi:menu', row: 6, col: 2, color: '#616161', command_name: 'menu', shape: 'circle' },
+        ]
+      },
+      gaming: {
+        name: 'Gaming Controller', rows: 8, cols: 4, device_type: 'gaming', icon: 'mdi:gamepad-variant',
+        description: 'Game controller style layout',
+        buttons: [
+          { id: 'power', label: '', icon: 'mdi:power', row: 0, col: 1, col_span: 2, color: '#4caf50', command_name: 'power', shape: 'circle' },
+          { id: 'up', label: '', icon: 'mdi:chevron-up', row: 2, col: 0, color: '#424242', command_name: 'up' },
+          { id: 'y', label: 'Y', row: 2, col: 2, color: '#ffc107', command_name: 'y', shape: 'circle' },
+          { id: 'left', label: '', icon: 'mdi:chevron-left', row: 3, col: 0, color: '#424242', command_name: 'left' },
+          { id: 'x', label: 'X', row: 3, col: 2, color: '#2196f3', command_name: 'x', shape: 'circle' },
+          { id: 'b', label: 'B', row: 3, col: 3, color: '#f44336', command_name: 'b', shape: 'circle' },
+          { id: 'down', label: '', icon: 'mdi:chevron-down', row: 4, col: 0, color: '#424242', command_name: 'down' },
+          { id: 'a', label: 'A', row: 4, col: 3, color: '#4caf50', command_name: 'a', shape: 'circle' },
+          { id: 'right', label: '', icon: 'mdi:chevron-right', row: 3, col: 1, color: '#424242', command_name: 'right' },
+          { id: 'start', label: 'Start', icon: 'mdi:play', row: 6, col: 2, color: '#616161', command_name: 'start' },
+          { id: 'select', label: 'Select', icon: 'mdi:checkbox-blank', row: 6, col: 1, color: '#616161', command_name: 'select' },
+          { id: 'home', label: '', icon: 'mdi:home', row: 6, col: 3, color: '#ffffff', command_name: 'home', shape: 'circle' },
         ]
       },
       universal: {
