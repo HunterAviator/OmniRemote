@@ -123,9 +123,13 @@ class OmniPanelView(HomeAssistantView):
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the view."""
         self.hass = hass
+        self._content_hash = None
+        self._cached_content = None
     
     async def get(self, request: web.Request) -> web.Response:
         """Return the panel JavaScript."""
+        import hashlib
+        
         panel_path = Path(__file__).parent / "panel.js"
         
         _LOGGER.debug("Serving panel.js from: %s (exists: %s)", panel_path, panel_path.exists())
@@ -133,20 +137,30 @@ class OmniPanelView(HomeAssistantView):
         if panel_path.exists():
             # Use async file read to avoid blocking
             content = await self.hass.async_add_executor_job(panel_path.read_text)
-            _LOGGER.debug("Panel.js loaded, size: %d bytes", len(content))
+            content_hash = hashlib.md5(content.encode()).hexdigest()[:16]
+            _LOGGER.debug("Panel.js loaded, size: %d bytes, hash: %s", len(content), content_hash)
         else:
             _LOGGER.error("Panel.js not found at: %s", panel_path)
             content = "console.error('OmniRemote panel.js not found at " + str(panel_path) + "');"
+            content_hash = "error"
         
-        # Add cache-control headers to prevent browser caching
+        # Check If-None-Match header for conditional request
+        etag = f'"{content_hash}"'
+        if_none_match = request.headers.get("If-None-Match")
+        if if_none_match == etag:
+            return web.Response(status=304)  # Not Modified
+        
+        # Add aggressive cache-control headers to prevent browser caching
         return web.Response(
             text=content,
             content_type="application/javascript",
             headers={
-                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
                 "Pragma": "no-cache",
                 "Expires": "0",
+                "ETag": etag,
                 "X-OmniRemote-Version": VERSION,
+                "X-Content-Hash": content_hash,
             }
         )
 
@@ -2293,26 +2307,29 @@ class OmniApiRemoteProfiles(HomeAssistantView):
             data = await request.json()
             action = data.get("action", "create")
             
-            if action == "create" or action == "update":
-                profile_id = data.get("id") or str(uuid.uuid4())[:8]
+            # Handle nested profile object (from JS builder)
+            profile_data = data.get("profile", data)
+            
+            if action in ("create", "update", "save"):
+                profile_id = profile_data.get("id") or data.get("profile_id") or str(uuid.uuid4())[:8]
                 
                 # Parse buttons
                 buttons = []
-                for btn_data in data.get("buttons", []):
+                for btn_data in profile_data.get("buttons", []):
                     buttons.append(RemoteButton.from_dict(btn_data))
                 
                 profile = RemoteProfile(
                     id=profile_id,
-                    name=data.get("name", "Custom Remote"),
-                    description=data.get("description", ""),
-                    icon=data.get("icon", "mdi:remote"),
-                    rows=data.get("rows", 8),
-                    cols=data.get("cols", 4),
-                    device_type=data.get("device_type", "universal"),
-                    default_device_id=data.get("default_device_id"),
+                    name=profile_data.get("name", "Custom Remote"),
+                    description=profile_data.get("description", ""),
+                    icon=profile_data.get("icon", "mdi:remote"),
+                    rows=profile_data.get("rows", 8),
+                    cols=profile_data.get("cols", 4),
+                    device_type=profile_data.get("device_type", "universal"),
+                    default_device_id=profile_data.get("default_device_id"),
                     buttons=buttons,
-                    template=data.get("template"),
-                    created_at=data.get("created_at") or datetime.now().isoformat(),
+                    template=profile_data.get("template"),
+                    created_at=profile_data.get("created_at") or datetime.now().isoformat(),
                     updated_at=datetime.now().isoformat(),
                 )
                 
@@ -2323,7 +2340,7 @@ class OmniApiRemoteProfiles(HomeAssistantView):
                 return web.json_response({"profile": profile.to_dict(), "success": True})
             
             elif action == "delete":
-                profile_id = data.get("id")
+                profile_id = data.get("profile_id") or data.get("id")
                 if profile_id and profile_id in database.remote_profiles:
                     del database.remote_profiles[profile_id]
                     await database.async_save()

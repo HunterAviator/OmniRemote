@@ -141,3 +141,65 @@ Imported devices show with the HA icon and can be used in scenes alongside IR de
 - Profile persistence in OmniRemote database
 - Template system for quick profile creation
 
+
+## [1.8.5] - 2024-02-26
+
+### Added
+- **Remote Profile Builder** - Full visual remote layout editor with:
+  - Profile list view with create/edit/delete/duplicate
+  - Visual grid-based button placement editor
+  - Pre-built templates (TV, Receiver, Streaming, Soundbar, more)
+  - Button property panel with icon picker
+  - Quick-add buttons for common commands
+  - Grid settings (rows, columns, device type)
+  - Default device assignment for all buttons
+  - Button action types: IR Command, HA Service, Scene
+  - Button customization: shape, color, span, labels
+  - Profiles sync to mobile apps via API
+
+### Changed
+- Remote Profiles API now handles nested profile objects from builder
+- Builder state variables added for profile editing
+
+
+## [1.8.5] - 2024-02-26
+
+### Added
+- **Remote Profile Builder** - Visual drag-and-drop remote layout editor
+  - Create custom remote profiles that sync to mobile apps
+  - Pre-built templates: TV, Receiver, Streaming, Soundbar, Projector, AC, Universal
+  - Visual grid editor with click-to-add buttons
+  - Button properties: label, icon, shape, color, size (spanning cells)
+  - Action types: IR Command, HA Service, Scene, None
+  - Quick-add buttons for common controls (power, volume, navigation, etc.)
+  - Default device assignment per profile
+  - Grid settings: resize rows/cols, change device type, icon, description
+  - Save/duplicate/delete profiles
+  - Profiles saved to database and sync-ready for mobile apps
+
+### Fixed
+- Removed duplicate _builderView functions that were causing conflicts
+- Consolidated builder code into single comprehensive implementation
+
+
+## [1.9.1] - 2024-02-27
+
+### Fixed
+- **Critical: Blank page fix** - Removed duplicate builder action handlers that called undefined methods
+- Builder actions now correctly dispatch to _handleBuilderAction handler
+
+
+## [1.9.2] - 2024-02-27
+
+### Fixed
+- **Enhanced cache-busting** - Added ETag headers and content hash for better cache invalidation
+- Panel now includes X-Content-Hash header for debugging cache issues
+- Improved logging of panel.js hash on load
+
+### Notes
+If panel version is stuck, try these steps in order:
+1. Restart Home Assistant completely
+2. Hard refresh browser (Ctrl+Shift+R)
+3. Clear browser cache and cookies for your HA instance
+4. Try incognito/private browsing mode
+

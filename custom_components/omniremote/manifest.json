@@ -1,7 +1,7 @@
 {
   "domain": "omniremote",
   "name": "OmniRemote",
-  "version": "1.9.0",
+  "version": "1.9.2",
   "documentation": "https://github.com/HunterAviator/OmniRemote",
   "issue_tracker": "https://github.com/HunterAviator/OmniRemote/issues",
   "dependencies": ["http"],
