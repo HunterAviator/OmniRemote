@@ -3,7 +3,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.9.4";
+const OMNIREMOTE_VERSION = "1.9.6";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -395,6 +395,29 @@ class OmniRemotePanel extends HTMLElement {
         this._handleAction(el.dataset.action, el.dataset);
       });
     });
+    
+    // Event delegation for dynamically created content in modals
+    const modalEl = root.querySelector('.modal');
+    if (modalEl) {
+      modalEl.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-action="import-ha-entity"]');
+        if (btn) {
+          e.stopPropagation();
+          const entityId = btn.dataset.entityId;
+          console.log('[OmniRemote] Import button clicked via delegation:', entityId);
+          if (entityId) {
+            await this._importHaEntity(entityId);
+          }
+        }
+        
+        // Handle Bluetooth device selection
+        const btBtn = e.target.closest('[data-action="bt-select-device"]');
+        if (btBtn) {
+          e.stopPropagation();
+          // Handler is already attached in _showAddRemoteModal
+        }
+      });
+    }
     
     // Stop modal propagation
     const modal = root.querySelector('[data-stop-propagation]');
@@ -2760,6 +2783,8 @@ data:
         const countEl = this.shadowRoot.getElementById('ha-entity-count');
         if (listEl) {
           listEl.innerHTML = this._renderHaEntityList(filtered);
+          // Re-attach click handlers for import buttons
+          this._attachImportHandlers(listEl);
         }
         if (countEl) {
           countEl.textContent = filtered.length;
@@ -2769,7 +2794,25 @@ data:
       if (searchInput) searchInput.addEventListener('input', applyFilters);
       if (integrationFilter) integrationFilter.addEventListener('change', applyFilters);
       if (domainFilter) domainFilter.addEventListener('change', applyFilters);
+      
+      // Attach handlers for initial list
+      const listEl = this.shadowRoot.getElementById('ha-entity-list');
+      if (listEl) {
+        this._attachImportHandlers(listEl);
+      }
     }, 100);
+  }
+  
+  _attachImportHandlers(container) {
+    container.querySelectorAll('[data-action="import-ha-entity"]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const entityId = btn.dataset.entityId;
+        if (entityId) {
+          await this._importHaEntity(entityId);
+        }
+      });
+    });
   }
   
   _renderHaEntityList(entities) {
@@ -2829,15 +2872,25 @@ data:
   }
 
   async _importHaEntity(entityId) {
+    console.log('[OmniRemote] Import HA entity called:', entityId);
+    
+    if (!entityId) {
+      console.error('[OmniRemote] No entityId provided');
+      alert('Error: No entity ID provided');
+      return;
+    }
+    
     const state = this._hass?.states?.[entityId];
     if (!state) {
-      alert('Entity not found');
+      console.error('[OmniRemote] Entity not found in hass.states:', entityId);
+      alert('Entity not found: ' + entityId);
       return;
     }
     
     const domain = entityId.split('.')[0];
     const name = state.attributes.friendly_name || entityId;
     
+    console.log('[OmniRemote] Importing:', { entityId, name, domain });
     // Map domain to category
     const categoryMap = {
       'media_player': 'streaming',
@@ -2847,22 +2900,35 @@ data:
       'climate': 'ac',
       'cover': 'other',
       'remote': 'other',
+      'sensor': 'other',
+      'binary_sensor': 'other',
+      'button': 'other',
+      'scene': 'other',
     };
     
-    const res = await this._api('/api/omniremote/devices', 'POST', {
-      name: name,
-      category: categoryMap[domain] || 'other',
-      entity_id: entityId,
-      brand: 'Home Assistant',
-      model: domain,
-    });
-    
-    if (res.device) {
-      alert(`Imported: ${name}`);
-      this._modal = null;
-      await this._loadData();
-    } else {
-      alert('Failed to import: ' + (res.error || 'Unknown error'));
+    try {
+      const payload = {
+        name: name,
+        category: categoryMap[domain] || 'other',
+        entity_id: entityId,
+        brand: 'Home Assistant',
+        model: domain,
+      };
+      console.log('[OmniRemote] Sending import request:', payload);
+      
+      const res = await this._api('/api/omniremote/devices', 'POST', payload);
+      console.log('[OmniRemote] Import response:', res);
+      
+      if (res.device) {
+        alert(`Imported: ${name}`);
+        this._modal = null;
+        await this._loadData();
+      } else {
+        alert('Failed to import: ' + (res.error || 'Unknown error'));
+      }
+    } catch (err) {
+      console.error('[OmniRemote] Import error:', err);
+      alert('Import failed: ' + err.message);
     }
   }
 
@@ -4724,11 +4790,12 @@ data:
               <option value="hci1">hci1 (USB Dongle)</option>
             </select>
           </div>
-          <div style="margin:12px 0;">
+          <div style="margin:12px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
             <button class="btn btn-s" data-action="bt-scan-start" id="bt-scan-btn">
-              <ha-icon icon="mdi:bluetooth-searching"></ha-icon> Scan for Devices
+              <ha-icon icon="mdi:bluetooth-searching"></ha-icon> Scan
             </button>
-            <span id="bt-scan-status" style="margin-left:12px;color:#888;"></span>
+            <input type="text" class="fi" id="bt-device-search" placeholder="Search by name or MAC..." style="flex:1;min-width:150px;">
+            <span id="bt-scan-status" style="color:#888;font-size:12px;"></span>
           </div>
           <div id="bt-discovered-list" style="max-height:200px;overflow-y:auto;background:#0d0d1a;border-radius:8px;margin-bottom:12px;">
             <div style="padding:20px;text-align:center;color:#666;">
@@ -4810,56 +4877,23 @@ data:
         duration: 10,
       });
       
+      // Store devices for filtering
+      this._btDiscoveredDevices = res.devices || [];
+      
       if (res.success && res.devices && res.devices.length > 0) {
         if (statusEl) statusEl.textContent = `Found ${res.devices.length} devices`;
-        if (listEl) {
-          listEl.innerHTML = res.devices.map(d => `
-            <div style="display:flex;align-items:center;gap:12px;padding:10px;border-bottom:1px solid #333;cursor:pointer;" 
-                 class="bt-device-row" data-mac="${d.mac}" data-name="${d.name || 'Unknown'}">
-              <ha-icon icon="${d.paired ? 'mdi:bluetooth-connect' : 'mdi:bluetooth'}" 
-                       style="color:${d.paired ? '#4caf50' : '#2196f3'};"></ha-icon>
-              <div style="flex:1;">
-                <div style="font-weight:500;">${d.name || 'Unknown Device'}</div>
-                <div style="font-size:11px;color:#888;">${d.mac}${d.rssi ? ' • RSSI: ' + d.rssi : ''}</div>
-              </div>
-              <button class="btn btn-sm btn-p" data-action="bt-select-device" data-mac="${d.mac}" data-name="${d.name || 'Unknown'}">
-                ${d.paired ? 'Select' : 'Pair & Select'}
-              </button>
-            </div>
-          `).join('');
-          
-          // Add click handlers for device selection
-          listEl.querySelectorAll('[data-action="bt-select-device"]').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-              const mac = e.target.dataset.mac;
-              const name = e.target.dataset.name;
-              const macInput = this.shadowRoot.getElementById('remote-bt-mac-ha');
-              const nameInput = this.shadowRoot.getElementById('remote-name');
-              if (macInput) macInput.value = mac;
-              if (nameInput && !nameInput.value) nameInput.value = name;
-              
-              // Try to pair if not already paired
-              const device = res.devices.find(d => d.mac === mac);
-              if (device && !device.paired) {
-                if (statusEl) statusEl.innerHTML = '<ha-icon icon="mdi:loading" class="spin"></ha-icon> Pairing...';
-                try {
-                  const pairRes = await this._api('/api/omniremote/bluetooth', 'POST', {
-                    action: 'pair',
-                    adapter: adapter,
-                    mac: mac,
-                  });
-                  if (pairRes.success) {
-                    if (statusEl) statusEl.textContent = 'Paired successfully!';
-                  } else {
-                    if (statusEl) statusEl.textContent = 'Pairing failed: ' + (pairRes.error || 'Unknown error');
-                  }
-                } catch (err) {
-                  if (statusEl) statusEl.textContent = 'Pairing error: ' + err.message;
-                }
-              } else {
-                if (statusEl) statusEl.textContent = 'Device selected: ' + name;
-              }
-            });
+        this._renderBluetoothDeviceList(res.devices);
+        
+        // Add search handler
+        const searchEl = this.shadowRoot.getElementById('bt-device-search');
+        if (searchEl) {
+          searchEl.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+            const filtered = this._btDiscoveredDevices.filter(d => 
+              (d.name || '').toLowerCase().includes(query) ||
+              (d.mac || '').toLowerCase().includes(query)
+            );
+            this._renderBluetoothDeviceList(filtered);
           });
         }
       } else {
@@ -4877,6 +4911,84 @@ data:
       console.error('[OmniRemote] Bluetooth scan error:', err);
       if (statusEl) statusEl.textContent = 'Scan failed: ' + err.message;
     }
+  }
+  
+  _renderBluetoothDeviceList(devices) {
+    const listEl = this.shadowRoot.getElementById('bt-discovered-list');
+    const statusEl = this.shadowRoot.getElementById('bt-scan-status');
+    const adapterEl = this.shadowRoot.getElementById('remote-bt-adapter');
+    const adapter = adapterEl?.value || 'hci0';
+    
+    if (!listEl) return;
+    
+    if (devices.length === 0) {
+      listEl.innerHTML = `
+        <div style="padding:20px;text-align:center;color:#888;">
+          No devices match your search.
+        </div>
+      `;
+      return;
+    }
+    
+    listEl.innerHTML = devices.map((d, i) => `
+      <div class="bt-device-row" style="display:flex;align-items:center;gap:12px;padding:10px;border-bottom:1px solid #333;">
+        <ha-icon icon="${d.paired ? 'mdi:bluetooth-connect' : 'mdi:bluetooth'}" 
+                 style="color:${d.paired ? '#4caf50' : '#2196f3'};font-size:20px;"></ha-icon>
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${d.name || 'Unknown Device'}</div>
+          <div style="font-size:11px;color:#888;font-family:monospace;">${d.mac}${d.rssi ? ' • ' + d.rssi + ' dBm' : ''}</div>
+        </div>
+        <button class="btn btn-sm btn-p bt-select-btn" id="bt-select-${i}" data-index="${i}">
+          ${d.paired ? 'Select' : 'Pair'}
+        </button>
+      </div>
+    `).join('');
+    
+    // Attach click handlers
+    setTimeout(() => {
+      devices.forEach((d, i) => {
+        const btn = this.shadowRoot.getElementById(`bt-select-${i}`);
+        if (btn) {
+          btn.onclick = async () => {
+            const macInput = this.shadowRoot.getElementById('remote-bt-mac-ha');
+            const nameInput = this.shadowRoot.getElementById('remote-name');
+            if (macInput) macInput.value = d.mac;
+            if (nameInput && !nameInput.value) nameInput.value = d.name || 'Bluetooth Remote';
+            
+            // Try to pair if not already paired
+            if (!d.paired) {
+              btn.disabled = true;
+              btn.innerHTML = '<ha-icon icon="mdi:loading" class="spin"></ha-icon>';
+              if (statusEl) statusEl.innerHTML = '<ha-icon icon="mdi:loading" class="spin"></ha-icon> Pairing...';
+              
+              try {
+                const pairRes = await this._api('/api/omniremote/bluetooth', 'POST', {
+                  action: 'pair',
+                  adapter: adapter,
+                  mac: d.mac,
+                });
+                if (pairRes.success) {
+                  btn.innerHTML = '✓ Paired';
+                  btn.style.background = '#4caf50';
+                  if (statusEl) statusEl.textContent = 'Paired: ' + (d.name || d.mac);
+                  d.paired = true;
+                } else {
+                  btn.innerHTML = 'Retry';
+                  btn.disabled = false;
+                  if (statusEl) statusEl.textContent = 'Failed: ' + (pairRes.error || 'Unknown error');
+                }
+              } catch (err) {
+                btn.innerHTML = 'Error';
+                btn.disabled = false;
+                if (statusEl) statusEl.textContent = 'Error: ' + err.message;
+              }
+            } else {
+              if (statusEl) statusEl.textContent = 'Selected: ' + (d.name || d.mac);
+            }
+          };
+        }
+      });
+    }, 50);
   }
 
   _showEditRemoteModal(remoteId) {
@@ -5482,41 +5594,78 @@ data:
     const listDiv = this.shadowRoot.getElementById('flipper-discovered-list');
     
     if (statusDiv) statusDiv.style.display = 'block';
-    if (listDiv) listDiv.innerHTML = '<p style="text-align:center;padding:16px;"><ha-icon icon="mdi:loading" class="spin"></ha-icon> Scanning...</p>';
+    if (listDiv) listDiv.innerHTML = '<p style="text-align:center;padding:16px;"><ha-icon icon="mdi:loading" class="spin"></ha-icon> Scanning for Flipper Zero devices...</p>';
     
-    const res = await this._api('/api/omniremote/flipper', 'POST', {
-      action: 'discover',
-      connection_type: connectionType,
-    });
-    
-    if (res.devices && res.devices.length > 0) {
-      if (listDiv) {
-        listDiv.innerHTML = res.devices.map(d => `
-          <div style="display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid #333;">
-            <ha-icon icon="${d.connection_type === 'bluetooth' ? 'mdi:bluetooth' : 'mdi:usb'}" 
-                     style="font-size:24px;color:#2196f3;"></ha-icon>
-            <div style="flex:1;">
-              <div style="font-weight:600;">${d.name}</div>
-              <div style="font-size:12px;color:#888;">${d.port} ${d.rssi ? '• RSSI: ' + d.rssi : ''}</div>
+    try {
+      const res = await this._api('/api/omniremote/flipper', 'POST', {
+        action: 'discover',
+        connection_type: connectionType,
+      });
+      
+      console.log('[OmniRemote] Flipper discover result:', res);
+      
+      if (res.devices && res.devices.length > 0) {
+        if (listDiv) {
+          listDiv.innerHTML = res.devices.map((d, i) => `
+            <div class="flipper-device-row" style="display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid #333;">
+              <ha-icon icon="${d.connection_type === 'bluetooth' ? 'mdi:bluetooth' : 'mdi:usb'}" 
+                       style="font-size:24px;color:#2196f3;"></ha-icon>
+              <div style="flex:1;">
+                <div style="font-weight:600;">${d.name}</div>
+                <div style="font-size:12px;color:#888;">${d.port} ${d.rssi ? '• RSSI: ' + d.rssi : ''}</div>
+              </div>
+              <button class="btn btn-sm btn-p" id="flipper-add-${i}"
+                      style="min-width:80px;">
+                <ha-icon icon="mdi:plus"></ha-icon> Add
+              </button>
             </div>
-            <button class="btn btn-sm btn-p" data-action="flipper-add" 
-                    data-device-id="${d.id}" data-name="${d.name}" 
-                    data-connection-type="${d.connection_type}" data-port="${d.port}">
-              <ha-icon icon="mdi:plus"></ha-icon> Add
-            </button>
-          </div>
-        `).join('');
+          `).join('');
+          
+          // Attach click handlers after a brief delay to ensure DOM is ready
+          setTimeout(() => {
+            res.devices.forEach((d, i) => {
+              const btn = this.shadowRoot.getElementById(`flipper-add-${i}`);
+              if (btn) {
+                console.log('[OmniRemote] Attaching click handler to flipper-add-' + i);
+                btn.onclick = async (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  
+                  // Visual feedback
+                  btn.disabled = true;
+                  btn.innerHTML = '<ha-icon icon="mdi:loading" class="spin"></ha-icon> Adding...';
+                  
+                  const data = {
+                    deviceId: d.id,
+                    name: d.name,
+                    connectionType: d.connection_type,
+                    port: d.port,
+                  };
+                  console.log('[OmniRemote] Add button clicked for:', data);
+                  await this._flipperAdd(data);
+                };
+              } else {
+                console.error('[OmniRemote] Could not find button flipper-add-' + i);
+              }
+            });
+          }, 50);
+        }
+      } else {
+        if (listDiv) {
+          listDiv.innerHTML = `
+            <p style="text-align:center;padding:16px;color:#888;">
+              No Flipper Zero devices found. Make sure your Flipper is:
+              <br>• Powered on
+              <br>• Connected via USB or Bluetooth enabled
+              <br>• Not in use by another application
+            </p>
+          `;
+        }
       }
-    } else {
+    } catch (err) {
+      console.error('[OmniRemote] Flipper discover error:', err);
       if (listDiv) {
-        listDiv.innerHTML = `
-          <p style="text-align:center;padding:16px;color:#888;">
-            No Flipper Zero devices found. Make sure your Flipper is:
-            <br>• Powered on
-            <br>• Connected via USB or Bluetooth enabled
-            <br>• Not in use by another application
-          </p>
-        `;
+        listDiv.innerHTML = `<p style="text-align:center;padding:16px;color:#f44336;">Error: ${err.message}</p>`;
       }
     }
   }
@@ -6745,8 +6894,397 @@ data:
   }
 
   _showIconPickerForBuilder() {
-    // Reuse existing icon picker
-    this._showIconPickerModal('builder');
+    // Show icon picker modal for builder button
+    const currentIcon = this._builderSelectedButton 
+      ? (this._builderProfile?.buttons?.find(b => b.id === this._builderSelectedButton)?.icon || '')
+      : '';
+    
+    const iconCategories = {
+      'Power & Control': [
+        'mdi:power', 'mdi:power-off', 'mdi:power-standby', 'mdi:power-cycle', 'mdi:power-on',
+        'mdi:play', 'mdi:pause', 'mdi:stop', 'mdi:play-pause', 'mdi:skip-next', 'mdi:skip-previous',
+        'mdi:fast-forward', 'mdi:rewind', 'mdi:record', 'mdi:record-circle', 'mdi:eject',
+      ],
+      'Navigation': [
+        'mdi:chevron-up', 'mdi:chevron-down', 'mdi:chevron-left', 'mdi:chevron-right',
+        'mdi:arrow-up', 'mdi:arrow-down', 'mdi:arrow-left', 'mdi:arrow-right',
+        'mdi:menu', 'mdi:menu-up', 'mdi:menu-down', 'mdi:menu-left', 'mdi:menu-right',
+        'mdi:home', 'mdi:home-outline', 'mdi:arrow-left-circle', 'mdi:check', 'mdi:check-circle',
+        'mdi:close', 'mdi:close-circle', 'mdi:dots-horizontal', 'mdi:dots-vertical',
+      ],
+      'Volume & Audio': [
+        'mdi:volume-high', 'mdi:volume-medium', 'mdi:volume-low', 'mdi:volume-off', 'mdi:volume-mute',
+        'mdi:volume-plus', 'mdi:volume-minus', 'mdi:speaker', 'mdi:speaker-wireless',
+        'mdi:surround-sound', 'mdi:speaker-stereo', 'mdi:music', 'mdi:music-note',
+        'mdi:microphone', 'mdi:microphone-off', 'mdi:headphones', 'mdi:radio',
+      ],
+      'Input & Source': [
+        'mdi:hdmi-port', 'mdi:video-input-hdmi', 'mdi:usb', 'mdi:usb-port',
+        'mdi:bluetooth', 'mdi:bluetooth-audio', 'mdi:wifi', 'mdi:antenna',
+        'mdi:import', 'mdi:export', 'mdi:swap-horizontal', 'mdi:video-input-component',
+        'mdi:toslink', 'mdi:audio-input-rca', 'mdi:cast', 'mdi:airplay',
+      ],
+      'Numbers': [
+        'mdi:numeric-0', 'mdi:numeric-1', 'mdi:numeric-2', 'mdi:numeric-3', 'mdi:numeric-4',
+        'mdi:numeric-5', 'mdi:numeric-6', 'mdi:numeric-7', 'mdi:numeric-8', 'mdi:numeric-9',
+        'mdi:numeric-10', 'mdi:plus', 'mdi:minus', 'mdi:asterisk', 'mdi:pound',
+      ],
+      'Colors': [
+        'mdi:circle', 'mdi:square', 'mdi:rectangle', 'mdi:triangle',
+        'mdi:palette', 'mdi:format-color-fill', 'mdi:invert-colors',
+      ],
+      'TV & Video': [
+        'mdi:television', 'mdi:television-classic', 'mdi:television-guide',
+        'mdi:projector', 'mdi:projector-screen', 'mdi:movie', 'mdi:video',
+        'mdi:youtube', 'mdi:netflix', 'mdi:amazon', 'mdi:hulu', 'mdi:plex',
+        'mdi:aspect-ratio', 'mdi:fullscreen', 'mdi:picture-in-picture-bottom-right',
+        'mdi:subtitles', 'mdi:closed-caption', 'mdi:information', 'mdi:help-circle',
+      ],
+      'Climate & Fan': [
+        'mdi:fan', 'mdi:fan-off', 'mdi:fan-speed-1', 'mdi:fan-speed-2', 'mdi:fan-speed-3',
+        'mdi:ceiling-fan', 'mdi:air-conditioner', 'mdi:thermometer', 'mdi:thermometer-plus', 'mdi:thermometer-minus',
+        'mdi:snowflake', 'mdi:fire', 'mdi:water-percent', 'mdi:weather-windy',
+        'mdi:arrow-oscillating', 'mdi:autorenew', 'mdi:timer', 'mdi:bed',
+      ],
+      'Lighting': [
+        'mdi:lightbulb', 'mdi:lightbulb-outline', 'mdi:lightbulb-off', 'mdi:lightbulb-on',
+        'mdi:lamp', 'mdi:ceiling-light', 'mdi:floor-lamp', 'mdi:led-strip',
+        'mdi:brightness-5', 'mdi:brightness-6', 'mdi:brightness-7', 'mdi:white-balance-sunny',
+      ],
+      'Gaming': [
+        'mdi:gamepad', 'mdi:gamepad-variant', 'mdi:controller-classic', 'mdi:nintendo-switch',
+        'mdi:playstation', 'mdi:xbox', 'mdi:steam', 'mdi:controller',
+      ],
+      'Misc': [
+        'mdi:cog', 'mdi:tune', 'mdi:wrench', 'mdi:heart', 'mdi:star', 'mdi:bookmark',
+        'mdi:magnify', 'mdi:camera', 'mdi:image', 'mdi:sleep', 'mdi:alarm',
+        'mdi:bell', 'mdi:email', 'mdi:phone', 'mdi:calendar', 'mdi:clock',
+        'mdi:download', 'mdi:upload', 'mdi:refresh', 'mdi:sync', 'mdi:undo', 'mdi:redo',
+      ],
+    };
+    
+    this._modal = `
+      <div class="modal-content" style="max-width:700px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;">
+        <div class="modal-head">
+          <h3><ha-icon icon="mdi:emoticon-outline"></ha-icon> Select Icon</h3>
+          <button class="modal-close" data-action="close-modal">&times;</button>
+        </div>
+        
+        <!-- Tabs -->
+        <div style="display:flex;gap:4px;padding:0 16px;border-bottom:1px solid #333;">
+          <button class="icon-tab active" data-tab="icons" style="padding:12px 16px;background:none;border:none;border-bottom:2px solid #3d5afe;color:#fff;cursor:pointer;">
+            <ha-icon icon="mdi:emoticon-outline"></ha-icon> Icons
+          </button>
+          <button class="icon-tab" data-tab="upload" style="padding:12px 16px;background:none;border:none;border-bottom:2px solid transparent;color:#888;cursor:pointer;">
+            <ha-icon icon="mdi:upload"></ha-icon> Upload Photo
+          </button>
+        </div>
+        
+        <!-- Icons Tab -->
+        <div id="icons-tab" style="flex:1;overflow-y:auto;padding:16px;">
+          <!-- Search -->
+          <div style="margin-bottom:16px;">
+            <input type="text" class="fi" id="icon-search" placeholder="Search icons (e.g., power, volume, play)..." style="width:100%;">
+          </div>
+          
+          <!-- Icon Grid -->
+          <div id="icon-grid">
+            ${Object.entries(iconCategories).map(([category, icons]) => `
+              <div class="icon-category" style="margin-bottom:20px;">
+                <div style="font-size:13px;color:#888;margin-bottom:8px;font-weight:600;">${category}</div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                  ${icons.map(icon => `
+                    <button class="icon-btn" data-icon="${icon}" type="button"
+                            style="width:44px;height:44px;background:${currentIcon === icon ? '#3d5afe' : '#2a2a4a'};
+                                   border:1px solid ${currentIcon === icon ? '#3d5afe' : '#444'};border-radius:8px;
+                                   cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.15s;"
+                            title="${icon}">
+                      <ha-icon icon="${icon}" style="font-size:22px;color:${currentIcon === icon ? '#fff' : '#aaa'};"></ha-icon>
+                    </button>
+                  `).join('')}
+                </div>
+              </div>
+            `).join('')}
+          </div>
+          
+          <!-- Custom Icon Input -->
+          <div style="margin-top:16px;padding-top:16px;border-top:1px solid #333;">
+            <div style="font-size:13px;color:#888;margin-bottom:8px;">Custom MDI Icon</div>
+            <div style="display:flex;gap:8px;">
+              <input type="text" class="fi" id="custom-icon" placeholder="mdi:your-icon-name" value="${currentIcon}" style="flex:1;">
+              <button class="btn btn-p" id="apply-custom-icon">Apply</button>
+            </div>
+            <div style="font-size:11px;color:#666;margin-top:4px;">
+              Browse all icons at <a href="https://pictogrammers.com/library/mdi/" target="_blank" style="color:#64b5f6;">pictogrammers.com/library/mdi/</a>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Upload Tab -->
+        <div id="upload-tab" style="display:none;flex:1;overflow-y:auto;padding:16px;">
+          <div style="text-align:center;padding:20px;border:2px dashed #444;border-radius:12px;margin-bottom:16px;">
+            <ha-icon icon="mdi:cloud-upload" style="font-size:48px;color:#666;"></ha-icon>
+            <p style="color:#888;margin:12px 0;">Drag and drop an image or click to select</p>
+            <input type="file" id="icon-upload" accept="image/*" style="display:none;">
+            <button class="btn btn-p" id="upload-btn">Choose File</button>
+          </div>
+          
+          <!-- Preview & Scale -->
+          <div id="upload-preview" style="display:none;">
+            <div style="text-align:center;margin-bottom:16px;">
+              <div style="display:inline-block;padding:12px;background:#1a1a2e;border-radius:12px;">
+                <img id="preview-img" style="max-width:200px;max-height:200px;border-radius:8px;">
+              </div>
+            </div>
+            
+            <div class="fg">
+              <label class="fl">Button Size Preview</label>
+              <div style="display:flex;gap:16px;justify-content:center;margin-top:8px;">
+                <div style="text-align:center;">
+                  <div style="width:50px;height:50px;background:#2a2a4a;border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;">
+                    <img id="preview-small" style="width:100%;height:100%;object-fit:cover;">
+                  </div>
+                  <div style="font-size:10px;color:#888;margin-top:4px;">Small</div>
+                </div>
+                <div style="text-align:center;">
+                  <div style="width:70px;height:70px;background:#2a2a4a;border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;">
+                    <img id="preview-medium" style="width:100%;height:100%;object-fit:cover;">
+                  </div>
+                  <div style="font-size:10px;color:#888;margin-top:4px;">Medium</div>
+                </div>
+                <div style="text-align:center;">
+                  <div style="width:100px;height:50px;background:#2a2a4a;border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;">
+                    <img id="preview-wide" style="width:100%;height:100%;object-fit:cover;">
+                  </div>
+                  <div style="font-size:10px;color:#888;margin-top:4px;">Wide (2x1)</div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="fg">
+              <label class="fl">Scale & Crop</label>
+              <input type="range" id="img-scale" min="50" max="200" value="100" style="width:100%;">
+              <div style="display:flex;justify-content:space-between;font-size:11px;color:#888;">
+                <span>50%</span>
+                <span id="scale-value">100%</span>
+                <span>200%</span>
+              </div>
+            </div>
+            
+            <div class="fg">
+              <label class="fl">Output Size (px)</label>
+              <select class="fi" id="output-size">
+                <option value="48">48 x 48 (Small)</option>
+                <option value="64" selected>64 x 64 (Standard)</option>
+                <option value="96">96 x 96 (Large)</option>
+                <option value="128">128 x 128 (HD)</option>
+              </select>
+            </div>
+            
+            <div style="display:flex;gap:8px;margin-top:16px;">
+              <button class="btn btn-s" id="cancel-upload">Cancel</button>
+              <button class="btn btn-p" id="apply-upload" style="flex:1;">
+                <ha-icon icon="mdi:check"></ha-icon> Use This Image
+              </button>
+            </div>
+          </div>
+          
+          <div style="margin-top:16px;padding:12px;background:#1a1a2e;border-radius:8px;">
+            <div style="font-size:12px;color:#888;">
+              <ha-icon icon="mdi:information" style="color:#64b5f6;"></ha-icon>
+              <strong>Tips:</strong>
+              <ul style="margin:8px 0 0 20px;padding:0;">
+                <li>Square images work best</li>
+                <li>Images are stored as Base64 in your profile</li>
+                <li>Keep images under 100KB for best performance</li>
+                <li>PNG with transparency is supported</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+    
+    this._render();
+    
+    // Set up event handlers
+    setTimeout(() => {
+      // Tab switching
+      this.shadowRoot.querySelectorAll('.icon-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          this.shadowRoot.querySelectorAll('.icon-tab').forEach(t => {
+            t.classList.remove('active');
+            t.style.borderBottomColor = 'transparent';
+            t.style.color = '#888';
+          });
+          tab.classList.add('active');
+          tab.style.borderBottomColor = '#3d5afe';
+          tab.style.color = '#fff';
+          
+          const tabName = tab.dataset.tab;
+          this.shadowRoot.getElementById('icons-tab').style.display = tabName === 'icons' ? 'block' : 'none';
+          this.shadowRoot.getElementById('upload-tab').style.display = tabName === 'upload' ? 'block' : 'none';
+        });
+      });
+      
+      // Icon search
+      const searchInput = this.shadowRoot.getElementById('icon-search');
+      if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+          const query = e.target.value.toLowerCase();
+          this.shadowRoot.querySelectorAll('.icon-btn').forEach(btn => {
+            const icon = btn.dataset.icon.toLowerCase();
+            btn.style.display = icon.includes(query) ? 'flex' : 'none';
+          });
+          this.shadowRoot.querySelectorAll('.icon-category').forEach(cat => {
+            const visibleIcons = cat.querySelectorAll('.icon-btn[style*="display: flex"], .icon-btn:not([style*="display"])');
+            cat.style.display = visibleIcons.length > 0 ? 'block' : 'none';
+          });
+        });
+      }
+      
+      // Icon button clicks
+      this.shadowRoot.querySelectorAll('.icon-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          this._applyIconToBuilder(btn.dataset.icon);
+        });
+      });
+      
+      // Custom icon apply
+      const applyCustomBtn = this.shadowRoot.getElementById('apply-custom-icon');
+      if (applyCustomBtn) {
+        applyCustomBtn.addEventListener('click', () => {
+          const icon = this.shadowRoot.getElementById('custom-icon')?.value;
+          if (icon) {
+            this._applyIconToBuilder(icon);
+          }
+        });
+      }
+      
+      // File upload
+      const uploadBtn = this.shadowRoot.getElementById('upload-btn');
+      const fileInput = this.shadowRoot.getElementById('icon-upload');
+      if (uploadBtn && fileInput) {
+        uploadBtn.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', (e) => {
+          const file = e.target.files[0];
+          if (file) {
+            this._handleImageUpload(file);
+          }
+        });
+      }
+      
+      // Scale slider
+      const scaleSlider = this.shadowRoot.getElementById('img-scale');
+      if (scaleSlider) {
+        scaleSlider.addEventListener('input', (e) => {
+          const scaleVal = this.shadowRoot.getElementById('scale-value');
+          if (scaleVal) scaleVal.textContent = e.target.value + '%';
+          this._updateImagePreviews();
+        });
+      }
+      
+      // Cancel upload
+      const cancelBtn = this.shadowRoot.getElementById('cancel-upload');
+      if (cancelBtn) {
+        cancelBtn.addEventListener('click', () => {
+          this.shadowRoot.getElementById('upload-preview').style.display = 'none';
+          this._uploadedImage = null;
+        });
+      }
+      
+      // Apply upload
+      const applyUploadBtn = this.shadowRoot.getElementById('apply-upload');
+      if (applyUploadBtn) {
+        applyUploadBtn.addEventListener('click', () => {
+          this._applyUploadedImage();
+        });
+      }
+    }, 100);
+  }
+  
+  _handleImageUpload(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      this._uploadedImage = e.target.result;
+      
+      // Show preview
+      const previewDiv = this.shadowRoot.getElementById('upload-preview');
+      const previewImg = this.shadowRoot.getElementById('preview-img');
+      
+      if (previewDiv) previewDiv.style.display = 'block';
+      if (previewImg) previewImg.src = this._uploadedImage;
+      
+      this._updateImagePreviews();
+    };
+    reader.readAsDataURL(file);
+  }
+  
+  _updateImagePreviews() {
+    if (!this._uploadedImage) return;
+    
+    const previewSmall = this.shadowRoot.getElementById('preview-small');
+    const previewMedium = this.shadowRoot.getElementById('preview-medium');
+    const previewWide = this.shadowRoot.getElementById('preview-wide');
+    
+    [previewSmall, previewMedium, previewWide].forEach(img => {
+      if (img) img.src = this._uploadedImage;
+    });
+  }
+  
+  async _applyUploadedImage() {
+    if (!this._uploadedImage) return;
+    
+    // Resize image to selected output size
+    const outputSize = parseInt(this.shadowRoot.getElementById('output-size')?.value || '64');
+    const scale = parseInt(this.shadowRoot.getElementById('img-scale')?.value || '100') / 100;
+    
+    try {
+      const resizedImage = await this._resizeImage(this._uploadedImage, outputSize, scale);
+      
+      // Store as custom_image:base64data
+      const imageData = `custom_image:${resizedImage}`;
+      this._applyIconToBuilder(imageData);
+    } catch (err) {
+      console.error('[OmniRemote] Image resize error:', err);
+      alert('Error processing image: ' + err.message);
+    }
+  }
+  
+  _resizeImage(dataUrl, size, scale) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        
+        // Calculate scaled dimensions
+        const scaledSize = Math.min(img.width, img.height) / scale;
+        const sx = (img.width - scaledSize) / 2;
+        const sy = (img.height - scaledSize) / 2;
+        
+        // Draw centered and scaled
+        ctx.drawImage(img, sx, sy, scaledSize, scaledSize, 0, 0, size, size);
+        
+        resolve(canvas.toDataURL('image/png', 0.9));
+      };
+      img.onerror = reject;
+      img.src = dataUrl;
+    });
+  }
+  
+  _applyIconToBuilder(icon) {
+    if (!this._builderSelectedButton || !this._builderProfile) return;
+    
+    const btn = this._builderProfile.buttons.find(b => b.id === this._builderSelectedButton);
+    if (btn) {
+      btn.icon = icon;
+      this._modal = null;
+      this._render();
+      this._setupBuilderPropertyHandlers();
+    }
   }
 }
 

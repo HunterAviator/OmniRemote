@@ -81,3 +81,44 @@ If panel version is stuck, try:
 - New Bluetooth API endpoint for HA built-in Bluetooth adapter
 - Bluetooth scan, pair, unpair, and list_paired actions
 
+
+## [1.9.5] - 2024-02-27
+
+### Fixed
+- **HA Entity Import button** - Import buttons now work after filtering
+  - Click handlers properly attached after list updates
+  - Added detailed console logging for debugging
+  - Added try-catch with error alerts
+
+
+## [1.9.5] - 2024-02-27
+
+### Fixed
+- **Flipper Zero Add button** - Complete fix: buttons now use direct onclick handlers with visual feedback (shows "Adding..." while processing)
+- Dynamic button click handlers now work reliably in all contexts
+
+### Enhanced
+- **Remote Builder Icon Picker** - Complete visual icon browser:
+  - Categorized icon grid: Power, Navigation, Volume, Input, Numbers, TV, Climate, Lighting, Gaming, etc.
+  - Visual icon search filter
+  - Custom MDI icon input with link to icon library
+  - **Photo Upload Tab**: Upload custom images for buttons
+  - Image scaling slider (50-200%)
+  - Output size selection (48-128px)
+  - Live preview at different button sizes (small, medium, wide)
+  - Base64 encoding for profile storage
+
+- **Bluetooth Device Search** - Filter discovered devices:
+  - Real-time search by device name or MAC address
+  - Search field integrated into scan UI
+  - Better visual feedback during pairing
+
+
+## [1.9.6] - 2024-02-27
+
+### Fixed
+- **HA Entity Import button** - Fixed using event delegation on modal container
+  - Click events now properly bubble up and are handled
+  - Works with dynamically filtered/re-rendered entity lists
+  - Added console logging for debugging
+
