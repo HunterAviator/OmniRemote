@@ -122,3 +122,21 @@ If panel version is stuck, try:
   - Works with dynamically filtered/re-rendered entity lists
   - Added console logging for debugging
 
+
+## [1.9.7] - 2024-02-27
+
+### Fixed
+- **Flipper Zero connection error handling** - Now shows helpful error messages explaining why connection failed (USB port busy, Bluetooth out of range, etc.)
+- **Flipper Add flow** - Device is added even if initial connection fails, with clear messaging
+
+### Added
+- **HACS validation files** - Added hacs.json for proper HACS repository validation
+- **Streaming Service Icons** - Quick-add buttons for major streaming apps:
+  - Netflix, YouTube, Prime Video, Disney+, Hulu, Max (HBO), Apple TV+
+  - Peacock, Paramount+, Spotify, Tubi, Pluto TV, Vudu, Plex
+  - Crunchyroll, Twitch
+- **TV Channel Icons** - ESPN, FOX, NBC, CBS, ABC, CNN
+- **Number Pad Buttons** - 0-9 quick-add buttons
+- **Color Buttons** - Red, Green, Yellow, Blue TV color buttons
+- **Organized Quick-Add** - Buttons now grouped by category (Controls, Navigation, Media, Streaming, Channels, Numbers, Colors)
+

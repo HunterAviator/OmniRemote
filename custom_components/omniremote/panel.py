@@ -2679,13 +2679,33 @@ class OmniApiFlipperZero(HomeAssistantView):
             if not device_id:
                 return web.json_response({"error": "device_id required"}, status=400)
             
-            success = await manager.async_connect(device_id)
-            device = manager.get_device(device_id)
-            
-            return web.json_response({
-                "success": success,
-                "device": device.to_dict() if device else None,
-            })
+            try:
+                success = await manager.async_connect(device_id)
+                device = manager.get_device(device_id)
+                
+                if success:
+                    return web.json_response({
+                        "success": True,
+                        "device": device.to_dict() if device else None,
+                    })
+                else:
+                    # Provide more helpful error message
+                    error_msg = "Connection failed"
+                    if device:
+                        if device.connection_type.value == "usb":
+                            error_msg = f"USB connection to {device.port} failed. Check that Flipper is connected and no other app is using the port."
+                        else:
+                            error_msg = f"Bluetooth connection failed. Make sure Flipper Bluetooth is enabled and in range."
+                    return web.json_response({
+                        "success": False,
+                        "error": error_msg,
+                    })
+            except Exception as ex:
+                _LOGGER.error("Flipper connect error: %s", ex)
+                return web.json_response({
+                    "success": False,
+                    "error": str(ex),
+                })
         
         elif action == "disconnect":
             device_id = data.get("device_id")

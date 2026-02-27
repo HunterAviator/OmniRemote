@@ -3,7 +3,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.9.6";
+const OMNIREMOTE_VERSION = "1.9.7";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -5691,13 +5691,25 @@ data:
       
       console.log('[OmniRemote] Flipper add response:', res);
       
-      if (res.success) {
-        // Try to connect immediately
-        await this._flipperConnect(data.deviceId);
+      if (res.success || res.device) {
+        // Device added successfully, now try to connect
+        const connectRes = await this._api('/api/omniremote/flipper', 'POST', {
+          action: 'connect',
+          device_id: data.deviceId,
+        });
+        
+        console.log('[OmniRemote] Flipper connect response:', connectRes);
+        
         await this._loadFlipperDevices();
         this._modal = null;
         this._render();
-        alert('Flipper Zero added successfully!');
+        
+        if (connectRes.success) {
+          alert('Flipper Zero added and connected successfully!');
+        } else {
+          // Added but not connected - this is OK
+          alert('Flipper Zero added! Connection failed: ' + (connectRes.error || 'Check USB/Bluetooth connection.') + '\n\nYou can try connecting later.');
+        }
       } else {
         alert('Failed to add Flipper: ' + (res.error || 'Unknown error'));
       }
@@ -6083,14 +6095,101 @@ data:
 
           <!-- Quick Add Buttons -->
           <div class="card" style="margin-top:16px;padding:16px;">
-            <h4 style="margin:0 0 12px;font-size:14px;">Quick Add</h4>
-            <div style="display:flex;flex-wrap:wrap;gap:6px;">
-              ${this._getQuickAddButtons().map(qb => `
-                <button class="btn btn-sm" data-action="builder-quick-add" data-button-type="${qb.type}" 
-                        data-icon="${qb.icon}" data-label="${qb.label}" title="${qb.label}">
-                  <ha-icon icon="${qb.icon}"></ha-icon>
-                </button>
-              `).join('')}
+            <h4 style="margin:0 0 12px;font-size:14px;">Quick Add Buttons</h4>
+            
+            <!-- Controls -->
+            <div style="margin-bottom:12px;">
+              <div style="font-size:11px;color:#888;margin-bottom:6px;">Controls</div>
+              <div style="display:flex;flex-wrap:wrap;gap:4px;">
+                ${this._getQuickAddButtons().filter(b => b.category === 'control').map(qb => `
+                  <button class="btn btn-sm" data-action="builder-quick-add" data-button-type="${qb.type}" 
+                          data-icon="${qb.icon}" data-label="${qb.label}" data-color="${qb.color || ''}" title="${qb.label}"
+                          style="${qb.color ? 'background:' + qb.color + ';' : ''}">
+                    <ha-icon icon="${qb.icon}"></ha-icon>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+            
+            <!-- Navigation -->
+            <div style="margin-bottom:12px;">
+              <div style="font-size:11px;color:#888;margin-bottom:6px;">Navigation</div>
+              <div style="display:flex;flex-wrap:wrap;gap:4px;">
+                ${this._getQuickAddButtons().filter(b => b.category === 'nav').map(qb => `
+                  <button class="btn btn-sm" data-action="builder-quick-add" data-button-type="${qb.type}" 
+                          data-icon="${qb.icon}" data-label="${qb.label}" title="${qb.label}">
+                    <ha-icon icon="${qb.icon}"></ha-icon>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+            
+            <!-- Media -->
+            <div style="margin-bottom:12px;">
+              <div style="font-size:11px;color:#888;margin-bottom:6px;">Media</div>
+              <div style="display:flex;flex-wrap:wrap;gap:4px;">
+                ${this._getQuickAddButtons().filter(b => b.category === 'media').map(qb => `
+                  <button class="btn btn-sm" data-action="builder-quick-add" data-button-type="${qb.type}" 
+                          data-icon="${qb.icon}" data-label="${qb.label}" title="${qb.label}">
+                    <ha-icon icon="${qb.icon}"></ha-icon>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+            
+            <!-- Streaming Services -->
+            <div style="margin-bottom:12px;">
+              <div style="font-size:11px;color:#888;margin-bottom:6px;">🎬 Streaming Apps</div>
+              <div style="display:flex;flex-wrap:wrap;gap:4px;">
+                ${this._getQuickAddButtons().filter(b => b.category === 'streaming').map(qb => `
+                  <button class="btn btn-sm" data-action="builder-quick-add" data-button-type="${qb.type}" 
+                          data-icon="${qb.icon}" data-label="${qb.label}" data-color="${qb.color || ''}" title="${qb.label}"
+                          style="${qb.color ? 'background:' + qb.color + ';border-color:' + qb.color + ';' : ''}">
+                    <ha-icon icon="${qb.icon}"></ha-icon>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+            
+            <!-- TV Channels -->
+            <div style="margin-bottom:12px;">
+              <div style="font-size:11px;color:#888;margin-bottom:6px;">📺 Channels</div>
+              <div style="display:flex;flex-wrap:wrap;gap:4px;">
+                ${this._getQuickAddButtons().filter(b => b.category === 'channel').map(qb => `
+                  <button class="btn btn-sm" data-action="builder-quick-add" data-button-type="${qb.type}" 
+                          data-icon="${qb.icon}" data-label="${qb.label}" data-color="${qb.color || ''}" title="${qb.label}"
+                          style="${qb.color ? 'background:' + qb.color + ';border-color:' + qb.color + ';' : ''}">
+                    <ha-icon icon="${qb.icon}"></ha-icon>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+            
+            <!-- Number Pad -->
+            <div style="margin-bottom:12px;">
+              <div style="font-size:11px;color:#888;margin-bottom:6px;">Numbers</div>
+              <div style="display:flex;flex-wrap:wrap;gap:4px;">
+                ${this._getQuickAddButtons().filter(b => b.category === 'number').map(qb => `
+                  <button class="btn btn-sm" data-action="builder-quick-add" data-button-type="${qb.type}" 
+                          data-icon="${qb.icon}" data-label="${qb.label}" title="${qb.label}">
+                    <ha-icon icon="${qb.icon}"></ha-icon>
+                  </button>
+                `).join('')}
+              </div>
+            </div>
+            
+            <!-- Color Buttons -->
+            <div>
+              <div style="font-size:11px;color:#888;margin-bottom:6px;">Color Buttons</div>
+              <div style="display:flex;flex-wrap:wrap;gap:4px;">
+                ${this._getQuickAddButtons().filter(b => b.category === 'color').map(qb => `
+                  <button class="btn btn-sm" data-action="builder-quick-add" data-button-type="${qb.type}" 
+                          data-icon="${qb.icon}" data-label="${qb.label}" data-color="${qb.color || ''}" title="${qb.label}"
+                          style="background:${qb.color};border-color:${qb.color};">
+                    <ha-icon icon="${qb.icon}"></ha-icon>
+                  </button>
+                `).join('')}
+              </div>
             </div>
           </div>
 
@@ -6275,26 +6374,68 @@ data:
   }
 
   _getQuickAddButtons() {
-    return [
-      { type: 'power', icon: 'mdi:power', label: 'Power' },
-      { type: 'vol_up', icon: 'mdi:volume-plus', label: 'Vol +' },
-      { type: 'vol_down', icon: 'mdi:volume-minus', label: 'Vol -' },
-      { type: 'mute', icon: 'mdi:volume-off', label: 'Mute' },
-      { type: 'ch_up', icon: 'mdi:chevron-up', label: 'CH +' },
-      { type: 'ch_down', icon: 'mdi:chevron-down', label: 'CH -' },
-      { type: 'up', icon: 'mdi:arrow-up', label: 'Up' },
-      { type: 'down', icon: 'mdi:arrow-down', label: 'Down' },
-      { type: 'left', icon: 'mdi:arrow-left', label: 'Left' },
-      { type: 'right', icon: 'mdi:arrow-right', label: 'Right' },
-      { type: 'ok', icon: 'mdi:check-circle', label: 'OK' },
-      { type: 'back', icon: 'mdi:arrow-u-left-top', label: 'Back' },
-      { type: 'home', icon: 'mdi:home', label: 'Home' },
-      { type: 'menu', icon: 'mdi:menu', label: 'Menu' },
-      { type: 'play', icon: 'mdi:play', label: 'Play' },
-      { type: 'pause', icon: 'mdi:pause', label: 'Pause' },
-      { type: 'stop', icon: 'mdi:stop', label: 'Stop' },
-      { type: 'input', icon: 'mdi:import', label: 'Input' },
+    // Common controls
+    const controls = [
+      { type: 'power', icon: 'mdi:power', label: 'Power', category: 'control' },
+      { type: 'vol_up', icon: 'mdi:volume-plus', label: 'Vol +', category: 'control' },
+      { type: 'vol_down', icon: 'mdi:volume-minus', label: 'Vol -', category: 'control' },
+      { type: 'mute', icon: 'mdi:volume-off', label: 'Mute', category: 'control' },
+      { type: 'ch_up', icon: 'mdi:chevron-up', label: 'CH +', category: 'control' },
+      { type: 'ch_down', icon: 'mdi:chevron-down', label: 'CH -', category: 'control' },
+      { type: 'up', icon: 'mdi:arrow-up', label: 'Up', category: 'nav' },
+      { type: 'down', icon: 'mdi:arrow-down', label: 'Down', category: 'nav' },
+      { type: 'left', icon: 'mdi:arrow-left', label: 'Left', category: 'nav' },
+      { type: 'right', icon: 'mdi:arrow-right', label: 'Right', category: 'nav' },
+      { type: 'ok', icon: 'mdi:check-circle', label: 'OK', category: 'nav' },
+      { type: 'back', icon: 'mdi:arrow-u-left-top', label: 'Back', category: 'nav' },
+      { type: 'home', icon: 'mdi:home', label: 'Home', category: 'nav' },
+      { type: 'menu', icon: 'mdi:menu', label: 'Menu', category: 'nav' },
+      { type: 'play', icon: 'mdi:play', label: 'Play', category: 'media' },
+      { type: 'pause', icon: 'mdi:pause', label: 'Pause', category: 'media' },
+      { type: 'stop', icon: 'mdi:stop', label: 'Stop', category: 'media' },
+      { type: 'input', icon: 'mdi:import', label: 'Input', category: 'control' },
+      // Streaming Services
+      { type: 'netflix', icon: 'mdi:netflix', label: 'Netflix', category: 'streaming', color: '#E50914' },
+      { type: 'youtube', icon: 'mdi:youtube', label: 'YouTube', category: 'streaming', color: '#FF0000' },
+      { type: 'prime', icon: 'mdi:amazon', label: 'Prime', category: 'streaming', color: '#00A8E1' },
+      { type: 'disney', icon: 'mdi:filmstrip-box-multiple', label: 'Disney+', category: 'streaming', color: '#113CCF' },
+      { type: 'hulu', icon: 'mdi:hulu', label: 'Hulu', category: 'streaming', color: '#1CE783' },
+      { type: 'hbomax', icon: 'mdi:alpha-h-box', label: 'Max', category: 'streaming', color: '#5822B4' },
+      { type: 'appletv', icon: 'mdi:apple', label: 'Apple TV', category: 'streaming', color: '#000000' },
+      { type: 'peacock', icon: 'mdi:bird', label: 'Peacock', category: 'streaming', color: '#000000' },
+      { type: 'paramount', icon: 'mdi:alpha-p-box', label: 'Paramount+', category: 'streaming', color: '#0064FF' },
+      { type: 'spotify', icon: 'mdi:spotify', label: 'Spotify', category: 'streaming', color: '#1DB954' },
+      { type: 'tubi', icon: 'mdi:alpha-t-box', label: 'Tubi', category: 'streaming', color: '#FF8C13' },
+      { type: 'pluto', icon: 'mdi:television-classic', label: 'Pluto', category: 'streaming', color: '#000000' },
+      { type: 'vudu', icon: 'mdi:alpha-v-box', label: 'Vudu', category: 'streaming', color: '#29AFEC' },
+      { type: 'plex', icon: 'mdi:plex', label: 'Plex', category: 'streaming', color: '#E5A00D' },
+      { type: 'crunchyroll', icon: 'mdi:alpha-c-circle', label: 'Crunchyroll', category: 'streaming', color: '#F47521' },
+      { type: 'twitch', icon: 'mdi:twitch', label: 'Twitch', category: 'streaming', color: '#9146FF' },
+      // TV Channels / Live TV
+      { type: 'espn', icon: 'mdi:basketball', label: 'ESPN', category: 'channel', color: '#c8102e' },
+      { type: 'fox', icon: 'mdi:alpha-f-box', label: 'FOX', category: 'channel', color: '#003087' },
+      { type: 'nbc', icon: 'mdi:alpha-n-box', label: 'NBC', category: 'channel', color: '#000000' },
+      { type: 'cbs', icon: 'mdi:eye', label: 'CBS', category: 'channel', color: '#1b82c4' },
+      { type: 'abc', icon: 'mdi:alpha-a-circle', label: 'ABC', category: 'channel', color: '#000000' },
+      { type: 'cnn', icon: 'mdi:newspaper', label: 'CNN', category: 'channel', color: '#cc0000' },
+      // Number pad
+      { type: 'num_1', icon: 'mdi:numeric-1', label: '1', category: 'number' },
+      { type: 'num_2', icon: 'mdi:numeric-2', label: '2', category: 'number' },
+      { type: 'num_3', icon: 'mdi:numeric-3', label: '3', category: 'number' },
+      { type: 'num_4', icon: 'mdi:numeric-4', label: '4', category: 'number' },
+      { type: 'num_5', icon: 'mdi:numeric-5', label: '5', category: 'number' },
+      { type: 'num_6', icon: 'mdi:numeric-6', label: '6', category: 'number' },
+      { type: 'num_7', icon: 'mdi:numeric-7', label: '7', category: 'number' },
+      { type: 'num_8', icon: 'mdi:numeric-8', label: '8', category: 'number' },
+      { type: 'num_9', icon: 'mdi:numeric-9', label: '9', category: 'number' },
+      { type: 'num_0', icon: 'mdi:numeric-0', label: '0', category: 'number' },
+      // Color buttons
+      { type: 'red', icon: 'mdi:circle', label: 'Red', category: 'color', color: '#f44336' },
+      { type: 'green', icon: 'mdi:circle', label: 'Green', category: 'color', color: '#4caf50' },
+      { type: 'yellow', icon: 'mdi:circle', label: 'Yellow', category: 'color', color: '#ffeb3b' },
+      { type: 'blue', icon: 'mdi:circle', label: 'Blue', category: 'color', color: '#2196f3' },
     ];
+    return controls;
   }
 
   // Builder action handlers
@@ -6360,7 +6501,7 @@ data:
         break;
 
       case 'builder-quick-add':
-        this._quickAddButton(data.buttonType, data.icon, data.label);
+        this._quickAddButton(data.buttonType, data.icon, data.label, data.color);
         break;
 
       case 'builder-apply-props':
@@ -6758,13 +6899,20 @@ data:
     this._render();
   }
 
-  _quickAddButton(type, icon, label) {
+  _quickAddButton(type, icon, label, color) {
     if (!this._builderProfile) return;
 
     // Find first empty cell
     const buttons = this._builderProfile.buttons;
     const rows = this._builderProfile.rows;
     const cols = this._builderProfile.cols;
+
+    // Determine button color - use provided color, or default based on type
+    let buttonColor = color || '#3d5afe';
+    if (!color) {
+      if (type === 'power') buttonColor = '#f44336';
+      else if (type === 'ok') buttonColor = '#4caf50';
+    }
 
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
@@ -6784,7 +6932,7 @@ data:
             col_span: 1,
             button_type: type,
             shape: 'square',
-            color: type === 'power' ? '#f44336' : type === 'ok' ? '#4caf50' : '#3d5afe',
+            color: buttonColor,
             action_type: 'ir_command',
             command_name: type,
           });
