@@ -1,8 +1,5 @@
 {
   "name": "OmniRemote",
   "render_readme": true,
-  "country": ["ALL"],
-  "homeassistant": "2024.1.0",
-  "zip_release": true,
-  "filename": "omniremote.zip"
+  "homeassistant": "2024.1.0"
 }
