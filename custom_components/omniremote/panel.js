@@ -1246,16 +1246,24 @@ class OmniRemotePanel extends HTMLElement {
         <p style="color:#888;margin-top:0;font-size:13px;">
           Connect Flipper Zero via USB or Bluetooth to use as an IR blaster and code learner.
         </p>
+        <div style="background:#1a2744;border-radius:8px;padding:10px;margin-bottom:12px;border-left:3px solid #4caf50;">
+          <div style="font-size:12px;color:#a5d6a7;">
+            <strong>💡 Recommendation:</strong> USB connection is more reliable than Bluetooth.
+          </div>
+        </div>
         ${flippers.length === 0 ? `
           <div style="text-align:center;padding:16px;background:#1a1a2e;border-radius:8px;">
             <ha-icon icon="mdi:dolphin" style="font-size:32px;color:#666;margin-bottom:8px;display:block;"></ha-icon>
             <p style="color:#888;margin:0 0 12px 0;">No Flipper Zero connected</p>
-            <button class="btn btn-s" data-action="flipper-discover-usb" style="margin-right:8px;">
-              <ha-icon icon="mdi:usb"></ha-icon> Find USB
+            <button class="btn btn-p" data-action="flipper-discover-usb" style="margin-right:8px;">
+              <ha-icon icon="mdi:usb"></ha-icon> Find USB (Recommended)
             </button>
             <button class="btn btn-s" data-action="flipper-discover-ble">
               <ha-icon icon="mdi:bluetooth"></ha-icon> Find Bluetooth
             </button>
+            <div style="margin-top:12px;font-size:11px;color:#666;">
+              <strong>For Bluetooth:</strong> On Flipper go to Settings → Bluetooth → Enable, then Settings → Bluetooth → Remote Control → Enable RPC
+            </div>
           </div>
         ` : `
           <div style="display:flex;flex-direction:column;gap:12px;">
@@ -4783,11 +4791,12 @@ data:
         
         <!-- HA Bluetooth Section (for Yellow/built-in) -->
         <div id="bt-ha-group" style="display:${remoteType === 'bluetooth_ha' ? 'block' : 'none'};">
-          <div style="background:#1a2744;border-radius:8px;padding:12px;margin-bottom:12px;border-left:3px solid #2196f3;">
-            <div style="font-weight:500;color:#64b5f6;margin-bottom:4px;"><ha-icon icon="mdi:information"></ha-icon> Pairing Tip</div>
-            <div style="font-size:12px;color:#90caf9;">
-              For best results on HA Yellow/OS: First pair your remote via 
-              <strong>Settings → Devices & Services → Bluetooth</strong>, then select it here.
+          <div style="background:#2d1f1f;border-radius:8px;padding:12px;margin-bottom:12px;border-left:3px solid #f44336;">
+            <div style="font-weight:500;color:#ef9a9a;margin-bottom:4px;"><ha-icon icon="mdi:alert"></ha-icon> HA Yellow/OS Limitation</div>
+            <div style="font-size:12px;color:#ffcdd2;">
+              Auto-pairing doesn't work in containerized HA. You <strong>must</strong> pair your remote first via:<br>
+              <strong>Settings → Devices & Services → Bluetooth</strong><br>
+              Then come back here and select the paired device.
             </div>
           </div>
           <div class="fg">
@@ -4808,11 +4817,13 @@ data:
             <div style="padding:20px;text-align:center;color:#666;">
               <ha-icon icon="mdi:bluetooth" style="font-size:32px;"></ha-icon>
               <p style="margin:8px 0 0;">Click "Scan" to find nearby Bluetooth devices</p>
+              <p style="margin:4px 0 0;font-size:11px;">Already paired devices will show a green icon</p>
             </div>
           </div>
           <div class="fg">
             <label class="fl">Or Enter MAC Address Manually</label>
             <input type="text" class="fi" id="remote-bt-mac-ha" placeholder="AA:BB:CC:DD:EE:FF">
+            <p style="font-size:11px;color:#666;margin-top:4px;">Use this if your paired device doesn't appear in scan</p>
           </div>
         </div>
         
@@ -4980,14 +4991,19 @@ data:
                   if (statusEl) statusEl.textContent = 'Paired: ' + (d.name || d.mac);
                   d.paired = true;
                 } else {
-                  btn.innerHTML = 'Retry';
+                  btn.innerHTML = 'Select';
                   btn.disabled = false;
-                  if (statusEl) statusEl.textContent = 'Failed: ' + (pairRes.error || 'Unknown error');
+                  const errorMsg = pairRes.error || 'Auto-pairing not available';
+                  if (statusEl) {
+                    statusEl.innerHTML = `<span style="color:#f44336;">⚠ ${errorMsg}</span>`;
+                  }
+                  // Show alert with clear guidance
+                  alert('Pairing failed: ' + errorMsg + '\n\nOn HA Yellow/OS, you must pair via:\nSettings → Devices & Services → Bluetooth\n\nThen come back and click "Scan" to find your paired device.');
                 }
               } catch (err) {
-                btn.innerHTML = 'Error';
+                btn.innerHTML = 'Select';
                 btn.disabled = false;
-                if (statusEl) statusEl.textContent = 'Error: ' + err.message;
+                if (statusEl) statusEl.innerHTML = `<span style="color:#f44336;">Error: ${err.message}</span>`;
               }
             } else {
               if (statusEl) statusEl.textContent = 'Selected: ' + (d.name || d.mac);

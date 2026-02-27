@@ -213,3 +213,29 @@ If panel version is stuck, try:
 ### Changed
 - Bluetooth pairing UI now shows tip to pair via Settings first
 
+
+## [1.10.0] - 2024-02-27
+
+### Fixed
+- **Flipper Zero Bluetooth Connection**
+  - Fixed `async_ble_device_from_address` not being awaited (it's not async)
+  - Corrected Flipper BLE Serial service UUIDs
+  - Added 20 second timeout for BLE connections
+  - Better error messages with troubleshooting steps in logs
+  
+- **Bluetooth Remote Pairing**
+  - Made HA Yellow/OS limitation more prominent (red warning banner)
+  - Clear guidance to pair via Settings → Devices & Services → Bluetooth first
+  - Better error alert when pairing fails
+
+### Changed
+- **Flipper Zero UI**
+  - Added "USB Recommended" indicator
+  - "Find USB" button is now primary/highlighted
+  - Added setup instructions for Bluetooth (RPC over Bluetooth)
+  
+- **Bluetooth Remote UI**
+  - Warning banner explains containerized HA limitation
+  - Scan results show note about paired devices having green icon
+  - Manual MAC input has helper text
+
