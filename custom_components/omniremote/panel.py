@@ -1377,29 +1377,33 @@ class OmniApiBluetooth(HomeAssistantView):
             if not mac:
                 return self.json({"success": False, "error": "MAC address required"})
             
+            _LOGGER.info("Attempting to pair Bluetooth device: %s", mac)
+            last_error = "Pairing failed"
+            
             try:
-                # For HA Yellow and other containerized setups, we need to use
-                # HA's bluetooth integration or provide guidance
-                
-                # First, try to use Home Assistant's Bluetooth integration
-                ha_result = await self._pair_with_ha_bluetooth(mac)
-                if ha_result.get("success"):
-                    return self.json(ha_result)
-                
-                # Try D-Bus (works on native installs)
+                # Try D-Bus first (most reliable on HA Yellow/OS)
                 dbus_result = await self._pair_with_dbus(mac)
                 if dbus_result.get("success"):
                     return self.json(dbus_result)
+                last_error = dbus_result.get("error", last_error)
+                _LOGGER.debug("D-Bus pairing failed: %s", last_error)
                 
-                # Try bluetoothctl as fallback
+                # Try HA's Bluetooth integration for BLE devices
+                ha_result = await self._pair_with_ha_bluetooth(mac)
+                if ha_result.get("success"):
+                    return self.json(ha_result)
+                _LOGGER.debug("HA Bluetooth pairing failed: %s", ha_result.get("error"))
+                
+                # Try bluetoothctl as last resort
                 result = await self._pair_with_bluetoothctl(mac)
                 if result.get("success"):
                     return self.json(result)
+                _LOGGER.debug("bluetoothctl pairing failed: %s", result.get("error"))
                 
-                # If all methods fail, provide helpful guidance
+                # Return the most relevant error (D-Bus error is usually most informative)
                 return self.json({
                     "success": False, 
-                    "error": "Auto-pairing not available. Please pair via: Settings > Devices & Services > Bluetooth, then re-scan here."
+                    "error": last_error
                 })
                 
             except Exception as e:
@@ -1465,63 +1469,44 @@ class OmniApiBluetooth(HomeAssistantView):
     async def _pair_with_ha_bluetooth(self, mac: str) -> dict:
         """Pair using Home Assistant's Bluetooth integration."""
         try:
-            # Check if the device is already known to HA
-            from homeassistant.components.bluetooth import (
-                async_discovered_service_info,
-                async_ble_device_from_address,
-            )
-            
             # First check if it's a BLE device we can connect to
-            ble_device = await async_ble_device_from_address(
-                self.hass, mac, connectable=True
-            )
-            
-            if ble_device:
-                # It's a BLE device - try connecting to trigger pairing
-                try:
-                    from bleak import BleakClient
-                    from bleak_retry_connector import establish_connection
-                    
-                    _LOGGER.info("Attempting BLE connection to %s", mac)
-                    client = await establish_connection(
-                        BleakClient, 
-                        ble_device, 
-                        mac, 
-                        max_attempts=3
-                    )
-                    
-                    if client.is_connected:
-                        _LOGGER.info("BLE device %s connected successfully", mac)
-                        await client.disconnect()
-                        return {"success": True, "message": "BLE device paired successfully"}
-                        
-                except Exception as ble_ex:
-                    _LOGGER.debug("BLE connection failed: %s", ble_ex)
-            
-            # For classic Bluetooth, check if HA has bluetooth_adapters
             try:
-                # Try using HA's bluetooth adapter to trigger system pairing
-                import subprocess
+                from homeassistant.components.bluetooth import async_ble_device_from_address
                 
-                # On HA OS, we can try to use the bluetooth-cli service
-                result = subprocess.run(
-                    ["bluetoothctl", "--timeout", "5", "pair", mac],
-                    capture_output=True,
-                    text=True,
-                    timeout=30
+                # NOTE: async_ble_device_from_address is NOT async despite the name!
+                ble_device = async_ble_device_from_address(
+                    self.hass, mac, connectable=True
                 )
                 
-                if "Pairing successful" in result.stdout or "already exists" in result.stdout.lower():
-                    return {"success": True, "message": "Paired successfully"}
-                    
-            except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
-                _LOGGER.debug("bluetoothctl via HA not available: %s", e)
+                if ble_device:
+                    # It's a BLE device - try connecting to trigger pairing
+                    try:
+                        from bleak import BleakClient
+                        from bleak_retry_connector import establish_connection
+                        
+                        _LOGGER.info("Attempting BLE connection to %s", mac)
+                        client = await establish_connection(
+                            BleakClient, 
+                            ble_device, 
+                            mac, 
+                            max_attempts=3
+                        )
+                        
+                        if client.is_connected:
+                            _LOGGER.info("BLE device %s connected successfully", mac)
+                            await client.disconnect()
+                            return {"success": True, "message": "BLE device paired successfully"}
+                            
+                    except Exception as ble_ex:
+                        _LOGGER.debug("BLE connection failed: %s", ble_ex)
+                        
+            except ImportError:
+                _LOGGER.debug("HA Bluetooth not available")
+            except Exception as e:
+                _LOGGER.debug("HA Bluetooth lookup failed: %s", e)
             
-            return {"success": False, "error": "Could not pair automatically"}
+            return {"success": False, "error": "Could not pair via HA Bluetooth"}
             
-        except ImportError as e:
-            _LOGGER.debug("HA Bluetooth pairing import error: %s", e)
-            return {"success": False, "error": "HA Bluetooth not available"}
         except Exception as e:
             _LOGGER.debug("HA Bluetooth pairing failed: %s", e)
             return {"success": False, "error": str(e)}
@@ -1532,59 +1517,110 @@ class OmniApiBluetooth(HomeAssistantView):
         
         try:
             from dbus_fast.aio import MessageBus
-            from dbus_fast import BusType
+            from dbus_fast import BusType, Variant
+            
+            _LOGGER.info("Attempting D-Bus pairing for %s", mac)
             
             bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
             
             # Convert MAC to D-Bus path format
-            device_path = f"/org/bluez/hci0/dev_{mac.replace(':', '_').upper()}"
+            mac_path = mac.replace(':', '_').upper()
+            device_path = f"/org/bluez/hci0/dev_{mac_path}"
             
             try:
-                introspection = await bus.introspect("org.bluez", device_path)
+                # First, check if the adapter exists and start discovery if needed
+                try:
+                    adapter_introspection = await bus.introspect("org.bluez", "/org/bluez/hci0")
+                    adapter_obj = bus.get_proxy_object("org.bluez", "/org/bluez/hci0", adapter_introspection)
+                    adapter = adapter_obj.get_interface("org.bluez.Adapter1")
+                    
+                    # Start discovery to ensure device is found
+                    try:
+                        await adapter.call_start_discovery()
+                        await asyncio.sleep(3)  # Wait for device to be discovered
+                        await adapter.call_stop_discovery()
+                    except Exception as disc_ex:
+                        _LOGGER.debug("Discovery control: %s", disc_ex)
+                        
+                except Exception as adapter_ex:
+                    _LOGGER.debug("Adapter access failed: %s", adapter_ex)
+                
+                # Now try to access the device
+                try:
+                    introspection = await bus.introspect("org.bluez", device_path)
+                except Exception:
+                    bus.disconnect()
+                    return {"success": False, "error": f"Device {mac} not found by BlueZ. Put device in pairing mode and scan again."}
+                
                 device_obj = bus.get_proxy_object("org.bluez", device_path, introspection)
                 device = device_obj.get_interface("org.bluez.Device1")
+                props = device_obj.get_interface("org.freedesktop.DBus.Properties")
                 
                 # Check if already paired
-                props = device_obj.get_interface("org.freedesktop.DBus.Properties")
-                paired = await props.call_get("org.bluez.Device1", "Paired")
+                try:
+                    paired = await props.call_get("org.bluez.Device1", "Paired")
+                    if paired.value:
+                        bus.disconnect()
+                        return {"success": True, "message": "Device already paired"}
+                except Exception:
+                    pass
                 
-                if paired.value:
-                    bus.disconnect()
-                    return {"success": True, "message": "Device already paired"}
-                
-                # Set trusted
-                await props.call_set("org.bluez.Device1", "Trusted", True)
+                # Set trusted first
+                try:
+                    await props.call_set("org.bluez.Device1", "Trusted", Variant('b', True))
+                    _LOGGER.debug("Set device as trusted")
+                except Exception as trust_ex:
+                    _LOGGER.debug("Could not set trusted: %s", trust_ex)
                 
                 # Pair the device
                 try:
+                    _LOGGER.info("Initiating pairing with %s", mac)
                     await asyncio.wait_for(device.call_pair(), timeout=30)
+                    _LOGGER.info("Pairing successful for %s", mac)
                 except Exception as pair_ex:
-                    if "Already Exists" in str(pair_ex):
-                        pass  # Already paired
+                    error_str = str(pair_ex)
+                    if "AlreadyExists" in error_str or "Already Exists" in error_str:
+                        _LOGGER.debug("Device already paired")
+                    elif "AuthenticationCanceled" in error_str:
+                        bus.disconnect()
+                        return {"success": False, "error": "Pairing canceled. Put device in pairing mode and try again."}
+                    elif "AuthenticationFailed" in error_str:
+                        bus.disconnect()
+                        return {"success": False, "error": "Authentication failed. Device may require a PIN."}
+                    elif "AuthenticationRejected" in error_str:
+                        bus.disconnect()
+                        return {"success": False, "error": "Pairing rejected. Put device in pairing mode."}
+                    elif "ConnectionAttemptFailed" in error_str:
+                        bus.disconnect()
+                        return {"success": False, "error": "Connection failed. Device may be out of range."}
+                    elif "InProgress" in error_str:
+                        bus.disconnect()
+                        return {"success": False, "error": "Another pairing is in progress. Wait and try again."}
                     else:
-                        raise pair_ex
+                        _LOGGER.error("Pairing error: %s", pair_ex)
+                        bus.disconnect()
+                        return {"success": False, "error": f"Pairing failed: {error_str[:100]}"}
                 
-                # Connect
+                # Try to connect (optional - some devices don't stay connected)
                 try:
                     await asyncio.wait_for(device.call_connect(), timeout=10)
-                except Exception:
-                    pass  # Connection may fail but pairing succeeded
+                    _LOGGER.debug("Connected to device")
+                except Exception as conn_ex:
+                    _LOGGER.debug("Connect after pair: %s (non-fatal)", conn_ex)
                 
                 bus.disconnect()
                 return {"success": True, "message": "Paired successfully"}
                 
             except Exception as e:
                 bus.disconnect()
-                if "Does Not Exist" in str(e):
-                    return {"success": False, "error": f"Device {mac} not found. Make sure it's in pairing mode and nearby."}
                 raise e
                 
         except ImportError:
-            _LOGGER.warning("dbus_fast not available, trying alternative method")
-            return await self._pair_alternative(mac)
+            _LOGGER.debug("dbus_fast not available")
+            return {"success": False, "error": "D-Bus library not available"}
         except Exception as e:
             _LOGGER.error("D-Bus pairing failed: %s", e)
-            return {"success": False, "error": str(e)}
+            return {"success": False, "error": f"D-Bus error: {str(e)[:100]}"}
     
     async def _pair_with_bluetoothctl(self, mac: str) -> dict:
         """Pair with a Bluetooth device using bluetoothctl (for classic Bluetooth)."""

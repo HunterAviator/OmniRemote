@@ -239,3 +239,22 @@ If panel version is stuck, try:
   - Scan results show note about paired devices having green icon
   - Manual MAC input has helper text
 
+
+## [1.10.1] - 2024-02-27
+
+### Fixed
+- **Bluetooth Pairing** - Major improvements to pairing on HA Yellow/OS
+  - Added `dbus-fast` to requirements for D-Bus pairing support
+  - Added `bluetooth` as dependency for proper HA integration
+  - Fixed `async_ble_device_from_address` await bug in panel.py
+  - D-Bus pairing now triggers discovery first to ensure device is found
+  - Better error messages from D-Bus (AuthenticationCanceled, AuthenticationFailed, etc.)
+  - Reordered pairing methods: D-Bus first (most reliable), then HA Bluetooth, then bluetoothctl
+
+### Changed
+- **Bluetooth UI** - Cleaner, less alarming
+  - Removed scary red warning banner
+  - Scan button is now primary (highlighted)
+  - Pairing status shows in green/red with clear messages
+  - No more popup alerts on failure
+

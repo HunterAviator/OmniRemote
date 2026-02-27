@@ -3,7 +3,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.0";
+const OMNIREMOTE_VERSION = "1.10.1";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -4791,12 +4791,11 @@ data:
         
         <!-- HA Bluetooth Section (for Yellow/built-in) -->
         <div id="bt-ha-group" style="display:${remoteType === 'bluetooth_ha' ? 'block' : 'none'};">
-          <div style="background:#2d1f1f;border-radius:8px;padding:12px;margin-bottom:12px;border-left:3px solid #f44336;">
-            <div style="font-weight:500;color:#ef9a9a;margin-bottom:4px;"><ha-icon icon="mdi:alert"></ha-icon> HA Yellow/OS Limitation</div>
-            <div style="font-size:12px;color:#ffcdd2;">
-              Auto-pairing doesn't work in containerized HA. You <strong>must</strong> pair your remote first via:<br>
-              <strong>Settings → Devices & Services → Bluetooth</strong><br>
-              Then come back here and select the paired device.
+          <div style="background:#1a2744;border-radius:8px;padding:12px;margin-bottom:12px;border-left:3px solid #2196f3;">
+            <div style="font-weight:500;color:#64b5f6;margin-bottom:4px;"><ha-icon icon="mdi:information"></ha-icon> Bluetooth Pairing</div>
+            <div style="font-size:12px;color:#90caf9;">
+              Click <strong>Scan</strong> to find devices, then click <strong>Pair</strong>.<br>
+              Make sure your remote is in pairing mode (LED blinking).
             </div>
           </div>
           <div class="fg">
@@ -4807,7 +4806,7 @@ data:
             </select>
           </div>
           <div style="margin:12px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-            <button class="btn btn-s" data-action="bt-scan-start" id="bt-scan-btn">
+            <button class="btn btn-p" data-action="bt-scan-start" id="bt-scan-btn">
               <ha-icon icon="mdi:bluetooth-searching"></ha-icon> Scan
             </button>
             <input type="text" class="fi" id="bt-device-search" placeholder="Search by name or MAC..." style="flex:1;min-width:150px;">
@@ -4817,13 +4816,12 @@ data:
             <div style="padding:20px;text-align:center;color:#666;">
               <ha-icon icon="mdi:bluetooth" style="font-size:32px;"></ha-icon>
               <p style="margin:8px 0 0;">Click "Scan" to find nearby Bluetooth devices</p>
-              <p style="margin:4px 0 0;font-size:11px;">Already paired devices will show a green icon</p>
+              <p style="margin:4px 0 0;font-size:11px;">Paired devices show with a green icon ✓</p>
             </div>
           </div>
           <div class="fg">
             <label class="fl">Or Enter MAC Address Manually</label>
             <input type="text" class="fi" id="remote-bt-mac-ha" placeholder="AA:BB:CC:DD:EE:FF">
-            <p style="font-size:11px;color:#666;margin-top:4px;">Use this if your paired device doesn't appear in scan</p>
           </div>
         </div>
         
@@ -4988,25 +4986,23 @@ data:
                 if (pairRes.success) {
                   btn.innerHTML = '✓ Paired';
                   btn.style.background = '#4caf50';
-                  if (statusEl) statusEl.textContent = 'Paired: ' + (d.name || d.mac);
+                  if (statusEl) statusEl.innerHTML = '<span style="color:#4caf50;">✓ Paired: ' + (d.name || d.mac) + '</span>';
                   d.paired = true;
                 } else {
-                  btn.innerHTML = 'Select';
+                  btn.innerHTML = 'Pair';
                   btn.disabled = false;
-                  const errorMsg = pairRes.error || 'Auto-pairing not available';
+                  const errorMsg = pairRes.error || 'Pairing failed';
                   if (statusEl) {
-                    statusEl.innerHTML = `<span style="color:#f44336;">⚠ ${errorMsg}</span>`;
+                    statusEl.innerHTML = `<span style="color:#f44336;">${errorMsg}</span>`;
                   }
-                  // Show alert with clear guidance
-                  alert('Pairing failed: ' + errorMsg + '\n\nOn HA Yellow/OS, you must pair via:\nSettings → Devices & Services → Bluetooth\n\nThen come back and click "Scan" to find your paired device.');
                 }
               } catch (err) {
-                btn.innerHTML = 'Select';
+                btn.innerHTML = 'Pair';
                 btn.disabled = false;
                 if (statusEl) statusEl.innerHTML = `<span style="color:#f44336;">Error: ${err.message}</span>`;
               }
             } else {
-              if (statusEl) statusEl.textContent = 'Selected: ' + (d.name || d.mac);
+              if (statusEl) statusEl.innerHTML = '<span style="color:#4caf50;">✓ Selected: ' + (d.name || d.mac) + '</span>';
             }
           };
         }
