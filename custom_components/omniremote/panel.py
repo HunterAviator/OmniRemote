@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -2130,7 +2131,7 @@ class OmniApiRemoteBridges(HomeAssistantView):
 
 
 class OmniApiRemoteProfiles(HomeAssistantView):
-    """API for remote profiles (pre-defined button layouts)."""
+    """API for remote profiles (custom and pre-defined button layouts)."""
     
     url = "/api/omniremote/remote_profiles"
     name = "api:omniremote:remote_profiles"
@@ -2140,20 +2141,225 @@ class OmniApiRemoteProfiles(HomeAssistantView):
         self.hass = hass
     
     async def get(self, request: web.Request) -> web.Response:
-        """Get all remote profiles."""
+        """Get all remote profiles (built-in + custom)."""
         from .physical_remotes import REMOTE_PROFILES
+        from .const import RemoteProfile
         
-        profiles = []
+        # Built-in profiles from physical_remotes
+        builtin_profiles = []
         for profile_id, profile_data in REMOTE_PROFILES.items():
-            profiles.append({
+            builtin_profiles.append({
                 "id": profile_id,
                 "name": profile_data.get("name", profile_id),
                 "type": profile_data.get("type", "unknown").value if hasattr(profile_data.get("type"), "value") else str(profile_data.get("type", "unknown")),
                 "buttons": profile_data.get("buttons", []),
                 "default_mappings": profile_data.get("default_mappings", {}),
+                "builtin": True,
             })
         
-        return web.json_response({"profiles": profiles})
+        # Custom profiles from database
+        database = _get_database(self.hass)
+        custom_profiles = []
+        if database:
+            for profile in database.remote_profiles.values():
+                profile_dict = profile.to_dict()
+                profile_dict["builtin"] = False
+                custom_profiles.append(profile_dict)
+        
+        return web.json_response({
+            "profiles": custom_profiles,
+            "builtin_profiles": builtin_profiles,
+            "templates": self._get_templates(),
+        })
+    
+    def _get_templates(self):
+        """Return pre-defined templates for creating new remotes."""
+        return [
+            {
+                "id": "tv_basic",
+                "name": "Basic TV Remote",
+                "icon": "mdi:television",
+                "device_type": "tv",
+                "rows": 10,
+                "cols": 4,
+                "buttons": [
+                    {"id": "power", "label": "Power", "icon": "mdi:power", "row": 0, "col": 1, "col_span": 2, "button_type": "power", "color": "#f44336"},
+                    {"id": "vol_up", "label": "Vol +", "icon": "mdi:volume-plus", "row": 2, "col": 0, "button_type": "volume_up"},
+                    {"id": "vol_down", "label": "Vol -", "icon": "mdi:volume-minus", "row": 3, "col": 0, "button_type": "volume_down"},
+                    {"id": "mute", "label": "Mute", "icon": "mdi:volume-mute", "row": 4, "col": 0, "button_type": "mute"},
+                    {"id": "ch_up", "label": "CH +", "icon": "mdi:chevron-up", "row": 2, "col": 3, "button_type": "channel_up"},
+                    {"id": "ch_down", "label": "CH -", "icon": "mdi:chevron-down", "row": 3, "col": 3, "button_type": "channel_down"},
+                    {"id": "input", "label": "Input", "icon": "mdi:import", "row": 4, "col": 3, "button_type": "input"},
+                    {"id": "up", "label": "Up", "icon": "mdi:chevron-up", "row": 5, "col": 1, "col_span": 2, "button_type": "up", "shape": "rectangle"},
+                    {"id": "left", "label": "Left", "icon": "mdi:chevron-left", "row": 6, "col": 0, "button_type": "left"},
+                    {"id": "ok", "label": "OK", "icon": "mdi:check-circle", "row": 6, "col": 1, "col_span": 2, "button_type": "ok", "color": "#4caf50"},
+                    {"id": "right", "label": "Right", "icon": "mdi:chevron-right", "row": 6, "col": 3, "button_type": "right"},
+                    {"id": "down", "label": "Down", "icon": "mdi:chevron-down", "row": 7, "col": 1, "col_span": 2, "button_type": "down", "shape": "rectangle"},
+                    {"id": "back", "label": "Back", "icon": "mdi:arrow-left", "row": 8, "col": 0, "button_type": "back"},
+                    {"id": "home", "label": "Home", "icon": "mdi:home", "row": 8, "col": 1, "col_span": 2, "button_type": "home"},
+                    {"id": "menu", "label": "Menu", "icon": "mdi:menu", "row": 8, "col": 3, "button_type": "menu"},
+                ]
+            },
+            {
+                "id": "receiver_basic",
+                "name": "Basic Receiver Remote",
+                "icon": "mdi:audio-video",
+                "device_type": "receiver",
+                "rows": 10,
+                "cols": 4,
+                "buttons": [
+                    {"id": "power", "label": "Power", "icon": "mdi:power", "row": 0, "col": 1, "col_span": 2, "button_type": "power", "color": "#f44336"},
+                    {"id": "vol_up", "label": "Vol +", "icon": "mdi:volume-plus", "row": 2, "col": 0, "col_span": 2, "button_type": "volume_up"},
+                    {"id": "vol_down", "label": "Vol -", "icon": "mdi:volume-minus", "row": 3, "col": 0, "col_span": 2, "button_type": "volume_down"},
+                    {"id": "mute", "label": "Mute", "icon": "mdi:volume-mute", "row": 4, "col": 0, "col_span": 2, "button_type": "mute"},
+                    {"id": "hdmi1", "label": "HDMI 1", "icon": "mdi:hdmi-port", "row": 2, "col": 2, "col_span": 2},
+                    {"id": "hdmi2", "label": "HDMI 2", "icon": "mdi:hdmi-port", "row": 3, "col": 2, "col_span": 2},
+                    {"id": "hdmi3", "label": "HDMI 3", "icon": "mdi:hdmi-port", "row": 4, "col": 2, "col_span": 2},
+                    {"id": "tv", "label": "TV", "icon": "mdi:television", "row": 6, "col": 0},
+                    {"id": "game", "label": "Game", "icon": "mdi:gamepad-variant", "row": 6, "col": 1},
+                    {"id": "music", "label": "Music", "icon": "mdi:music", "row": 6, "col": 2},
+                    {"id": "movie", "label": "Movie", "icon": "mdi:movie", "row": 6, "col": 3},
+                ]
+            },
+            {
+                "id": "streaming_basic",
+                "name": "Streaming Device Remote",
+                "icon": "mdi:play-network",
+                "device_type": "streaming",
+                "rows": 8,
+                "cols": 4,
+                "buttons": [
+                    {"id": "power", "label": "Power", "icon": "mdi:power", "row": 0, "col": 0, "button_type": "power", "color": "#f44336"},
+                    {"id": "home", "label": "Home", "icon": "mdi:home", "row": 0, "col": 3, "button_type": "home"},
+                    {"id": "up", "label": "Up", "icon": "mdi:chevron-up", "row": 2, "col": 1, "col_span": 2, "button_type": "up"},
+                    {"id": "left", "label": "Left", "icon": "mdi:chevron-left", "row": 3, "col": 0, "button_type": "left"},
+                    {"id": "ok", "label": "OK", "icon": "mdi:check-circle", "row": 3, "col": 1, "col_span": 2, "button_type": "ok", "color": "#4caf50"},
+                    {"id": "right", "label": "Right", "icon": "mdi:chevron-right", "row": 3, "col": 3, "button_type": "right"},
+                    {"id": "down", "label": "Down", "icon": "mdi:chevron-down", "row": 4, "col": 1, "col_span": 2, "button_type": "down"},
+                    {"id": "back", "label": "Back", "icon": "mdi:arrow-left", "row": 5, "col": 0, "button_type": "back"},
+                    {"id": "play", "label": "Play", "icon": "mdi:play", "row": 5, "col": 1, "col_span": 2, "button_type": "play"},
+                    {"id": "menu", "label": "Menu", "icon": "mdi:menu", "row": 5, "col": 3, "button_type": "menu"},
+                    {"id": "rewind", "label": "Rewind", "icon": "mdi:rewind", "row": 6, "col": 0, "button_type": "rewind"},
+                    {"id": "pause", "label": "Pause", "icon": "mdi:pause", "row": 6, "col": 1, "col_span": 2, "button_type": "pause"},
+                    {"id": "forward", "label": "Forward", "icon": "mdi:fast-forward", "row": 6, "col": 3, "button_type": "forward"},
+                    {"id": "vol_up", "label": "Vol +", "icon": "mdi:volume-plus", "row": 7, "col": 0, "button_type": "volume_up"},
+                    {"id": "mute", "label": "Mute", "icon": "mdi:volume-mute", "row": 7, "col": 1, "col_span": 2, "button_type": "mute"},
+                    {"id": "vol_down", "label": "Vol -", "icon": "mdi:volume-minus", "row": 7, "col": 3, "button_type": "volume_down"},
+                ]
+            },
+            {
+                "id": "soundbar_basic",
+                "name": "Soundbar Remote",
+                "icon": "mdi:speaker",
+                "device_type": "soundbar",
+                "rows": 6,
+                "cols": 4,
+                "buttons": [
+                    {"id": "power", "label": "Power", "icon": "mdi:power", "row": 0, "col": 1, "col_span": 2, "button_type": "power", "color": "#f44336"},
+                    {"id": "vol_up", "label": "Vol +", "icon": "mdi:volume-plus", "row": 2, "col": 0, "col_span": 2, "button_type": "volume_up"},
+                    {"id": "vol_down", "label": "Vol -", "icon": "mdi:volume-minus", "row": 3, "col": 0, "col_span": 2, "button_type": "volume_down"},
+                    {"id": "mute", "label": "Mute", "icon": "mdi:volume-mute", "row": 2, "col": 2, "col_span": 2, "button_type": "mute"},
+                    {"id": "input", "label": "Input", "icon": "mdi:import", "row": 3, "col": 2, "col_span": 2, "button_type": "input"},
+                    {"id": "bass_up", "label": "Bass +", "icon": "mdi:music-note-plus", "row": 5, "col": 0},
+                    {"id": "bass_down", "label": "Bass -", "icon": "mdi:music-note-minus", "row": 5, "col": 1},
+                    {"id": "treble_up", "label": "Treble +", "icon": "mdi:equalizer", "row": 5, "col": 2},
+                    {"id": "treble_down", "label": "Treble -", "icon": "mdi:equalizer", "row": 5, "col": 3},
+                ]
+            },
+            {
+                "id": "universal",
+                "name": "Universal (Blank)",
+                "icon": "mdi:remote",
+                "device_type": "universal",
+                "rows": 8,
+                "cols": 4,
+                "buttons": []
+            },
+        ]
+    
+    async def post(self, request: web.Request) -> web.Response:
+        """Create, update, or delete a custom remote profile."""
+        import logging
+        from datetime import datetime
+        from .const import RemoteProfile, RemoteButton
+        
+        _LOGGER = logging.getLogger(__name__)
+        
+        database = _get_database(self.hass)
+        if not database:
+            return web.json_response({"error": "Integration not configured"}, status=500)
+        
+        try:
+            data = await request.json()
+            action = data.get("action", "create")
+            
+            if action == "create" or action == "update":
+                profile_id = data.get("id") or str(uuid.uuid4())[:8]
+                
+                # Parse buttons
+                buttons = []
+                for btn_data in data.get("buttons", []):
+                    buttons.append(RemoteButton.from_dict(btn_data))
+                
+                profile = RemoteProfile(
+                    id=profile_id,
+                    name=data.get("name", "Custom Remote"),
+                    description=data.get("description", ""),
+                    icon=data.get("icon", "mdi:remote"),
+                    rows=data.get("rows", 8),
+                    cols=data.get("cols", 4),
+                    device_type=data.get("device_type", "universal"),
+                    default_device_id=data.get("default_device_id"),
+                    buttons=buttons,
+                    template=data.get("template"),
+                    created_at=data.get("created_at") or datetime.now().isoformat(),
+                    updated_at=datetime.now().isoformat(),
+                )
+                
+                database.remote_profiles[profile_id] = profile
+                await database.async_save()
+                
+                _LOGGER.info("Saved remote profile: %s", profile.name)
+                return web.json_response({"profile": profile.to_dict(), "success": True})
+            
+            elif action == "delete":
+                profile_id = data.get("id")
+                if profile_id and profile_id in database.remote_profiles:
+                    del database.remote_profiles[profile_id]
+                    await database.async_save()
+                    return web.json_response({"success": True})
+                return web.json_response({"error": "Profile not found"}, status=404)
+            
+            elif action == "duplicate":
+                source_id = data.get("source_id")
+                if source_id and source_id in database.remote_profiles:
+                    source = database.remote_profiles[source_id]
+                    new_id = str(uuid.uuid4())[:8]
+                    new_profile = RemoteProfile(
+                        id=new_id,
+                        name=f"{source.name} (Copy)",
+                        description=source.description,
+                        icon=source.icon,
+                        rows=source.rows,
+                        cols=source.cols,
+                        device_type=source.device_type,
+                        default_device_id=source.default_device_id,
+                        buttons=[RemoteButton.from_dict(b.to_dict()) for b in source.buttons],
+                        template=source.template,
+                        created_at=datetime.now().isoformat(),
+                        updated_at=datetime.now().isoformat(),
+                    )
+                    database.remote_profiles[new_id] = new_profile
+                    await database.async_save()
+                    return web.json_response({"profile": new_profile.to_dict(), "success": True})
+                return web.json_response({"error": "Source profile not found"}, status=404)
+            
+            else:
+                return web.json_response({"error": f"Unknown action: {action}"}, status=400)
+                
+        except Exception as ex:
+            _LOGGER.error("Remote profile error: %s", ex)
+            return web.json_response({"error": str(ex)}, status=500)
 
 
 class OmniApiFlipperZero(HomeAssistantView):

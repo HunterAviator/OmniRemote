@@ -3,19 +3,25 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.7.0";
+const OMNIREMOTE_VERSION = "1.9.0";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
     this._hass = null;
-    this._data = { rooms: [], devices: [], scenes: [], blasters: [], haBlasters: [], catalog: [] };
+    this._data = { rooms: [], devices: [], scenes: [], blasters: [], haBlasters: [], catalog: [], remoteProfiles: [], remoteTemplates: [] };
     this._view = 'dashboard';
     this._modal = null;
     this._roomId = null;
     this._deviceId = null;
     this._version = OMNIREMOTE_VERSION;
+    
+    // Remote Builder state
+    this._builderProfileId = null;
+    this._builderProfile = null;
+    this._builderSelectedButton = null;
+    this._builderPreviewMode = false;
     
     // Log panel load for debugging cache issues
     console.log(`[OmniRemote] Panel v${OMNIREMOTE_VERSION} loaded at ${new Date().toISOString()}`);
@@ -87,6 +93,8 @@ class OmniRemotePanel extends HTMLElement {
         physicalRemotes: results[5]?.remotes || [],
         remoteBridges: results[6]?.bridges || [],
         remoteProfiles: results[7]?.profiles || [],
+        remoteTemplates: results[7]?.templates || [],
+        builtinProfiles: results[7]?.builtin_profiles || [],
         dbOk: results[3]?.database_available !== false,
         flippers: results[9]?.devices || [],
       };
@@ -308,6 +316,10 @@ class OmniRemotePanel extends HTMLElement {
             <div class="nav-item ${this._view === 'remotes' ? 'active' : ''}" data-nav="remotes">
               <ha-icon icon="mdi:remote"></ha-icon>Physical Remotes
             </div>
+            <div class="nav-item ${this._view === 'builder' ? 'active' : ''}" data-nav="builder">
+              <ha-icon icon="mdi:palette"></ha-icon>Remote Builder
+              <span class="badge">${this._data.remoteProfiles?.length || 0}</span>
+            </div>
             <div class="nav-item ${this._view === 'debugger' ? 'active' : ''}" data-nav="debugger">
               <ha-icon icon="mdi:bug"></ha-icon>IR Debugger
             </div>
@@ -425,6 +437,40 @@ class OmniRemotePanel extends HTMLElement {
         console.log('[OmniRemote] Refreshing data...');
         await this._loadData();
         break;
+
+      // Builder actions
+      case 'builder-new':
+      case 'builder-create-blank':
+      case 'builder-from-template':
+      case 'builder-edit':
+      case 'builder-duplicate':
+      case 'builder-delete':
+      case 'builder-back':
+      case 'builder-save':
+      case 'builder-preview':
+      case 'builder-add-button':
+      case 'builder-select-button':
+      case 'builder-delete-button':
+      case 'builder-quick-add':
+      case 'builder-apply-props':
+      case 'builder-settings':
+      case 'builder-clear':
+      case 'builder-pick-icon':
+        await this._handleBuilderAction(action, data);
+        break;
+
+      case 'apply-grid-settings':
+        if (this._builderProfile) {
+          this._builderProfile.rows = parseInt(this.shadowRoot.getElementById('grid-rows')?.value) || 8;
+          this._builderProfile.cols = parseInt(this.shadowRoot.getElementById('grid-cols')?.value) || 4;
+          this._builderProfile.device_type = this.shadowRoot.getElementById('grid-device-type')?.value || 'universal';
+          this._builderProfile.icon = this.shadowRoot.getElementById('grid-icon')?.value || 'mdi:remote';
+          this._builderProfile.description = this.shadowRoot.getElementById('grid-description')?.value || '';
+          this._modal = null;
+          this._render();
+        }
+        break;
+
       case 'show-add-room':
         this._showAddRoomModal();
         break;
@@ -469,6 +515,54 @@ class OmniRemotePanel extends HTMLElement {
         break;
       case 'save-blaster':
         await this._saveBlaster();
+        break;
+      
+      // Remote Builder actions
+      case 'builder-new':
+        this._showNewProfileModal();
+        break;
+      case 'builder-edit':
+        this._editProfile(data.profileId);
+        break;
+      case 'builder-delete':
+        await this._deleteProfile(data.profileId);
+        break;
+      case 'builder-duplicate':
+        await this._duplicateProfile(data.profileId);
+        break;
+      case 'builder-back':
+        this._builderProfileId = null;
+        this._builderProfile = null;
+        this._builderSelectedButton = null;
+        this._render();
+        break;
+      case 'builder-save':
+        await this._saveProfile();
+        break;
+      case 'builder-preview':
+        this._builderPreviewMode = !this._builderPreviewMode;
+        this._render();
+        break;
+      case 'builder-add-button':
+        this._showAddButtonModal(parseInt(data.row), parseInt(data.col));
+        break;
+      case 'builder-edit-button':
+        this._showEditButtonModal(data.buttonId);
+        break;
+      case 'builder-delete-button':
+        this._deleteButton(data.buttonId);
+        break;
+      case 'builder-save-button':
+        await this._saveButton();
+        break;
+      case 'builder-use-template':
+        this._applyTemplate(data.templateId);
+        break;
+      case 'builder-create-from-template':
+        await this._createFromTemplate();
+        break;
+      case 'builder-test-button':
+        await this._testButton(data.buttonId);
         break;
       
       // Flipper Zero actions
@@ -854,6 +948,7 @@ class OmniRemotePanel extends HTMLElement {
       blasters: 'Blasters',
       catalog: 'Device Catalog',
       remotes: 'Physical Remotes',
+      builder: this._builderProfileId ? (this._builderProfile?.name || 'Edit Remote') : 'Remote Builder',
       debugger: 'IR Debugger',
       wiki: 'Help & Wiki',
       room: this._data.rooms.find(r => r.id === this._roomId)?.name || 'Room',
@@ -878,6 +973,16 @@ class OmniRemotePanel extends HTMLElement {
           <button class="btn btn-s" data-action="show-add-blaster" style="margin-left:8px;"><ha-icon icon="mdi:plus"></ha-icon>Add by IP</button>
           ${refreshBtn}
         `;
+      case 'builder':
+        if (this._builderProfileId) {
+          return `
+            <button class="btn btn-s" data-action="builder-back"><ha-icon icon="mdi:arrow-left"></ha-icon>Back</button>
+            <button class="btn btn-p" data-action="builder-save" style="margin-left:8px;"><ha-icon icon="mdi:content-save"></ha-icon>Save Profile</button>
+            <button class="btn btn-s" data-action="builder-preview" style="margin-left:8px;"><ha-icon icon="mdi:eye"></ha-icon>Preview</button>
+            ${refreshBtn}
+          `;
+        }
+        return `<button class="btn btn-p" data-action="builder-new"><ha-icon icon="mdi:plus"></ha-icon>New Remote</button> ${refreshBtn}`;
       case 'dashboard':
         return refreshBtn;
       case 'room':
@@ -895,6 +1000,7 @@ class OmniRemotePanel extends HTMLElement {
       case 'blasters': return this._blastersView();
       case 'catalog': return this._catalogView();
       case 'remotes': return this._remotesView();
+      case 'builder': return this._builderView();
       case 'debugger': return this._debuggerView();
       case 'wiki': return this._wikiView();
       case 'room': return this._roomView();
@@ -1561,6 +1667,717 @@ class OmniRemotePanel extends HTMLElement {
         </ul>
       </div>
     `;
+  }
+
+  // ========================================
+  // REMOTE BUILDER
+  // ========================================
+  
+  _builderView() {
+    // If editing a profile, show the editor
+    if (this._builderProfileId) {
+      return this._builderEditorView();
+    }
+    
+    // Otherwise show the profile list
+    return this._builderListView();
+  }
+  
+  _builderListView() {
+    const profiles = this._data.remoteProfiles || [];
+    const templates = this._data.remoteTemplates || [];
+    
+    return `
+      <div class="builder-container">
+        <!-- Templates Section -->
+        <div class="builder-section">
+          <h3 style="margin-bottom:16px;display:flex;align-items:center;gap:8px;">
+            <ha-icon icon="mdi:shape-outline"></ha-icon>
+            Start from Template
+          </h3>
+          <div class="template-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:16px;">
+            ${templates.map(t => `
+              <div class="template-card card" style="cursor:pointer;text-align:center;padding:20px;" 
+                   data-action="builder-use-template" data-template-id="${t.id}">
+                <ha-icon icon="${t.icon}" style="font-size:48px;color:#03a9f4;margin-bottom:12px;display:block;"></ha-icon>
+                <div style="font-weight:600;margin-bottom:4px;">${t.name}</div>
+                <div style="font-size:12px;color:#888;">${t.device_type} • ${t.rows}×${t.cols}</div>
+                <div style="font-size:11px;color:#666;margin-top:4px;">${t.buttons.length} buttons</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+        
+        <!-- Custom Profiles Section -->
+        <div class="builder-section" style="margin-top:32px;">
+          <h3 style="margin-bottom:16px;display:flex;align-items:center;gap:8px;">
+            <ha-icon icon="mdi:remote"></ha-icon>
+            Your Custom Remotes
+            <span class="badge" style="margin-left:auto;">${profiles.length}</span>
+          </h3>
+          ${profiles.length === 0 ? `
+            <div class="empty-state" style="text-align:center;padding:40px;background:#1a1a2e;border-radius:12px;">
+              <ha-icon icon="mdi:remote-off" style="font-size:64px;color:#444;margin-bottom:16px;display:block;"></ha-icon>
+              <p style="color:#888;margin-bottom:16px;">No custom remotes yet</p>
+              <button class="btn btn-p" data-action="builder-new">
+                <ha-icon icon="mdi:plus"></ha-icon> Create Your First Remote
+              </button>
+            </div>
+          ` : `
+            <div class="profile-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;">
+              ${profiles.map(p => `
+                <div class="profile-card card" style="padding:16px;">
+                  <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+                    <ha-icon icon="${p.icon || 'mdi:remote'}" style="font-size:32px;color:#03a9f4;"></ha-icon>
+                    <div style="flex:1;">
+                      <div style="font-weight:600;">${p.name}</div>
+                      <div style="font-size:12px;color:#888;">${p.device_type} • ${p.rows}×${p.cols} • ${p.buttons?.length || 0} buttons</div>
+                    </div>
+                  </div>
+                  ${p.description ? `<p style="font-size:13px;color:#888;margin-bottom:12px;">${p.description}</p>` : ''}
+                  <div style="display:flex;gap:8px;">
+                    <button class="btn btn-p btn-sm" data-action="builder-edit" data-profile-id="${p.id}">
+                      <ha-icon icon="mdi:pencil"></ha-icon> Edit
+                    </button>
+                    <button class="btn btn-s btn-sm" data-action="builder-duplicate" data-profile-id="${p.id}">
+                      <ha-icon icon="mdi:content-copy"></ha-icon>
+                    </button>
+                    <button class="btn btn-s btn-sm" data-action="builder-delete" data-profile-id="${p.id}" style="color:#f44336;">
+                      <ha-icon icon="mdi:delete"></ha-icon>
+                    </button>
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          `}
+        </div>
+        
+        <!-- Info Section -->
+        <div class="builder-info" style="margin-top:32px;padding:20px;background:#1a1a2e;border-radius:12px;border-left:4px solid #03a9f4;">
+          <h4 style="margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+            <ha-icon icon="mdi:information"></ha-icon>
+            About Remote Profiles
+          </h4>
+          <p style="color:#888;margin:0;line-height:1.6;">
+            Custom remote profiles define button layouts and command mappings. They can be:
+          </p>
+          <ul style="color:#888;margin:8px 0 0 20px;line-height:1.8;">
+            <li><strong>Used in mobile apps</strong> - Sync to iOS/Android OmniRemote apps</li>
+            <li><strong>Assigned to rooms</strong> - Auto-appear when in that room</li>
+            <li><strong>Linked to devices</strong> - Map buttons to specific IR devices</li>
+            <li><strong>Shared with scenes</strong> - Trigger scenes from remote buttons</li>
+          </ul>
+        </div>
+      </div>
+    `;
+  }
+  
+  _builderEditorView() {
+    const profile = this._builderProfile;
+    if (!profile) return '<div class="warning">Profile not found</div>';
+    
+    const rows = profile.rows || 8;
+    const cols = profile.cols || 4;
+    const cellSize = 70;
+    
+    // Create button map for quick lookup
+    const buttonMap = {};
+    (profile.buttons || []).forEach(btn => {
+      const key = `${btn.row}-${btn.col}`;
+      buttonMap[key] = btn;
+    });
+    
+    // Generate grid cells
+    let gridCells = '';
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const key = `${r}-${c}`;
+        const btn = buttonMap[key];
+        
+        if (btn) {
+          // Render button
+          const width = (btn.col_span || 1) * cellSize - 4;
+          const height = (btn.row_span || 1) * cellSize - 4;
+          const bgColor = btn.color || '#2a2a4a';
+          const isSelected = this._builderSelectedButton === btn.id;
+          
+          gridCells += `
+            <div class="builder-btn ${isSelected ? 'selected' : ''}" 
+                 style="grid-row:${r + 1}/span ${btn.row_span || 1};grid-column:${c + 1}/span ${btn.col_span || 1};
+                        background:${bgColor};border-radius:8px;display:flex;flex-direction:column;
+                        align-items:center;justify-content:center;cursor:pointer;
+                        border:2px solid ${isSelected ? '#03a9f4' : 'transparent'};
+                        ${btn.shape === 'circle' ? 'border-radius:50%;' : ''}
+                        ${btn.shape === 'oval' ? 'border-radius:40%;' : ''}"
+                 data-action="${this._builderPreviewMode ? 'builder-test-button' : 'builder-edit-button'}" 
+                 data-button-id="${btn.id}">
+              ${btn.icon ? `<ha-icon icon="${btn.icon}" style="font-size:24px;"></ha-icon>` : ''}
+              <span style="font-size:11px;margin-top:4px;text-align:center;">${btn.label}</span>
+            </div>
+          `;
+        } else {
+          // Empty cell - show add button
+          if (!this._builderPreviewMode) {
+            gridCells += `
+              <div class="builder-cell-empty" 
+                   style="grid-row:${r + 1};grid-column:${c + 1};background:#1a1a2e;border-radius:8px;
+                          display:flex;align-items:center;justify-content:center;cursor:pointer;
+                          border:1px dashed #333;"
+                   data-action="builder-add-button" data-row="${r}" data-col="${c}">
+                <ha-icon icon="mdi:plus" style="color:#444;font-size:20px;"></ha-icon>
+              </div>
+            `;
+          } else {
+            gridCells += `<div style="grid-row:${r + 1};grid-column:${c + 1};"></div>`;
+          }
+        }
+      }
+    }
+    
+    return `
+      <div class="builder-editor" style="display:flex;gap:24px;">
+        <!-- Left: Remote Preview -->
+        <div class="builder-preview" style="flex-shrink:0;">
+          <div class="remote-frame" style="background:#0d0d1a;border-radius:24px;padding:20px;
+                      box-shadow:0 8px 32px rgba(0,0,0,0.4);">
+            <div class="remote-grid" style="display:grid;grid-template-columns:repeat(${cols},${cellSize}px);
+                        grid-template-rows:repeat(${rows},${cellSize}px);gap:4px;">
+              ${gridCells}
+            </div>
+          </div>
+          ${this._builderPreviewMode ? `
+            <div style="text-align:center;margin-top:12px;color:#4caf50;">
+              <ha-icon icon="mdi:eye"></ha-icon> Preview Mode - Click buttons to test
+            </div>
+          ` : `
+            <div style="text-align:center;margin-top:12px;color:#888;">
+              Click a button to edit, or click + to add
+            </div>
+          `}
+        </div>
+        
+        <!-- Right: Profile Settings & Button Editor -->
+        <div class="builder-settings" style="flex:1;min-width:300px;">
+          <!-- Profile Settings -->
+          <div class="card" style="margin-bottom:16px;">
+            <h4 style="margin-bottom:16px;display:flex;align-items:center;gap:8px;">
+              <ha-icon icon="mdi:cog"></ha-icon>
+              Profile Settings
+            </h4>
+            <div class="fg" style="margin-bottom:12px;">
+              <label class="fl">Name</label>
+              <input type="text" class="fi" id="builder-name" value="${profile.name || ''}" placeholder="My Remote">
+            </div>
+            <div class="fg" style="margin-bottom:12px;">
+              <label class="fl">Description</label>
+              <input type="text" class="fi" id="builder-desc" value="${profile.description || ''}" placeholder="Optional description">
+            </div>
+            <div style="display:flex;gap:12px;margin-bottom:12px;">
+              <div class="fg" style="flex:1;">
+                <label class="fl">Rows</label>
+                <input type="number" class="fi" id="builder-rows" value="${rows}" min="2" max="16">
+              </div>
+              <div class="fg" style="flex:1;">
+                <label class="fl">Columns</label>
+                <input type="number" class="fi" id="builder-cols" value="${cols}" min="2" max="8">
+              </div>
+            </div>
+            <div class="fg" style="margin-bottom:12px;">
+              <label class="fl">Default Device</label>
+              <select class="fi" id="builder-device">
+                <option value="">-- Select Device --</option>
+                ${this._data.devices.map(d => `
+                  <option value="${d.id}" ${profile.default_device_id === d.id ? 'selected' : ''}>${d.name}</option>
+                `).join('')}
+              </select>
+            </div>
+            <div class="fg">
+              <label class="fl">Icon</label>
+              <input type="text" class="fi" id="builder-icon" value="${profile.icon || 'mdi:remote'}" placeholder="mdi:remote">
+            </div>
+          </div>
+          
+          <!-- Button List -->
+          <div class="card">
+            <h4 style="margin-bottom:16px;display:flex;align-items:center;gap:8px;">
+              <ha-icon icon="mdi:button-pointer"></ha-icon>
+              Buttons (${profile.buttons?.length || 0})
+            </h4>
+            <div class="button-list" style="max-height:300px;overflow-y:auto;">
+              ${(profile.buttons || []).length === 0 ? `
+                <p style="color:#888;text-align:center;">No buttons yet. Click + on the remote to add.</p>
+              ` : (profile.buttons || []).map(btn => `
+                <div class="button-item" style="display:flex;align-items:center;gap:8px;padding:8px;
+                            background:#1a1a2e;border-radius:8px;margin-bottom:8px;
+                            ${this._builderSelectedButton === btn.id ? 'border:1px solid #03a9f4;' : ''}">
+                  <ha-icon icon="${btn.icon || 'mdi:gesture-tap-button'}" style="color:#03a9f4;"></ha-icon>
+                  <div style="flex:1;">
+                    <div style="font-weight:500;">${btn.label}</div>
+                    <div style="font-size:11px;color:#888;">
+                      Row ${btn.row + 1}, Col ${btn.col + 1}
+                      ${btn.command_name ? ` • ${btn.command_name}` : ''}
+                    </div>
+                  </div>
+                  <button class="btn btn-s btn-sm" data-action="builder-edit-button" data-button-id="${btn.id}">
+                    <ha-icon icon="mdi:pencil"></ha-icon>
+                  </button>
+                  <button class="btn btn-s btn-sm" data-action="builder-delete-button" data-button-id="${btn.id}" style="color:#f44336;">
+                    <ha-icon icon="mdi:delete"></ha-icon>
+                  </button>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+  
+  _showNewProfileModal() {
+    const templates = this._data.remoteTemplates || [];
+    
+    this._modal = `
+      <div class="modal-head">
+        <h3>Create New Remote</h3>
+        <button class="modal-close" data-action="close-modal">&times;</button>
+      </div>
+      <p style="color:#888;margin-bottom:16px;">Choose a template to start with:</p>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px;max-height:400px;overflow-y:auto;">
+        ${templates.map(t => `
+          <div class="template-option" style="padding:16px;background:#1a1a2e;border-radius:8px;cursor:pointer;
+                      text-align:center;border:2px solid transparent;" 
+               onclick="this.parentElement.querySelectorAll('.template-option').forEach(e=>e.style.borderColor='transparent');
+                        this.style.borderColor='#03a9f4';
+                        document.getElementById('new-profile-template').value='${t.id}';">
+            <ha-icon icon="${t.icon}" style="font-size:36px;color:#03a9f4;display:block;margin-bottom:8px;"></ha-icon>
+            <div style="font-weight:600;">${t.name}</div>
+            <div style="font-size:11px;color:#888;">${t.buttons.length} buttons</div>
+          </div>
+        `).join('')}
+      </div>
+      <input type="hidden" id="new-profile-template" value="universal">
+      <div class="fg" style="margin-top:16px;">
+        <label class="fl">Remote Name</label>
+        <input type="text" class="fi" id="new-profile-name" placeholder="My Custom Remote">
+      </div>
+      <div style="margin-top:16px;text-align:right;">
+        <button class="btn btn-s" data-action="close-modal">Cancel</button>
+        <button class="btn btn-p" data-action="builder-create-from-template" style="margin-left:8px;">Create</button>
+      </div>
+    `;
+    this._render();
+  }
+  
+  async _createFromTemplate() {
+    const templateId = this.shadowRoot.getElementById('new-profile-template')?.value || 'universal';
+    const name = this.shadowRoot.getElementById('new-profile-name')?.value || 'My Custom Remote';
+    
+    const template = this._data.remoteTemplates.find(t => t.id === templateId);
+    if (!template) {
+      alert('Template not found');
+      return;
+    }
+    
+    // Create new profile from template
+    const newProfile = {
+      action: 'create',
+      name: name,
+      description: `Based on ${template.name}`,
+      icon: template.icon,
+      rows: template.rows,
+      cols: template.cols,
+      device_type: template.device_type,
+      template: templateId,
+      buttons: template.buttons.map(btn => ({
+        ...btn,
+        id: btn.id + '_' + Date.now().toString(36).slice(-4),
+      })),
+    };
+    
+    const res = await this._api('/api/omniremote/remote_profiles', 'POST', newProfile);
+    if (res.success) {
+      this._modal = null;
+      await this._loadData();
+      // Open the editor for the new profile
+      this._editProfile(res.profile.id);
+    } else {
+      alert('Failed to create profile: ' + (res.error || 'Unknown error'));
+    }
+  }
+  
+  _editProfile(profileId) {
+    const profile = this._data.remoteProfiles.find(p => p.id === profileId);
+    if (!profile) {
+      alert('Profile not found');
+      return;
+    }
+    
+    this._builderProfileId = profileId;
+    this._builderProfile = JSON.parse(JSON.stringify(profile)); // Deep copy
+    this._builderSelectedButton = null;
+    this._builderPreviewMode = false;
+    this._render();
+  }
+  
+  async _deleteProfile(profileId) {
+    if (!confirm('Delete this remote profile?')) return;
+    
+    const res = await this._api('/api/omniremote/remote_profiles', 'POST', {
+      action: 'delete',
+      id: profileId,
+    });
+    
+    if (res.success) {
+      await this._loadData();
+    } else {
+      alert('Failed to delete: ' + (res.error || 'Unknown error'));
+    }
+  }
+  
+  async _duplicateProfile(profileId) {
+    const res = await this._api('/api/omniremote/remote_profiles', 'POST', {
+      action: 'duplicate',
+      source_id: profileId,
+    });
+    
+    if (res.success) {
+      await this._loadData();
+    } else {
+      alert('Failed to duplicate: ' + (res.error || 'Unknown error'));
+    }
+  }
+  
+  async _saveProfile() {
+    const name = this.shadowRoot.getElementById('builder-name')?.value;
+    const desc = this.shadowRoot.getElementById('builder-desc')?.value;
+    const rows = parseInt(this.shadowRoot.getElementById('builder-rows')?.value) || 8;
+    const cols = parseInt(this.shadowRoot.getElementById('builder-cols')?.value) || 4;
+    const device = this.shadowRoot.getElementById('builder-device')?.value;
+    const icon = this.shadowRoot.getElementById('builder-icon')?.value || 'mdi:remote';
+    
+    const profile = {
+      action: 'update',
+      id: this._builderProfileId,
+      name: name || 'Custom Remote',
+      description: desc || '',
+      icon: icon,
+      rows: rows,
+      cols: cols,
+      device_type: this._builderProfile.device_type || 'universal',
+      default_device_id: device || null,
+      buttons: this._builderProfile.buttons || [],
+      template: this._builderProfile.template,
+      created_at: this._builderProfile.created_at,
+    };
+    
+    const res = await this._api('/api/omniremote/remote_profiles', 'POST', profile);
+    if (res.success) {
+      await this._loadData();
+      this._builderProfile = res.profile;
+      alert('Profile saved!');
+    } else {
+      alert('Failed to save: ' + (res.error || 'Unknown error'));
+    }
+  }
+  
+  _showAddButtonModal(row, col) {
+    const devices = this._data.devices || [];
+    const defaultDevice = this._builderProfile?.default_device_id;
+    
+    this._modal = `
+      <div class="modal-head">
+        <h3>Add Button</h3>
+        <button class="modal-close" data-action="close-modal">&times;</button>
+      </div>
+      <p style="color:#888;">Position: Row ${row + 1}, Column ${col + 1}</p>
+      
+      <div class="fg">
+        <label class="fl">Label</label>
+        <input type="text" class="fi" id="btn-label" placeholder="Power">
+      </div>
+      <div class="fg">
+        <label class="fl">Icon</label>
+        <input type="text" class="fi" id="btn-icon" placeholder="mdi:power" value="mdi:gesture-tap-button">
+      </div>
+      <div style="display:flex;gap:12px;">
+        <div class="fg" style="flex:1;">
+          <label class="fl">Width (columns)</label>
+          <input type="number" class="fi" id="btn-colspan" value="1" min="1" max="4">
+        </div>
+        <div class="fg" style="flex:1;">
+          <label class="fl">Height (rows)</label>
+          <input type="number" class="fi" id="btn-rowspan" value="1" min="1" max="4">
+        </div>
+      </div>
+      <div class="fg">
+        <label class="fl">Color</label>
+        <input type="color" class="fi" id="btn-color" value="#2a2a4a" style="height:40px;padding:4px;">
+      </div>
+      <div class="fg">
+        <label class="fl">Shape</label>
+        <select class="fi" id="btn-shape">
+          <option value="square">Square</option>
+          <option value="rectangle">Rectangle</option>
+          <option value="circle">Circle</option>
+          <option value="oval">Oval</option>
+        </select>
+      </div>
+      
+      <h4 style="margin:16px 0 8px;border-top:1px solid #333;padding-top:16px;">Action</h4>
+      <div class="fg">
+        <label class="fl">Action Type</label>
+        <select class="fi" id="btn-action-type">
+          <option value="ir_command">IR Command</option>
+          <option value="ha_service">HA Service</option>
+          <option value="scene">Run Scene</option>
+          <option value="none">No Action</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label class="fl">Device</label>
+        <select class="fi" id="btn-device">
+          <option value="">Use Profile Default</option>
+          ${devices.map(d => `<option value="${d.id}" ${d.id === defaultDevice ? 'selected' : ''}>${d.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="fg">
+        <label class="fl">Command</label>
+        <select class="fi" id="btn-command">
+          <option value="">-- Select Command --</option>
+        </select>
+      </div>
+      
+      <input type="hidden" id="btn-row" value="${row}">
+      <input type="hidden" id="btn-col" value="${col}">
+      <input type="hidden" id="btn-id" value="">
+      
+      <div style="margin-top:16px;text-align:right;">
+        <button class="btn btn-s" data-action="close-modal">Cancel</button>
+        <button class="btn btn-p" data-action="builder-save-button" style="margin-left:8px;">Add Button</button>
+      </div>
+    `;
+    this._render();
+    
+    // Setup device change handler
+    setTimeout(() => {
+      const deviceSelect = this.shadowRoot.getElementById('btn-device');
+      if (deviceSelect) {
+        deviceSelect.addEventListener('change', () => this._updateCommandOptions());
+        this._updateCommandOptions();
+      }
+    }, 100);
+  }
+  
+  _showEditButtonModal(buttonId) {
+    const btn = this._builderProfile?.buttons?.find(b => b.id === buttonId);
+    if (!btn) return;
+    
+    this._builderSelectedButton = buttonId;
+    const devices = this._data.devices || [];
+    
+    this._modal = `
+      <div class="modal-head">
+        <h3>Edit Button</h3>
+        <button class="modal-close" data-action="close-modal">&times;</button>
+      </div>
+      
+      <div class="fg">
+        <label class="fl">Label</label>
+        <input type="text" class="fi" id="btn-label" value="${btn.label || ''}">
+      </div>
+      <div class="fg">
+        <label class="fl">Icon</label>
+        <input type="text" class="fi" id="btn-icon" value="${btn.icon || ''}">
+      </div>
+      <div style="display:flex;gap:12px;">
+        <div class="fg" style="flex:1;">
+          <label class="fl">Width (columns)</label>
+          <input type="number" class="fi" id="btn-colspan" value="${btn.col_span || 1}" min="1" max="4">
+        </div>
+        <div class="fg" style="flex:1;">
+          <label class="fl">Height (rows)</label>
+          <input type="number" class="fi" id="btn-rowspan" value="${btn.row_span || 1}" min="1" max="4">
+        </div>
+      </div>
+      <div class="fg">
+        <label class="fl">Color</label>
+        <input type="color" class="fi" id="btn-color" value="${btn.color || '#2a2a4a'}" style="height:40px;padding:4px;">
+      </div>
+      <div class="fg">
+        <label class="fl">Shape</label>
+        <select class="fi" id="btn-shape">
+          <option value="square" ${btn.shape === 'square' ? 'selected' : ''}>Square</option>
+          <option value="rectangle" ${btn.shape === 'rectangle' ? 'selected' : ''}>Rectangle</option>
+          <option value="circle" ${btn.shape === 'circle' ? 'selected' : ''}>Circle</option>
+          <option value="oval" ${btn.shape === 'oval' ? 'selected' : ''}>Oval</option>
+        </select>
+      </div>
+      
+      <h4 style="margin:16px 0 8px;border-top:1px solid #333;padding-top:16px;">Action</h4>
+      <div class="fg">
+        <label class="fl">Action Type</label>
+        <select class="fi" id="btn-action-type">
+          <option value="ir_command" ${btn.action_type === 'ir_command' ? 'selected' : ''}>IR Command</option>
+          <option value="ha_service" ${btn.action_type === 'ha_service' ? 'selected' : ''}>HA Service</option>
+          <option value="scene" ${btn.action_type === 'scene' ? 'selected' : ''}>Run Scene</option>
+          <option value="none" ${btn.action_type === 'none' ? 'selected' : ''}>No Action</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label class="fl">Device</label>
+        <select class="fi" id="btn-device">
+          <option value="">Use Profile Default</option>
+          ${devices.map(d => `<option value="${d.id}" ${d.id === btn.device_id ? 'selected' : ''}>${d.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="fg">
+        <label class="fl">Command</label>
+        <select class="fi" id="btn-command">
+          <option value="">-- Select Command --</option>
+        </select>
+      </div>
+      
+      <input type="hidden" id="btn-row" value="${btn.row}">
+      <input type="hidden" id="btn-col" value="${btn.col}">
+      <input type="hidden" id="btn-id" value="${btn.id}">
+      
+      <div style="margin-top:16px;text-align:right;">
+        <button class="btn btn-s" data-action="close-modal">Cancel</button>
+        <button class="btn btn-p" data-action="builder-save-button" style="margin-left:8px;">Save Button</button>
+      </div>
+    `;
+    this._render();
+    
+    // Setup device change handler and load commands
+    setTimeout(() => {
+      const deviceSelect = this.shadowRoot.getElementById('btn-device');
+      if (deviceSelect) {
+        deviceSelect.addEventListener('change', () => this._updateCommandOptions());
+        this._updateCommandOptions(btn.command_name);
+      }
+    }, 100);
+  }
+  
+  _updateCommandOptions(selectedCommand = null) {
+    const deviceSelect = this.shadowRoot.getElementById('btn-device');
+    const commandSelect = this.shadowRoot.getElementById('btn-command');
+    if (!deviceSelect || !commandSelect) return;
+    
+    const deviceId = deviceSelect.value || this._builderProfile?.default_device_id;
+    const device = this._data.devices.find(d => d.id === deviceId);
+    
+    commandSelect.innerHTML = '<option value="">-- Select Command --</option>';
+    
+    if (device && device.codes) {
+      device.codes.forEach(code => {
+        const opt = document.createElement('option');
+        opt.value = code.name;
+        opt.textContent = code.name;
+        if (code.name === selectedCommand) opt.selected = true;
+        commandSelect.appendChild(opt);
+      });
+    }
+  }
+  
+  async _saveButton() {
+    const label = this.shadowRoot.getElementById('btn-label')?.value || 'Button';
+    const icon = this.shadowRoot.getElementById('btn-icon')?.value || '';
+    const colspan = parseInt(this.shadowRoot.getElementById('btn-colspan')?.value) || 1;
+    const rowspan = parseInt(this.shadowRoot.getElementById('btn-rowspan')?.value) || 1;
+    const color = this.shadowRoot.getElementById('btn-color')?.value || '#2a2a4a';
+    const shape = this.shadowRoot.getElementById('btn-shape')?.value || 'square';
+    const actionType = this.shadowRoot.getElementById('btn-action-type')?.value || 'ir_command';
+    const deviceId = this.shadowRoot.getElementById('btn-device')?.value || null;
+    const commandName = this.shadowRoot.getElementById('btn-command')?.value || null;
+    const row = parseInt(this.shadowRoot.getElementById('btn-row')?.value) || 0;
+    const col = parseInt(this.shadowRoot.getElementById('btn-col')?.value) || 0;
+    const existingId = this.shadowRoot.getElementById('btn-id')?.value;
+    
+    const buttonData = {
+      id: existingId || (label.toLowerCase().replace(/\s+/g, '_') + '_' + Date.now().toString(36).slice(-4)),
+      label: label,
+      icon: icon || null,
+      row: row,
+      col: col,
+      row_span: rowspan,
+      col_span: colspan,
+      color: color === '#2a2a4a' ? null : color,
+      shape: shape,
+      action_type: actionType,
+      device_id: deviceId || null,
+      command_name: commandName || null,
+    };
+    
+    // Update or add button
+    if (existingId) {
+      const idx = this._builderProfile.buttons.findIndex(b => b.id === existingId);
+      if (idx >= 0) {
+        this._builderProfile.buttons[idx] = buttonData;
+      }
+    } else {
+      this._builderProfile.buttons = this._builderProfile.buttons || [];
+      this._builderProfile.buttons.push(buttonData);
+    }
+    
+    this._modal = null;
+    this._builderSelectedButton = buttonData.id;
+    this._render();
+  }
+  
+  _deleteButton(buttonId) {
+    if (!confirm('Delete this button?')) return;
+    
+    this._builderProfile.buttons = (this._builderProfile.buttons || []).filter(b => b.id !== buttonId);
+    if (this._builderSelectedButton === buttonId) {
+      this._builderSelectedButton = null;
+    }
+    this._render();
+  }
+  
+  _applyTemplate(templateId) {
+    // Show the new profile modal with this template pre-selected
+    this._showNewProfileModal();
+    setTimeout(() => {
+      const hiddenInput = this.shadowRoot.getElementById('new-profile-template');
+      if (hiddenInput) {
+        hiddenInput.value = templateId;
+        // Highlight the selected template
+        const options = this.shadowRoot.querySelectorAll('.template-option');
+        options.forEach(opt => {
+          if (opt.textContent.includes(this._data.remoteTemplates.find(t => t.id === templateId)?.name)) {
+            opt.style.borderColor = '#03a9f4';
+          }
+        });
+      }
+    }, 100);
+  }
+  
+  async _testButton(buttonId) {
+    const btn = this._builderProfile?.buttons?.find(b => b.id === buttonId);
+    if (!btn) return;
+    
+    if (btn.action_type === 'ir_command' && btn.command_name) {
+      const deviceId = btn.device_id || this._builderProfile.default_device_id;
+      if (!deviceId) {
+        alert('No device selected for this button');
+        return;
+      }
+      
+      const res = await this._api('/api/omniremote/commands', 'POST', {
+        device_id: deviceId,
+        command: btn.command_name,
+      });
+      
+      if (res.success) {
+        console.log(`[OmniRemote] Sent ${btn.command_name} to ${deviceId}`);
+      } else {
+        alert('Command failed: ' + (res.error || 'Unknown error'));
+      }
+    } else if (btn.action_type === 'scene' && btn.scene_id) {
+      await this._activateScene(btn.scene_id);
+    } else {
+      alert('Button has no action configured');
+    }
   }
 
   _wikiView() {
@@ -5322,6 +6139,893 @@ data:
   async _loadFlipperDevices() {
     const res = await this._api('/api/omniremote/flipper', 'GET');
     this._data.flippers = res.devices || [];
+  }
+
+  // ===========================================
+  // REMOTE PROFILE BUILDER
+  // ===========================================
+
+  _builderView() {
+    if (this._builderProfileId) {
+      return this._profileEditorView();
+    }
+    return this._profilesListView();
+  }
+
+  _profilesListView() {
+    const profiles = this._data.remoteProfiles || [];
+    const templates = [
+      { id: 'tv_basic', name: 'Basic TV', icon: 'mdi:television', device_type: 'tv', rows: 10, cols: 4 },
+      { id: 'tv_full', name: 'Full TV Remote', icon: 'mdi:television-classic', device_type: 'tv', rows: 14, cols: 4 },
+      { id: 'receiver', name: 'AV Receiver', icon: 'mdi:speaker', device_type: 'receiver', rows: 12, cols: 4 },
+      { id: 'streaming', name: 'Streaming Device', icon: 'mdi:cast', device_type: 'streaming', rows: 8, cols: 3 },
+      { id: 'soundbar', name: 'Soundbar', icon: 'mdi:speaker-wireless', device_type: 'soundbar', rows: 6, cols: 3 },
+      { id: 'projector', name: 'Projector', icon: 'mdi:projector', device_type: 'projector', rows: 10, cols: 4 },
+      { id: 'ac', name: 'Air Conditioner', icon: 'mdi:air-conditioner', device_type: 'ac', rows: 8, cols: 4 },
+      { id: 'universal', name: 'Blank Universal', icon: 'mdi:remote', device_type: 'universal', rows: 8, cols: 4 },
+    ];
+
+    return \`
+      <div class="builder-container">
+        <!-- Custom Profiles Section -->
+        <div class="section-header">
+          <h3><ha-icon icon="mdi:remote"></ha-icon> My Remote Profiles</h3>
+          <span class="badge">\${profiles.length}</span>
+        </div>
+        <p style="color:#888;margin-bottom:16px;">Custom remote layouts you've created. These sync to mobile apps.</p>
+        
+        \${profiles.length === 0 ? \`
+          <div class="empty" style="padding:30px;margin-bottom:24px;">
+            <ha-icon icon="mdi:remote" style="font-size:48px;color:#666;"></ha-icon>
+            <h4 style="margin:12px 0 8px;">No Custom Profiles Yet</h4>
+            <p style="color:#888;">Create your first custom remote layout below!</p>
+          </div>
+        \` : \`
+          <div class="grid" style="margin-bottom:24px;">
+            \${profiles.map(p => \`
+              <div class="card profile-card" data-profile-id="\${p.id}">
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+                  <div class="profile-icon" style="width:48px;height:48px;background:#2a2a4a;border-radius:8px;display:flex;align-items:center;justify-content:center;">
+                    <ha-icon icon="\${p.icon || 'mdi:remote'}" style="font-size:24px;color:#64b5f6;"></ha-icon>
+                  </div>
+                  <div style="flex:1;">
+                    <div style="font-weight:600;">\${p.name}</div>
+                    <div style="color:#888;font-size:12px;">\${p.device_type} • \${p.rows}×\${p.cols} grid • \${(p.buttons || []).length} buttons</div>
+                  </div>
+                </div>
+                \${p.description ? \`<p style="color:#888;font-size:13px;margin:0 0 12px 0;">\${p.description}</p>\` : ''}
+                <div class="card-actions">
+                  <button class="btn btn-sm btn-p" data-action="builder-edit" data-profile-id="\${p.id}">
+                    <ha-icon icon="mdi:pencil"></ha-icon> Edit
+                  </button>
+                  <button class="btn btn-sm" data-action="builder-duplicate" data-profile-id="\${p.id}">
+                    <ha-icon icon="mdi:content-copy"></ha-icon> Duplicate
+                  </button>
+                  <button class="btn btn-sm btn-danger" data-action="builder-delete" data-profile-id="\${p.id}">
+                    <ha-icon icon="mdi:delete"></ha-icon>
+                  </button>
+                </div>
+              </div>
+            \`).join('')}
+          </div>
+        \`}
+
+        <!-- Templates Section -->
+        <div class="section-header" style="margin-top:32px;">
+          <h3><ha-icon icon="mdi:palette"></ha-icon> Start from Template</h3>
+        </div>
+        <p style="color:#888;margin-bottom:16px;">Choose a template with pre-configured buttons, then customize to your needs.</p>
+        
+        <div class="grid templates-grid">
+          \${templates.map(t => \`
+            <div class="card template-card" data-template-id="\${t.id}" data-action="builder-from-template" style="cursor:pointer;transition:all 0.2s;">
+              <div style="text-align:center;padding:20px 0;">
+                <ha-icon icon="\${t.icon}" style="font-size:36px;color:#64b5f6;"></ha-icon>
+                <h4 style="margin:12px 0 4px;font-size:15px;">\${t.name}</h4>
+                <div style="color:#888;font-size:12px;">\${t.rows}×\${t.cols} grid</div>
+              </div>
+            </div>
+          \`).join('')}
+        </div>
+
+        <!-- Create Blank -->
+        <div class="section-header" style="margin-top:32px;">
+          <h3><ha-icon icon="mdi:plus-box"></ha-icon> Create Blank</h3>
+        </div>
+        <div class="card" style="padding:20px;">
+          <p style="color:#888;margin:0 0 16px;">Start with an empty grid and add buttons manually.</p>
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+            <div class="fg" style="flex:1;min-width:150px;">
+              <label class="fl">Name</label>
+              <input type="text" class="fi" id="builder-new-name" placeholder="My Remote">
+            </div>
+            <div class="fg" style="width:80px;">
+              <label class="fl">Rows</label>
+              <input type="number" class="fi" id="builder-new-rows" value="8" min="2" max="20">
+            </div>
+            <div class="fg" style="width:80px;">
+              <label class="fl">Cols</label>
+              <input type="number" class="fi" id="builder-new-cols" value="4" min="2" max="6">
+            </div>
+            <button class="btn btn-p" data-action="builder-create-blank" style="margin-top:20px;">
+              <ha-icon icon="mdi:plus"></ha-icon> Create
+            </button>
+          </div>
+        </div>
+      </div>
+      
+      <style>
+        .templates-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+        .template-card:hover { background: #2a2a4a !important; transform: translateY(-2px); }
+        .profile-card:hover { background: #1e1e38; }
+      </style>
+    \`;
+  }
+
+  _profileEditorView() {
+    const profile = this._builderProfile;
+    if (!profile) return '<div class="empty">Profile not loaded</div>';
+
+    const rows = profile.rows || 8;
+    const cols = profile.cols || 4;
+    const buttons = profile.buttons || [];
+    const cellSize = 70;
+    const gridWidth = cols * cellSize;
+    const gridHeight = rows * cellSize;
+
+    // Create grid cells
+    const gridCells = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        // Check if this cell is occupied by a button
+        const btn = buttons.find(b => b.row === r && b.col === c);
+        if (btn) {
+          gridCells.push(this._renderBuilderButton(btn, cellSize));
+        } else {
+          // Check if this cell is covered by a spanning button
+          const covered = buttons.find(b => 
+            b.row <= r && b.row + (b.row_span || 1) > r &&
+            b.col <= c && b.col + (b.col_span || 1) > c &&
+            !(b.row === r && b.col === c)
+          );
+          if (!covered) {
+            gridCells.push(\`
+              <div class="grid-cell empty-cell" data-row="\${r}" data-col="\${c}" data-action="builder-add-button"
+                   style="grid-row:\${r+1};grid-column:\${c+1};width:\${cellSize}px;height:\${cellSize}px;
+                          border:1px dashed #444;border-radius:4px;display:flex;align-items:center;justify-content:center;
+                          cursor:pointer;transition:all 0.2s;">
+                <ha-icon icon="mdi:plus" style="color:#555;font-size:20px;"></ha-icon>
+              </div>
+            \`);
+          }
+        }
+      }
+    }
+
+    const selectedBtn = this._builderSelectedButton ? 
+      buttons.find(b => b.id === this._builderSelectedButton) : null;
+
+    return \`
+      <div class="builder-editor" style="display:flex;gap:24px;flex-wrap:wrap;">
+        <!-- Left: Grid Editor -->
+        <div class="builder-grid-container" style="flex:1;min-width:300px;">
+          <div class="card" style="padding:16px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+              <div>
+                <input type="text" class="fi" id="builder-profile-name" value="\${profile.name || 'My Remote'}" 
+                       style="font-size:18px;font-weight:600;background:transparent;border:none;border-bottom:1px solid #444;padding:4px 0;width:200px;">
+                <div style="color:#888;font-size:12px;margin-top:4px;">\${rows}×\${cols} grid • \${buttons.length} buttons</div>
+              </div>
+              <div style="display:flex;gap:8px;">
+                <button class="btn btn-sm" data-action="builder-settings" title="Grid Settings">
+                  <ha-icon icon="mdi:cog"></ha-icon>
+                </button>
+                <button class="btn btn-sm" data-action="builder-clear" title="Clear All">
+                  <ha-icon icon="mdi:delete-sweep"></ha-icon>
+                </button>
+              </div>
+            </div>
+            
+            <!-- Visual Grid -->
+            <div class="builder-grid" style="display:grid;grid-template-columns:repeat(\${cols}, \${cellSize}px);
+                 grid-template-rows:repeat(\${rows}, \${cellSize}px);gap:4px;background:#1a1a2e;padding:12px;border-radius:8px;
+                 width:fit-content;margin:0 auto;">
+              \${gridCells.join('')}
+            </div>
+            
+            <div style="text-align:center;margin-top:12px;color:#666;font-size:12px;">
+              Click empty cell to add button • Click button to edit • Drag to move
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Button Properties Panel -->
+        <div class="builder-properties" style="width:320px;flex-shrink:0;">
+          \${selectedBtn ? this._renderButtonProperties(selectedBtn) : \`
+            <div class="card" style="padding:24px;text-align:center;">
+              <ha-icon icon="mdi:gesture-tap" style="font-size:48px;color:#444;"></ha-icon>
+              <h4 style="margin:12px 0 8px;color:#888;">Select a Button</h4>
+              <p style="color:#666;font-size:13px;">Click a button on the grid to edit its properties, or click an empty cell to add a new button.</p>
+            </div>
+          \`}
+
+          <!-- Quick Add Buttons -->
+          <div class="card" style="margin-top:16px;padding:16px;">
+            <h4 style="margin:0 0 12px;font-size:14px;">Quick Add</h4>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;">
+              \${this._getQuickAddButtons().map(qb => \`
+                <button class="btn btn-sm" data-action="builder-quick-add" data-button-type="\${qb.type}" 
+                        data-icon="\${qb.icon}" data-label="\${qb.label}" title="\${qb.label}">
+                  <ha-icon icon="\${qb.icon}"></ha-icon>
+                </button>
+              \`).join('')}
+            </div>
+          </div>
+
+          <!-- Device Assignment -->
+          <div class="card" style="margin-top:16px;padding:16px;">
+            <h4 style="margin:0 0 12px;font-size:14px;">Default Device</h4>
+            <select class="fi" id="builder-default-device">
+              <option value="">-- Select Device --</option>
+              \${(this._data.devices || []).map(d => \`
+                <option value="\${d.id}" \${profile.default_device_id === d.id ? 'selected' : ''}>\${d.name}</option>
+              \`).join('')}
+            </select>
+            <p style="color:#666;font-size:11px;margin-top:8px;">Buttons without a specific device will use this one.</p>
+          </div>
+        </div>
+      </div>
+
+      <style>
+        .builder-grid .empty-cell:hover { background: #2a2a4a !important; border-color: #64b5f6 !important; }
+        .builder-grid .remote-button:hover { transform: scale(1.05); }
+        .builder-grid .remote-button.selected { outline: 2px solid #64b5f6; outline-offset: 2px; }
+        .builder-properties .fg { margin-bottom: 12px; }
+      </style>
+    \`;
+  }
+
+  _renderBuilderButton(btn, cellSize) {
+    const width = (btn.col_span || 1) * cellSize + ((btn.col_span || 1) - 1) * 4;
+    const height = (btn.row_span || 1) * cellSize + ((btn.row_span || 1) - 1) * 4;
+    const isSelected = this._builderSelectedButton === btn.id;
+    const bgColor = btn.color || '#3d5afe';
+    const shape = btn.shape || 'square';
+    const borderRadius = shape === 'circle' ? '50%' : shape === 'oval' ? '40%' : '8px';
+
+    return \`
+      <div class="remote-button \${isSelected ? 'selected' : ''}" 
+           data-button-id="\${btn.id}" data-action="builder-select-button"
+           style="grid-row:\${btn.row+1}/span \${btn.row_span || 1};grid-column:\${btn.col+1}/span \${btn.col_span || 1};
+                  width:\${width}px;height:\${height}px;background:\${bgColor};border-radius:\${borderRadius};
+                  display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;
+                  transition:all 0.15s;box-shadow:0 2px 4px rgba(0,0,0,0.3);">
+        \${btn.icon ? \`<ha-icon icon="\${btn.icon}" style="font-size:\${Math.min(width, height) * 0.4}px;color:#fff;"></ha-icon>\` : ''}
+        \${btn.label && (!btn.icon || height > 60) ? \`<span style="font-size:10px;color:#fff;margin-top:2px;text-align:center;padding:0 4px;">\${btn.label}</span>\` : ''}
+      </div>
+    \`;
+  }
+
+  _renderButtonProperties(btn) {
+    const devices = this._data.devices || [];
+    const scenes = this._data.scenes || [];
+    const actionTypes = [
+      { value: 'ir_command', label: 'IR Command' },
+      { value: 'ha_service', label: 'HA Service' },
+      { value: 'scene', label: 'OmniRemote Scene' },
+      { value: 'none', label: 'No Action' },
+    ];
+
+    const buttonTypes = [
+      'power', 'volume', 'channel', 'navigation', 'playback', 'number', 'input', 'menu', 'color', 'custom'
+    ];
+
+    const shapes = [
+      { value: 'square', label: 'Square' },
+      { value: 'circle', label: 'Circle' },
+      { value: 'rectangle', label: 'Rectangle' },
+      { value: 'oval', label: 'Oval' },
+    ];
+
+    return \`
+      <div class="card" style="padding:16px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+          <h4 style="margin:0;font-size:14px;">Button Properties</h4>
+          <button class="btn btn-sm btn-danger" data-action="builder-delete-button" data-button-id="\${btn.id}">
+            <ha-icon icon="mdi:delete"></ha-icon>
+          </button>
+        </div>
+
+        <div class="fg">
+          <label class="fl">Label</label>
+          <input type="text" class="fi builder-prop" data-prop="label" value="\${btn.label || ''}" placeholder="Button label">
+        </div>
+
+        <div class="fg">
+          <label class="fl">Icon</label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" class="fi builder-prop" data-prop="icon" value="\${btn.icon || ''}" placeholder="mdi:power" style="flex:1;">
+            <button class="btn btn-sm" data-action="builder-pick-icon" title="Pick Icon">
+              <ha-icon icon="\${btn.icon || 'mdi:emoticon-outline'}"></ha-icon>
+            </button>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;">
+          <div class="fg" style="flex:1;">
+            <label class="fl">Shape</label>
+            <select class="fi builder-prop" data-prop="shape">
+              \${shapes.map(s => \`<option value="\${s.value}" \${btn.shape === s.value ? 'selected' : ''}>\${s.label}</option>\`).join('')}
+            </select>
+          </div>
+          <div class="fg" style="flex:1;">
+            <label class="fl">Color</label>
+            <input type="color" class="fi builder-prop" data-prop="color" value="\${btn.color || '#3d5afe'}" style="height:36px;padding:2px;">
+          </div>
+        </div>
+
+        <div style="display:flex;gap:8px;">
+          <div class="fg" style="flex:1;">
+            <label class="fl">Width (cells)</label>
+            <input type="number" class="fi builder-prop" data-prop="col_span" value="\${btn.col_span || 1}" min="1" max="4">
+          </div>
+          <div class="fg" style="flex:1;">
+            <label class="fl">Height (cells)</label>
+            <input type="number" class="fi builder-prop" data-prop="row_span" value="\${btn.row_span || 1}" min="1" max="4">
+          </div>
+        </div>
+
+        <hr style="border:none;border-top:1px solid #333;margin:16px 0;">
+
+        <div class="fg">
+          <label class="fl">Action Type</label>
+          <select class="fi builder-prop" data-prop="action_type" id="builder-action-type">
+            \${actionTypes.map(a => \`<option value="\${a.value}" \${btn.action_type === a.value ? 'selected' : ''}>\${a.label}</option>\`).join('')}
+          </select>
+        </div>
+
+        <!-- IR Command Options -->
+        <div id="action-ir-options" style="display:\${btn.action_type === 'ir_command' || !btn.action_type ? 'block' : 'none'};">
+          <div class="fg">
+            <label class="fl">Device</label>
+            <select class="fi builder-prop" data-prop="device_id">
+              <option value="">-- Use Default --</option>
+              \${devices.map(d => \`<option value="\${d.id}" \${btn.device_id === d.id ? 'selected' : ''}>\${d.name}</option>\`).join('')}
+            </select>
+          </div>
+          <div class="fg">
+            <label class="fl">Command</label>
+            <input type="text" class="fi builder-prop" data-prop="command_name" value="\${btn.command_name || ''}" placeholder="power, volume_up, etc.">
+          </div>
+        </div>
+
+        <!-- Scene Options -->
+        <div id="action-scene-options" style="display:\${btn.action_type === 'scene' ? 'block' : 'none'};">
+          <div class="fg">
+            <label class="fl">Scene</label>
+            <select class="fi builder-prop" data-prop="scene_id">
+              <option value="">-- Select Scene --</option>
+              \${scenes.map(s => \`<option value="\${s.id}" \${btn.scene_id === s.id ? 'selected' : ''}>\${s.name}</option>\`).join('')}
+            </select>
+          </div>
+          <div class="fg">
+            <label class="fl">Action</label>
+            <select class="fi builder-prop" data-prop="scene_action">
+              <option value="on" \${btn.scene_action === 'on' ? 'selected' : ''}>Turn On</option>
+              <option value="off" \${btn.scene_action === 'off' ? 'selected' : ''}>Turn Off</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- HA Service Options -->
+        <div id="action-ha-options" style="display:\${btn.action_type === 'ha_service' ? 'block' : 'none'};">
+          <div class="fg">
+            <label class="fl">Domain</label>
+            <input type="text" class="fi builder-prop" data-prop="ha_domain" value="\${btn.ha_domain || ''}" placeholder="light, switch, media_player...">
+          </div>
+          <div class="fg">
+            <label class="fl">Service</label>
+            <input type="text" class="fi builder-prop" data-prop="ha_service" value="\${btn.ha_service || ''}" placeholder="turn_on, toggle...">
+          </div>
+          <div class="fg">
+            <label class="fl">Entity ID</label>
+            <input type="text" class="fi builder-prop" data-prop="ha_entity_id" value="\${btn.ha_entity_id || ''}" placeholder="light.living_room">
+          </div>
+        </div>
+
+        <div style="margin-top:16px;text-align:right;">
+          <button class="btn btn-p" data-action="builder-apply-props">
+            <ha-icon icon="mdi:check"></ha-icon> Apply
+          </button>
+        </div>
+      </div>
+    \`;
+  }
+
+  _getQuickAddButtons() {
+    return [
+      { type: 'power', icon: 'mdi:power', label: 'Power' },
+      { type: 'vol_up', icon: 'mdi:volume-plus', label: 'Vol +' },
+      { type: 'vol_down', icon: 'mdi:volume-minus', label: 'Vol -' },
+      { type: 'mute', icon: 'mdi:volume-off', label: 'Mute' },
+      { type: 'ch_up', icon: 'mdi:chevron-up', label: 'CH +' },
+      { type: 'ch_down', icon: 'mdi:chevron-down', label: 'CH -' },
+      { type: 'up', icon: 'mdi:arrow-up', label: 'Up' },
+      { type: 'down', icon: 'mdi:arrow-down', label: 'Down' },
+      { type: 'left', icon: 'mdi:arrow-left', label: 'Left' },
+      { type: 'right', icon: 'mdi:arrow-right', label: 'Right' },
+      { type: 'ok', icon: 'mdi:check-circle', label: 'OK' },
+      { type: 'back', icon: 'mdi:arrow-u-left-top', label: 'Back' },
+      { type: 'home', icon: 'mdi:home', label: 'Home' },
+      { type: 'menu', icon: 'mdi:menu', label: 'Menu' },
+      { type: 'play', icon: 'mdi:play', label: 'Play' },
+      { type: 'pause', icon: 'mdi:pause', label: 'Pause' },
+      { type: 'stop', icon: 'mdi:stop', label: 'Stop' },
+      { type: 'input', icon: 'mdi:import', label: 'Input' },
+    ];
+  }
+
+  // Builder action handlers
+  async _handleBuilderAction(action, data) {
+    switch (action) {
+      case 'builder-new':
+        this._showBuilderNewModal();
+        break;
+
+      case 'builder-create-blank':
+        const name = this.shadowRoot.getElementById('builder-new-name')?.value || 'My Remote';
+        const rows = parseInt(this.shadowRoot.getElementById('builder-new-rows')?.value) || 8;
+        const cols = parseInt(this.shadowRoot.getElementById('builder-new-cols')?.value) || 4;
+        this._createNewProfile(name, rows, cols);
+        break;
+
+      case 'builder-from-template':
+        await this._createFromTemplate(data.templateId);
+        break;
+
+      case 'builder-edit':
+        await this._loadProfileForEditing(data.profileId);
+        break;
+
+      case 'builder-duplicate':
+        await this._duplicateProfile(data.profileId);
+        break;
+
+      case 'builder-delete':
+        if (confirm('Delete this remote profile?')) {
+          await this._deleteProfile(data.profileId);
+        }
+        break;
+
+      case 'builder-back':
+        this._builderProfileId = null;
+        this._builderProfile = null;
+        this._builderSelectedButton = null;
+        this._render();
+        break;
+
+      case 'builder-save':
+        await this._saveBuilderProfile();
+        break;
+
+      case 'builder-preview':
+        this._builderPreviewMode = !this._builderPreviewMode;
+        this._render();
+        break;
+
+      case 'builder-add-button':
+        this._addButtonAtCell(parseInt(data.row), parseInt(data.col));
+        break;
+
+      case 'builder-select-button':
+        this._builderSelectedButton = data.buttonId;
+        this._render();
+        this._setupBuilderPropertyHandlers();
+        break;
+
+      case 'builder-delete-button':
+        this._deleteBuilderButton(data.buttonId);
+        break;
+
+      case 'builder-quick-add':
+        this._quickAddButton(data.buttonType, data.icon, data.label);
+        break;
+
+      case 'builder-apply-props':
+        this._applyButtonProperties();
+        break;
+
+      case 'builder-settings':
+        this._showGridSettingsModal();
+        break;
+
+      case 'builder-clear':
+        if (confirm('Clear all buttons from this remote?')) {
+          this._builderProfile.buttons = [];
+          this._builderSelectedButton = null;
+          this._render();
+        }
+        break;
+
+      case 'builder-pick-icon':
+        this._showIconPickerForBuilder();
+        break;
+    }
+  }
+
+  _createNewProfile(name, rows, cols, template = null) {
+    const id = 'profile_' + Date.now().toString(36);
+    this._builderProfile = {
+      id,
+      name,
+      description: '',
+      icon: 'mdi:remote',
+      rows,
+      cols,
+      device_type: 'universal',
+      default_device_id: null,
+      buttons: [],
+      template,
+    };
+    this._builderProfileId = id;
+    this._builderSelectedButton = null;
+    this._render();
+  }
+
+  async _createFromTemplate(templateId) {
+    const templates = {
+      tv_basic: {
+        name: 'TV Remote', rows: 10, cols: 4, device_type: 'tv', icon: 'mdi:television',
+        buttons: [
+          { id: 'power', label: 'Power', icon: 'mdi:power', row: 0, col: 1, col_span: 2, color: '#f44336', command_name: 'power' },
+          { id: 'input', label: 'Input', icon: 'mdi:import', row: 1, col: 0, command_name: 'source' },
+          { id: 'mute', label: 'Mute', icon: 'mdi:volume-off', row: 1, col: 3, command_name: 'mute' },
+          { id: 'vol_up', label: 'Vol +', icon: 'mdi:volume-plus', row: 2, col: 0, command_name: 'volume_up' },
+          { id: 'ch_up', label: 'CH +', icon: 'mdi:chevron-up', row: 2, col: 3, command_name: 'channel_up' },
+          { id: 'vol_down', label: 'Vol -', icon: 'mdi:volume-minus', row: 3, col: 0, command_name: 'volume_down' },
+          { id: 'ch_down', label: 'CH -', icon: 'mdi:chevron-down', row: 3, col: 3, command_name: 'channel_down' },
+          { id: 'up', label: '', icon: 'mdi:chevron-up', row: 5, col: 1, col_span: 2, command_name: 'up', shape: 'rectangle' },
+          { id: 'left', label: '', icon: 'mdi:chevron-left', row: 6, col: 0, command_name: 'left' },
+          { id: 'ok', label: 'OK', icon: 'mdi:check-circle', row: 6, col: 1, col_span: 2, color: '#4caf50', command_name: 'ok' },
+          { id: 'right', label: '', icon: 'mdi:chevron-right', row: 6, col: 3, command_name: 'right' },
+          { id: 'down', label: '', icon: 'mdi:chevron-down', row: 7, col: 1, col_span: 2, command_name: 'down', shape: 'rectangle' },
+          { id: 'back', label: 'Back', icon: 'mdi:arrow-left', row: 8, col: 0, command_name: 'back' },
+          { id: 'home', label: 'Home', icon: 'mdi:home', row: 8, col: 1, col_span: 2, command_name: 'home' },
+          { id: 'menu', label: 'Menu', icon: 'mdi:menu', row: 8, col: 3, command_name: 'menu' },
+        ]
+      },
+      receiver: {
+        name: 'AV Receiver', rows: 12, cols: 4, device_type: 'receiver', icon: 'mdi:speaker',
+        buttons: [
+          { id: 'power', label: 'Power', icon: 'mdi:power', row: 0, col: 1, col_span: 2, color: '#f44336', command_name: 'power' },
+          { id: 'vol_up', label: 'Vol +', icon: 'mdi:volume-plus', row: 1, col: 0, command_name: 'volume_up' },
+          { id: 'mute', label: 'Mute', icon: 'mdi:volume-off', row: 1, col: 1, col_span: 2, command_name: 'mute' },
+          { id: 'vol_down', label: 'Vol -', icon: 'mdi:volume-minus', row: 1, col: 3, command_name: 'volume_down' },
+          { id: 'hdmi1', label: 'HDMI 1', icon: 'mdi:hdmi-port', row: 3, col: 0, command_name: 'hdmi1' },
+          { id: 'hdmi2', label: 'HDMI 2', icon: 'mdi:hdmi-port', row: 3, col: 1, command_name: 'hdmi2' },
+          { id: 'hdmi3', label: 'HDMI 3', icon: 'mdi:hdmi-port', row: 3, col: 2, command_name: 'hdmi3' },
+          { id: 'hdmi4', label: 'HDMI 4', icon: 'mdi:hdmi-port', row: 3, col: 3, command_name: 'hdmi4' },
+          { id: 'optical', label: 'Optical', icon: 'mdi:toslink', row: 4, col: 0, command_name: 'optical' },
+          { id: 'bluetooth', label: 'BT', icon: 'mdi:bluetooth', row: 4, col: 1, command_name: 'bluetooth' },
+          { id: 'aux', label: 'AUX', icon: 'mdi:audio-input-rca', row: 4, col: 2, command_name: 'aux' },
+          { id: 'tv', label: 'TV', icon: 'mdi:television', row: 4, col: 3, command_name: 'tv' },
+          { id: 'stereo', label: 'Stereo', icon: 'mdi:speaker-stereo', row: 6, col: 0, command_name: 'stereo' },
+          { id: 'surround', label: 'Surround', icon: 'mdi:surround-sound', row: 6, col: 1, command_name: 'surround' },
+          { id: 'movie', label: 'Movie', icon: 'mdi:movie', row: 6, col: 2, command_name: 'movie' },
+          { id: 'music', label: 'Music', icon: 'mdi:music', row: 6, col: 3, command_name: 'music' },
+        ]
+      },
+      streaming: {
+        name: 'Streaming Remote', rows: 8, cols: 3, device_type: 'streaming', icon: 'mdi:cast',
+        buttons: [
+          { id: 'power', label: 'Power', icon: 'mdi:power', row: 0, col: 1, color: '#f44336', command_name: 'power' },
+          { id: 'up', label: '', icon: 'mdi:chevron-up', row: 1, col: 1, command_name: 'up' },
+          { id: 'left', label: '', icon: 'mdi:chevron-left', row: 2, col: 0, command_name: 'left' },
+          { id: 'ok', label: 'OK', icon: 'mdi:check-circle', row: 2, col: 1, color: '#4caf50', command_name: 'ok' },
+          { id: 'right', label: '', icon: 'mdi:chevron-right', row: 2, col: 2, command_name: 'right' },
+          { id: 'down', label: '', icon: 'mdi:chevron-down', row: 3, col: 1, command_name: 'down' },
+          { id: 'back', label: 'Back', icon: 'mdi:arrow-left', row: 4, col: 0, command_name: 'back' },
+          { id: 'home', label: 'Home', icon: 'mdi:home', row: 4, col: 1, command_name: 'home' },
+          { id: 'menu', label: 'Menu', icon: 'mdi:menu', row: 4, col: 2, command_name: 'menu' },
+          { id: 'play', label: '', icon: 'mdi:play-pause', row: 5, col: 1, command_name: 'play_pause' },
+          { id: 'rw', label: '', icon: 'mdi:rewind', row: 5, col: 0, command_name: 'rewind' },
+          { id: 'ff', label: '', icon: 'mdi:fast-forward', row: 5, col: 2, command_name: 'fast_forward' },
+          { id: 'vol_up', label: 'Vol +', icon: 'mdi:volume-plus', row: 6, col: 0, command_name: 'volume_up' },
+          { id: 'mute', label: 'Mute', icon: 'mdi:volume-off', row: 6, col: 1, command_name: 'mute' },
+          { id: 'vol_down', label: 'Vol -', icon: 'mdi:volume-minus', row: 6, col: 2, command_name: 'volume_down' },
+        ]
+      },
+      soundbar: {
+        name: 'Soundbar', rows: 6, cols: 3, device_type: 'soundbar', icon: 'mdi:speaker-wireless',
+        buttons: [
+          { id: 'power', label: 'Power', icon: 'mdi:power', row: 0, col: 1, color: '#f44336', command_name: 'power' },
+          { id: 'vol_up', label: 'Vol +', icon: 'mdi:volume-plus', row: 1, col: 1, row_span: 2, command_name: 'volume_up', color: '#4caf50' },
+          { id: 'mute', label: 'Mute', icon: 'mdi:volume-off', row: 3, col: 1, command_name: 'mute' },
+          { id: 'vol_down', label: 'Vol -', icon: 'mdi:volume-minus', row: 4, col: 1, row_span: 2, command_name: 'volume_down', color: '#2196f3' },
+          { id: 'input', label: 'Input', icon: 'mdi:import', row: 1, col: 0, command_name: 'source' },
+          { id: 'bluetooth', label: 'BT', icon: 'mdi:bluetooth', row: 2, col: 0, command_name: 'bluetooth' },
+          { id: 'optical', label: 'Opt', icon: 'mdi:toslink', row: 1, col: 2, command_name: 'optical' },
+          { id: 'hdmi', label: 'HDMI', icon: 'mdi:hdmi-port', row: 2, col: 2, command_name: 'hdmi_arc' },
+          { id: 'bass_up', label: 'Bass +', icon: 'mdi:plus', row: 4, col: 0, command_name: 'bass_up' },
+          { id: 'bass_down', label: 'Bass -', icon: 'mdi:minus', row: 4, col: 2, command_name: 'bass_down' },
+        ]
+      },
+      universal: {
+        name: 'Blank Remote', rows: 8, cols: 4, device_type: 'universal', icon: 'mdi:remote',
+        buttons: []
+      },
+    };
+
+    const template = templates[templateId];
+    if (!template) {
+      alert('Template not found');
+      return;
+    }
+
+    const id = 'profile_' + Date.now().toString(36);
+    this._builderProfile = {
+      id,
+      name: template.name,
+      description: '',
+      icon: template.icon,
+      rows: template.rows,
+      cols: template.cols,
+      device_type: template.device_type,
+      default_device_id: null,
+      buttons: template.buttons.map(b => ({
+        ...b,
+        id: b.id + '_' + Date.now().toString(36).slice(-4),
+        action_type: 'ir_command',
+      })),
+      template: templateId,
+    };
+    this._builderProfileId = id;
+    this._builderSelectedButton = null;
+    this._render();
+  }
+
+  async _loadProfileForEditing(profileId) {
+    const profile = (this._data.remoteProfiles || []).find(p => p.id === profileId);
+    if (profile) {
+      this._builderProfile = JSON.parse(JSON.stringify(profile)); // Deep clone
+      this._builderProfileId = profileId;
+      this._builderSelectedButton = null;
+      this._render();
+    }
+  }
+
+  async _duplicateProfile(profileId) {
+    const profile = (this._data.remoteProfiles || []).find(p => p.id === profileId);
+    if (profile) {
+      const newProfile = JSON.parse(JSON.stringify(profile));
+      newProfile.id = 'profile_' + Date.now().toString(36);
+      newProfile.name = profile.name + ' (Copy)';
+      
+      const res = await this._api('/api/omniremote/remote_profiles', 'POST', {
+        action: 'create',
+        profile: newProfile,
+      });
+      
+      if (res.success) {
+        await this._loadData();
+      } else {
+        alert('Failed to duplicate: ' + (res.error || 'Unknown error'));
+      }
+    }
+  }
+
+  async _deleteProfile(profileId) {
+    const res = await this._api('/api/omniremote/remote_profiles', 'POST', {
+      action: 'delete',
+      profile_id: profileId,
+    });
+    
+    if (res.success) {
+      await this._loadData();
+    } else {
+      alert('Failed to delete: ' + (res.error || 'Unknown error'));
+    }
+  }
+
+  async _saveBuilderProfile() {
+    if (!this._builderProfile) return;
+
+    // Update name from input
+    const nameInput = this.shadowRoot.getElementById('builder-profile-name');
+    if (nameInput) {
+      this._builderProfile.name = nameInput.value;
+    }
+
+    // Update default device
+    const deviceSelect = this.shadowRoot.getElementById('builder-default-device');
+    if (deviceSelect) {
+      this._builderProfile.default_device_id = deviceSelect.value || null;
+    }
+
+    const res = await this._api('/api/omniremote/remote_profiles', 'POST', {
+      action: 'save',
+      profile: this._builderProfile,
+    });
+
+    if (res.success) {
+      alert('Profile saved!');
+      await this._loadData();
+    } else {
+      alert('Failed to save: ' + (res.error || 'Unknown error'));
+    }
+  }
+
+  _addButtonAtCell(row, col) {
+    if (!this._builderProfile) return;
+
+    const id = 'btn_' + Date.now().toString(36);
+    const newButton = {
+      id,
+      label: '',
+      icon: 'mdi:circle',
+      row,
+      col,
+      row_span: 1,
+      col_span: 1,
+      button_type: 'custom',
+      shape: 'square',
+      color: '#3d5afe',
+      action_type: 'ir_command',
+      device_id: null,
+      command_name: null,
+    };
+
+    this._builderProfile.buttons.push(newButton);
+    this._builderSelectedButton = id;
+    this._render();
+    this._setupBuilderPropertyHandlers();
+  }
+
+  _deleteBuilderButton(buttonId) {
+    if (!this._builderProfile) return;
+    this._builderProfile.buttons = this._builderProfile.buttons.filter(b => b.id !== buttonId);
+    this._builderSelectedButton = null;
+    this._render();
+  }
+
+  _quickAddButton(type, icon, label) {
+    if (!this._builderProfile) return;
+
+    // Find first empty cell
+    const buttons = this._builderProfile.buttons;
+    const rows = this._builderProfile.rows;
+    const cols = this._builderProfile.cols;
+
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const occupied = buttons.some(b => 
+          b.row <= r && b.row + (b.row_span || 1) > r &&
+          b.col <= c && b.col + (b.col_span || 1) > c
+        );
+        if (!occupied) {
+          const id = 'btn_' + Date.now().toString(36);
+          buttons.push({
+            id,
+            label,
+            icon,
+            row: r,
+            col: c,
+            row_span: 1,
+            col_span: 1,
+            button_type: type,
+            shape: 'square',
+            color: type === 'power' ? '#f44336' : type === 'ok' ? '#4caf50' : '#3d5afe',
+            action_type: 'ir_command',
+            command_name: type,
+          });
+          this._builderSelectedButton = id;
+          this._render();
+          this._setupBuilderPropertyHandlers();
+          return;
+        }
+      }
+    }
+    alert('No empty cells available');
+  }
+
+  _setupBuilderPropertyHandlers() {
+    setTimeout(() => {
+      const props = this.shadowRoot.querySelectorAll('.builder-prop');
+      props.forEach(input => {
+        input.addEventListener('change', () => this._onBuilderPropChange(input));
+        input.addEventListener('input', () => {
+          if (input.type === 'color') this._onBuilderPropChange(input);
+        });
+      });
+
+      // Action type visibility toggle
+      const actionType = this.shadowRoot.getElementById('builder-action-type');
+      if (actionType) {
+        actionType.addEventListener('change', () => {
+          const val = actionType.value;
+          const irOpts = this.shadowRoot.getElementById('action-ir-options');
+          const sceneOpts = this.shadowRoot.getElementById('action-scene-options');
+          const haOpts = this.shadowRoot.getElementById('action-ha-options');
+          if (irOpts) irOpts.style.display = val === 'ir_command' ? 'block' : 'none';
+          if (sceneOpts) sceneOpts.style.display = val === 'scene' ? 'block' : 'none';
+          if (haOpts) haOpts.style.display = val === 'ha_service' ? 'block' : 'none';
+        });
+      }
+    }, 100);
+  }
+
+  _onBuilderPropChange(input) {
+    if (!this._builderProfile || !this._builderSelectedButton) return;
+
+    const btn = this._builderProfile.buttons.find(b => b.id === this._builderSelectedButton);
+    if (!btn) return;
+
+    const prop = input.dataset.prop;
+    let value = input.value;
+
+    // Handle numeric properties
+    if (['row', 'col', 'row_span', 'col_span'].includes(prop)) {
+      value = parseInt(value) || 1;
+    }
+
+    btn[prop] = value;
+  }
+
+  _applyButtonProperties() {
+    // Properties are already applied via change handlers
+    // Just re-render to show changes
+    this._render();
+    this._setupBuilderPropertyHandlers();
+  }
+
+  _showGridSettingsModal() {
+    if (!this._builderProfile) return;
+
+    this._modal = \`
+      <div class="modal-head">
+        <h3>Grid Settings</h3>
+        <button class="modal-close" data-action="close-modal">&times;</button>
+      </div>
+      <div class="fg">
+        <label class="fl">Rows</label>
+        <input type="number" class="fi" id="grid-rows" value="\${this._builderProfile.rows}" min="2" max="20">
+      </div>
+      <div class="fg">
+        <label class="fl">Columns</label>
+        <input type="number" class="fi" id="grid-cols" value="\${this._builderProfile.cols}" min="2" max="6">
+      </div>
+      <div class="fg">
+        <label class="fl">Device Type</label>
+        <select class="fi" id="grid-device-type">
+          <option value="universal" \${this._builderProfile.device_type === 'universal' ? 'selected' : ''}>Universal</option>
+          <option value="tv" \${this._builderProfile.device_type === 'tv' ? 'selected' : ''}>TV</option>
+          <option value="receiver" \${this._builderProfile.device_type === 'receiver' ? 'selected' : ''}>Receiver</option>
+          <option value="streaming" \${this._builderProfile.device_type === 'streaming' ? 'selected' : ''}>Streaming</option>
+          <option value="soundbar" \${this._builderProfile.device_type === 'soundbar' ? 'selected' : ''}>Soundbar</option>
+          <option value="projector" \${this._builderProfile.device_type === 'projector' ? 'selected' : ''}>Projector</option>
+          <option value="ac" \${this._builderProfile.device_type === 'ac' ? 'selected' : ''}>Air Conditioner</option>
+        </select>
+      </div>
+      <div class="fg">
+        <label class="fl">Icon</label>
+        <input type="text" class="fi" id="grid-icon" value="\${this._builderProfile.icon || 'mdi:remote'}" placeholder="mdi:remote">
+      </div>
+      <div class="fg">
+        <label class="fl">Description</label>
+        <textarea class="fi" id="grid-description" rows="2" placeholder="Optional description...">\${this._builderProfile.description || ''}</textarea>
+      </div>
+      <div style="margin-top:16px;text-align:right;">
+        <button class="btn btn-p" data-action="apply-grid-settings">
+          <ha-icon icon="mdi:check"></ha-icon> Apply
+        </button>
+      </div>
+    \`;
+    this._render();
+  }
+
+  _showIconPickerForBuilder() {
+    // Reuse existing icon picker
+    this._showIconPickerModal('builder');
   }
 }
 

@@ -17,6 +17,7 @@ from .const import (
     Device,
     DeviceCategory,
     RemoteCode,
+    RemoteProfile,
     Room,
     Scene,
     SceneAction,
@@ -42,6 +43,7 @@ class RemoteDatabase:
         self.blasters: dict[str, Blaster] = {}
         self.physical_remotes: dict[str, "PhysicalRemote"] = {}
         self.remote_bridges: dict[str, "RemoteBridge"] = {}
+        self.remote_profiles: dict[str, RemoteProfile] = {}
         
         self._blaster_connections: dict[str, broadlink.Device] = {}
         self._lock = asyncio.Lock()
@@ -83,14 +85,20 @@ class RemoteDatabase:
                 bridge = RemoteBridge.from_dict(bridge_data)
                 self.remote_bridges[bridge.id] = bridge
             
+            # Load remote profiles (custom remote layouts)
+            for profile_data in data.get("remote_profiles", {}).values():
+                profile = RemoteProfile.from_dict(profile_data)
+                self.remote_profiles[profile.id] = profile
+            
             _LOGGER.info(
-                "Loaded database: %d rooms, %d devices, %d scenes, %d blasters, %d remotes, %d bridges",
+                "Loaded database: %d rooms, %d devices, %d scenes, %d blasters, %d remotes, %d bridges, %d profiles",
                 len(self.rooms),
                 len(self.devices),
                 len(self.scenes),
                 len(self.blasters),
                 len(self.physical_remotes),
                 len(self.remote_bridges),
+                len(self.remote_profiles),
             )
 
     async def async_save(self) -> None:
@@ -102,6 +110,7 @@ class RemoteDatabase:
             "blasters": {b.id: b.to_dict() for b in self.blasters.values()},
             "physical_remotes": {r.id: r.to_dict() for r in self.physical_remotes.values()},
             "remote_bridges": {b.id: b.to_dict() for b in self.remote_bridges.values()},
+            "remote_profiles": {p.id: p.to_dict() for p in self.remote_profiles.values()},
         }
         await self.store.async_save(data)
 
