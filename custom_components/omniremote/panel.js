@@ -421,6 +421,10 @@ class OmniRemotePanel extends HTMLElement {
     console.log('[OmniRemote] Action:', action, data);
     
     switch (action) {
+      case 'refresh-data':
+        console.log('[OmniRemote] Refreshing data...');
+        await this._loadData();
+        break;
       case 'show-add-room':
         this._showAddRoomModal();
         break;
@@ -859,19 +863,27 @@ class OmniRemotePanel extends HTMLElement {
   }
 
   _getHeaderButtons() {
+    // Refresh button for all views
+    const refreshBtn = `<button class="btn btn-s" data-action="refresh-data" title="Refresh Data"><ha-icon icon="mdi:refresh"></ha-icon></button>`;
+    
     switch (this._view) {
       case 'devices':
-        return `<button class="btn btn-p" data-action="show-add-device"><ha-icon icon="mdi:plus"></ha-icon>Add Device</button>`;
+        return `<button class="btn btn-p" data-action="show-add-device"><ha-icon icon="mdi:plus"></ha-icon>Add Device</button> ${refreshBtn}`;
       case 'scenes':
-        return `<button class="btn btn-p" data-action="show-add-scene"><ha-icon icon="mdi:plus"></ha-icon>Add Scene</button>`;
+        return `<button class="btn btn-p" data-action="show-add-scene"><ha-icon icon="mdi:plus"></ha-icon>Add Scene</button> ${refreshBtn}`;
       case 'blasters':
         return `
           <button class="btn btn-p" data-action="discover"><ha-icon icon="mdi:magnify"></ha-icon>Discover</button>
           <button class="btn btn-s" data-action="discover-mdns" style="margin-left:8px;"><ha-icon icon="mdi:access-point-network"></ha-icon>mDNS</button>
           <button class="btn btn-s" data-action="show-add-blaster" style="margin-left:8px;"><ha-icon icon="mdi:plus"></ha-icon>Add by IP</button>
+          ${refreshBtn}
         `;
+      case 'dashboard':
+        return refreshBtn;
+      case 'room':
+        return `<button class="btn btn-p" data-action="show-add-room-item"><ha-icon icon="mdi:plus"></ha-icon>Add Item</button> ${refreshBtn}`;
       default:
-        return '';
+        return refreshBtn;
     }
   }
 
