@@ -256,8 +256,37 @@ class FlipperZeroManager:
             TX_CHAR_UUID = "00000002-0000-1000-8000-00805f9b34fb"  # Write to Flipper
             RX_CHAR_UUID = "00000003-0000-1000-8000-00805f9b34fb"  # Read from Flipper
             
-            client = BleakClient(device.port)
-            await client.connect()
+            # Try to use bleak-retry-connector for more reliable connections
+            try:
+                from bleak_retry_connector import establish_connection
+                from homeassistant.components.bluetooth import async_ble_device_from_address
+                
+                # Get BLE device from HA's bluetooth component
+                ble_device = await async_ble_device_from_address(
+                    self.hass, device.port, connectable=True
+                )
+                
+                if ble_device:
+                    _LOGGER.debug("Using bleak-retry-connector for %s", device.port)
+                    client = await establish_connection(
+                        BleakClient,
+                        ble_device,
+                        device.name,
+                        max_attempts=3,
+                    )
+                else:
+                    _LOGGER.warning("BLE device not found in HA, using direct connection")
+                    client = BleakClient(device.port)
+                    await client.connect(timeout=10.0)
+                    
+            except ImportError:
+                _LOGGER.debug("bleak-retry-connector not available, using direct connection")
+                client = BleakClient(device.port)
+                await client.connect(timeout=10.0)
+            except Exception as ex:
+                _LOGGER.warning("bleak-retry-connector failed (%s), trying direct connection", ex)
+                client = BleakClient(device.port)
+                await client.connect(timeout=10.0)
             
             if not client.is_connected:
                 _LOGGER.error("Failed to connect to Flipper BLE: %s", device.port)

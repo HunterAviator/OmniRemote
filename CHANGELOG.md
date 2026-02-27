@@ -148,3 +148,68 @@ If panel version is stuck, try:
   - HACS now downloads directly from repository (standard method)
   - No longer requires attached zip file on releases
 
+
+## [1.9.9] - 2024-02-27
+
+### Fixed
+- **Flipper Zero Bluetooth Connection** - Uses bleak-retry-connector for reliable BLE connections
+  - Integrates with Home Assistant's Bluetooth component for better device management
+  - Falls back to direct connection if HA Bluetooth integration not available
+  - Added connection timeout (10 seconds)
+  - Up to 3 connection retry attempts
+
+
+## [1.10.0] - 2024-02-27
+
+### Fixed
+- **Bluetooth Remote Pairing** - Complete rewrite of Bluetooth pairing system
+  - Uses D-Bus (dbus_fast) to communicate directly with BlueZ
+  - Works properly inside HA OS Docker container
+  - Falls back to HA's Bluetooth integration for BLE devices
+  - Properly detects already-paired devices
+  - Better error messages when pairing fails
+
+### Note
+- For classic Bluetooth remotes (non-BLE), pairing may still need to be done via HA Settings > Devices > Bluetooth
+- BLE (Bluetooth Low Energy) remotes should pair directly from OmniRemote
+
+
+## [1.10.0] - 2024-02-27
+
+### Fixed
+- **Bluetooth Remote Pairing** - Complete rewrite of pairing system
+  - Now scans for both BLE and Classic Bluetooth devices using bluetoothctl
+  - Pairing tries multiple methods: bluetoothctl → D-Bus → BLE connect
+  - Better error messages explaining what went wrong
+  - 30-second pairing timeout with clear feedback
+  - Works with physical remotes (game controllers, media remotes, etc.)
+
+### Changed
+- Bluetooth scan now shows devices from both bluetoothctl and HA Bluetooth
+- Pairing attempts classic Bluetooth pairing first (via bluetoothctl)
+- Falls back to D-Bus and then BLE connection for different device types
+
+
+## [1.9.10] - 2024-02-27
+
+### Fixed
+- **Bluetooth Remote Pairing** - Improved bluetoothctl pairing sequence
+  - Uses NoInputNoOutput agent for auto-accept pairing
+  - Enables scan mode before pairing attempt
+  - Better error messages for common failure scenarios
+  - Increased timeout to 45 seconds for slow devices
+  - Falls back to HA Settings > Bluetooth if pairing fails
+
+
+## [1.9.10] - 2024-02-27
+
+### Fixed
+- **Bluetooth Remote Pairing** - Improved pairing for HA Yellow/OS
+  - Uses Home Assistant's native Bluetooth integration first
+  - Better error messages with guidance to pair via HA Settings
+  - Added info banner explaining recommended pairing workflow
+  - Falls back to multiple pairing methods (HA Bluetooth → D-Bus → bluetoothctl)
+
+### Changed
+- Bluetooth pairing UI now shows tip to pair via Settings first
+

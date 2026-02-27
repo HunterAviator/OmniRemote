@@ -3,7 +3,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.9.8";
+const OMNIREMOTE_VERSION = "1.10.0";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -4783,6 +4783,13 @@ data:
         
         <!-- HA Bluetooth Section (for Yellow/built-in) -->
         <div id="bt-ha-group" style="display:${remoteType === 'bluetooth_ha' ? 'block' : 'none'};">
+          <div style="background:#1a2744;border-radius:8px;padding:12px;margin-bottom:12px;border-left:3px solid #2196f3;">
+            <div style="font-weight:500;color:#64b5f6;margin-bottom:4px;"><ha-icon icon="mdi:information"></ha-icon> Pairing Tip</div>
+            <div style="font-size:12px;color:#90caf9;">
+              For best results on HA Yellow/OS: First pair your remote via 
+              <strong>Settings → Devices & Services → Bluetooth</strong>, then select it here.
+            </div>
+          </div>
           <div class="fg">
             <label class="fl">Bluetooth Adapter</label>
             <select class="fi" id="remote-bt-adapter">
