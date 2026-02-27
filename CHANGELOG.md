@@ -140,3 +140,11 @@ If panel version is stuck, try:
 - **Color Buttons** - Red, Green, Yellow, Blue TV color buttons
 - **Organized Quick-Add** - Buttons now grouped by category (Controls, Navigation, Media, Streaming, Channels, Numbers, Colors)
 
+
+## [1.9.8] - 2024-02-27
+
+### Fixed
+- **HACS Installation** - Removed zip_release requirement from hacs.json
+  - HACS now downloads directly from repository (standard method)
+  - No longer requires attached zip file on releases
+
