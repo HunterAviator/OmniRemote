@@ -106,11 +106,21 @@ class FlipperZeroManager:
         try:
             import serial.tools.list_ports
             
+            _LOGGER.info("Scanning USB ports for Flipper Zero...")
+            
             ports = await self.hass.async_add_executor_job(
                 serial.tools.list_ports.comports
             )
             
+            _LOGGER.debug("Found %d USB ports total", len(ports))
+            
             for port in ports:
+                _LOGGER.debug("USB Port: %s, VID=%s, PID=%s, Desc=%s", 
+                             port.device, 
+                             hex(port.vid) if port.vid else None,
+                             hex(port.pid) if port.pid else None,
+                             port.description)
+                
                 # Flipper Zero USB identifiers
                 # VID: 0x0483 (STMicroelectronics)
                 # PID: 0x5740 (Virtual COM Port)
@@ -136,6 +146,9 @@ class FlipperZeroManager:
                         "description": port.description,
                     })
                     _LOGGER.info("Found Flipper Zero on USB (by name): %s", port.device)
+            
+            if not devices:
+                _LOGGER.info("No Flipper Zero found on USB ports")
                     
         except ImportError:
             _LOGGER.warning("pyserial not installed, USB discovery unavailable")
@@ -148,15 +161,54 @@ class FlipperZeroManager:
         """Discover Flipper Zero devices via Bluetooth."""
         devices = []
         
+        # First try using HA's Bluetooth integration (preferred on HA Yellow)
+        try:
+            from homeassistant.components import bluetooth
+            
+            _LOGGER.info("Scanning for Flipper Zero via HA Bluetooth...")
+            
+            # Get all discovered BLE devices from HA
+            discovered = bluetooth.async_discovered_service_info(self.hass)
+            
+            for service_info in discovered:
+                name = service_info.name or ""
+                if hasattr(service_info, 'advertisement') and service_info.advertisement:
+                    name = name or service_info.advertisement.local_name or ""
+                    
+                if name.startswith("Flipper"):
+                    device_id = f"flipper_ble_{service_info.address.replace(':', '_')}"
+                    devices.append({
+                        "id": device_id,
+                        "name": name,
+                        "connection_type": "bluetooth",
+                        "port": service_info.address,
+                        "rssi": service_info.rssi,
+                    })
+                    _LOGGER.info("Found Flipper Zero via HA BLE: %s (%s)", 
+                                name, service_info.address)
+            
+            if devices:
+                return devices
+            
+            _LOGGER.debug("No Flipper found in HA discovered devices, trying direct scan")
+                    
+        except ImportError:
+            _LOGGER.debug("HA Bluetooth not available")
+        except Exception as ex:
+            _LOGGER.debug("HA Bluetooth discovery: %s", ex)
+        
+        # Fallback to direct BleakScanner
         try:
             from bleak import BleakScanner
             
-            _LOGGER.info("Scanning for Flipper Zero Bluetooth devices...")
+            _LOGGER.info("Scanning for Flipper Zero with BleakScanner...")
             
             discovered = await BleakScanner.discover(timeout=10.0)
             
+            _LOGGER.debug("BleakScanner found %d devices", len(discovered))
+            
             for device in discovered:
-                # Flipper Zero advertises as "Flipper <name>"
+                # Flipper Zero advertises as "Flipper <n>"
                 if device.name and device.name.startswith("Flipper"):
                     device_id = f"flipper_ble_{device.address.replace(':', '_')}"
                     devices.append({
@@ -168,6 +220,9 @@ class FlipperZeroManager:
                     })
                     _LOGGER.info("Found Flipper Zero via BLE: %s (%s)", 
                                 device.name, device.address)
+            
+            if not devices:
+                _LOGGER.info("No Flipper Zero found via Bluetooth")
                     
         except ImportError:
             _LOGGER.warning("bleak not installed, Bluetooth discovery unavailable")
@@ -175,8 +230,7 @@ class FlipperZeroManager:
             _LOGGER.error("Error discovering Bluetooth devices: %s", ex)
         
         return devices
-    
-    async def async_discover_all(self) -> list[dict]:
+
         """Discover all Flipper Zero devices."""
         usb_devices = await self.async_discover_usb()
         ble_devices = await self.async_discover_bluetooth()

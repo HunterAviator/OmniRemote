@@ -258,3 +258,19 @@ If panel version is stuck, try:
   - Pairing status shows in green/red with clear messages
   - No more popup alerts on failure
 
+
+## [1.10.2] - 2024-02-27
+
+### Fixed
+- **500 Error Adding Bluetooth Remote** - Added `bluetooth_ha` to RemoteType enum
+- **Bluetooth/Area Remote Import Errors** - Made bluetooth imports defensive (optional)
+- **Flipper Zero Discovery** - Now uses HA Bluetooth integration for BLE discovery on HA Yellow
+
+### Added
+- `pyserial` to requirements for USB port discovery
+- Debug logging for USB port discovery
+- HA Bluetooth integration fallback for Flipper discovery
+
+### Changed
+- Bluetooth remote manager now gracefully handles missing bluetooth module
+

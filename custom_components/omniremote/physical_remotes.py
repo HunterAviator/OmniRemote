@@ -43,6 +43,7 @@ class RemoteType(Enum):
     ZIGBEE = "zigbee"
     RF_433 = "rf_433"
     BLUETOOTH = "bluetooth"
+    BLUETOOTH_HA = "bluetooth_ha"  # Bluetooth via HA Yellow / Built-in adapter
     USB_KEYBOARD = "usb_keyboard"
     IR = "ir"  # For remotes that send IR to a receiver
 

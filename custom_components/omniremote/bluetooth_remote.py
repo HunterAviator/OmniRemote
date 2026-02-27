@@ -11,13 +11,21 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable
 
-from homeassistant.components import bluetooth
-from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.event import async_track_time_interval
 
 from .const import DOMAIN
+
+# Try to import bluetooth - may not be available on all systems
+try:
+    from homeassistant.components import bluetooth
+    from homeassistant.components.bluetooth import BluetoothServiceInfoBleak
+    BLUETOOTH_AVAILABLE = True
+except ImportError:
+    BLUETOOTH_AVAILABLE = False
+    bluetooth = None
+    BluetoothServiceInfoBleak = None
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -248,17 +256,22 @@ class BluetoothRemoteManager:
         # Load saved remotes
         await self._async_load_remotes()
         
-        # Register Bluetooth callback for HID devices
-        bluetooth.async_register_callback(
-            self.hass,
-            self._async_bluetooth_callback,
-            bluetooth.BluetoothCallbackMatcher(
-                service_uuid="00001812-0000-1000-8000-00805f9b34fb"
-            ),
-            bluetooth.BluetoothScanningMode.ACTIVE,
-        )
-        
-        _LOGGER.info("Bluetooth remote manager initialized with %d remotes", len(self._remotes))
+        # Register Bluetooth callback for HID devices (if available)
+        if BLUETOOTH_AVAILABLE and bluetooth is not None:
+            try:
+                bluetooth.async_register_callback(
+                    self.hass,
+                    self._async_bluetooth_callback,
+                    bluetooth.BluetoothCallbackMatcher(
+                        service_uuid="00001812-0000-1000-8000-00805f9b34fb"
+                    ),
+                    bluetooth.BluetoothScanningMode.ACTIVE,
+                )
+                _LOGGER.info("Bluetooth remote manager initialized with %d remotes", len(self._remotes))
+            except Exception as e:
+                _LOGGER.warning("Could not register Bluetooth callback: %s", e)
+        else:
+            _LOGGER.info("Bluetooth not available, remote manager initialized without BT support")
     
     async def _async_load_remotes(self) -> None:
         """Load saved remotes from database."""
