@@ -3,7 +3,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.2";
+const OMNIREMOTE_VERSION = "1.10.3";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -464,6 +464,7 @@ class OmniRemotePanel extends HTMLElement {
       // Builder actions
       case 'builder-new':
       case 'builder-create-blank':
+      case 'builder-create-from-modal':
       case 'builder-from-template':
       case 'builder-edit':
       case 'builder-duplicate':
@@ -6338,14 +6339,33 @@ data:
         <div id="action-ir-options" style="display:${btn.action_type === 'ir_command' || !btn.action_type ? 'block' : 'none'};">
           <div class="fg">
             <label class="fl">Device</label>
-            <select class="fi builder-prop" data-prop="device_id">
+            <select class="fi builder-prop" data-prop="device_id" id="builder-device-select">
               <option value="">-- Use Default --</option>
               ${devices.map(d => `<option value="${d.id}" ${btn.device_id === d.id ? 'selected' : ''}>${d.name}</option>`).join('')}
             </select>
           </div>
           <div class="fg">
             <label class="fl">Command</label>
-            <input type="text" class="fi builder-prop" data-prop="command_name" value="${btn.command_name || ''}" placeholder="power, volume_up, etc.">
+            ${(() => {
+              const selectedDevice = btn.device_id ? devices.find(d => d.id === btn.device_id) : null;
+              const commands = selectedDevice?.commands ? Object.keys(selectedDevice.commands) : [];
+              if (commands.length > 0) {
+                return `
+                  <select class="fi builder-prop" data-prop="command_name" id="builder-command-select">
+                    <option value="">-- Select Command --</option>
+                    ${commands.map(c => `<option value="${c}" ${btn.command_name === c ? 'selected' : ''}>${c}</option>`).join('')}
+                  </select>
+                  <p style="font-size:11px;color:#888;margin-top:4px;">${commands.length} commands available</p>
+                `;
+              } else {
+                return `
+                  <input type="text" class="fi builder-prop" data-prop="command_name" value="${btn.command_name || ''}" placeholder="power, volume_up, etc.">
+                  <p style="font-size:11px;color:#666;margin-top:4px;">
+                    ${selectedDevice ? '⚠️ No commands found for this device. Add commands in device editor.' : 'Select a device to see available commands, or type manually.'}
+                  </p>
+                `;
+              }
+            })()}
           </div>
         </div>
 
@@ -6464,6 +6484,14 @@ data:
         this._showBuilderNewModal();
         break;
 
+      case 'builder-create-from-modal':
+        const modalName = this.shadowRoot.getElementById('builder-modal-name')?.value || 'My Remote';
+        const modalRows = parseInt(this.shadowRoot.getElementById('builder-modal-rows')?.value) || 8;
+        const modalCols = parseInt(this.shadowRoot.getElementById('builder-modal-cols')?.value) || 4;
+        this._modal = null;
+        this._createNewProfile(modalName, modalRows, modalCols);
+        break;
+
       case 'builder-create-blank':
         const name = this.shadowRoot.getElementById('builder-new-name')?.value || 'My Remote';
         const rows = parseInt(this.shadowRoot.getElementById('builder-new-rows')?.value) || 8;
@@ -6543,6 +6571,48 @@ data:
         this._showIconPickerForBuilder();
         break;
     }
+  }
+
+  _showBuilderNewModal() {
+    this._modal = `
+      <div class="modal-content" style="max-width:400px;">
+        <h3><ha-icon icon="mdi:remote"></ha-icon> Create New Remote</h3>
+        <div class="fg">
+          <label class="fl">Remote Name</label>
+          <input type="text" class="fi" id="builder-modal-name" placeholder="My Remote" value="My Remote">
+        </div>
+        <div style="display:flex;gap:12px;">
+          <div class="fg" style="flex:1;">
+            <label class="fl">Rows</label>
+            <input type="number" class="fi" id="builder-modal-rows" value="8" min="2" max="20">
+          </div>
+          <div class="fg" style="flex:1;">
+            <label class="fl">Columns</label>
+            <input type="number" class="fi" id="builder-modal-cols" value="4" min="2" max="6">
+          </div>
+        </div>
+        <div class="fg">
+          <label class="fl">Device Type</label>
+          <select class="fi" id="builder-modal-device-type">
+            <option value="universal">Universal</option>
+            <option value="tv">TV</option>
+            <option value="receiver">AV Receiver</option>
+            <option value="streaming">Streaming Device</option>
+            <option value="soundbar">Soundbar</option>
+            <option value="projector">Projector</option>
+            <option value="ac">Air Conditioner</option>
+            <option value="fan">Fan</option>
+          </select>
+        </div>
+        <div style="margin-top:20px;display:flex;gap:8px;justify-content:flex-end;">
+          <button class="btn btn-s" data-action="close-modal">Cancel</button>
+          <button class="btn btn-p" data-action="builder-create-from-modal">
+            <ha-icon icon="mdi:plus"></ha-icon> Create
+          </button>
+        </div>
+      </div>
+    `;
+    this._render();
   }
 
   _createNewProfile(name, rows, cols, template = null) {
@@ -6986,6 +7056,24 @@ data:
           if (irOpts) irOpts.style.display = val === 'ir_command' ? 'block' : 'none';
           if (sceneOpts) sceneOpts.style.display = val === 'scene' ? 'block' : 'none';
           if (haOpts) haOpts.style.display = val === 'ha_service' ? 'block' : 'none';
+        });
+      }
+      
+      // Device selection change - update command dropdown
+      const deviceSelect = this.shadowRoot.getElementById('builder-device-select');
+      if (deviceSelect) {
+        deviceSelect.addEventListener('change', () => {
+          // Update the button's device_id
+          if (this._builderSelectedButton && this._builderProfile) {
+            const btn = this._builderProfile.buttons.find(b => b.id === this._builderSelectedButton);
+            if (btn) {
+              btn.device_id = deviceSelect.value || null;
+              btn.command_name = null; // Clear command when device changes
+              // Re-render to update command dropdown
+              this._render();
+              this._setupBuilderPropertyHandlers();
+            }
+          }
         });
       }
     }, 100);
