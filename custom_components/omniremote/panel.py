@@ -2555,6 +2555,59 @@ class OmniApiPhysicalRemotes(HomeAssistantView):
                 "mapping": mapping.to_dict()
             })
         
+        elif action == "save_button_mappings":
+            # Save all button mappings at once (new format)
+            remote_id = data.get("remote_id")
+            if not remote_id or remote_id not in database.physical_remotes:
+                return web.json_response({"error": "Remote not found"}, status=404)
+            
+            remote = database.physical_remotes[remote_id]
+            button_mappings = data.get("button_mappings", {})
+            
+            from .physical_remotes import ButtonMapping, ActionType
+            
+            # Clear existing mappings and add new ones
+            remote.button_mappings = {}
+            
+            for btn_id, mapping_data in button_mappings.items():
+                action_type_str = mapping_data.get("action_type", "scene")
+                
+                # Build action_data based on action type
+                action_data = {}
+                action_target = ""
+                
+                if action_type_str == "scene":
+                    action_target = mapping_data.get("scene_id", "")
+                elif action_type_str == "ir_command":
+                    action_target = mapping_data.get("device_id", "")
+                    action_data = {
+                        "command_name": mapping_data.get("command_name", ""),
+                        "blaster_id": mapping_data.get("blaster_id", ""),
+                    }
+                elif action_type_str == "ha_service":
+                    action_data = {
+                        "domain": mapping_data.get("ha_domain", ""),
+                        "service": mapping_data.get("ha_service", ""),
+                        "entity_id": mapping_data.get("ha_entity_id", ""),
+                    }
+                elif action_type_str in ["volume_up", "volume_down", "mute"]:
+                    action_target = mapping_data.get("room_id", "")
+                
+                mapping = ButtonMapping(
+                    button_id=btn_id,
+                    action_type=ActionType(action_type_str),
+                    action_target=action_target,
+                    action_data=action_data,
+                )
+                remote.button_mappings[btn_id] = mapping
+            
+            await database.async_save()
+            
+            return web.json_response({
+                "success": True,
+                "mappings_saved": len(button_mappings)
+            })
+        
         elif action == "discover_zigbee":
             # Discover Zigbee remotes from ZHA/deCONZ
             from .physical_remotes import discover_zigbee_remotes

@@ -274,3 +274,39 @@ If panel version is stuck, try:
 ### Changed
 - Bluetooth remote manager now gracefully handles missing bluetooth module
 
+
+## [1.10.3] - 2024-02-27
+
+### Fixed
+- **Remote Builder "New Remote" Button** - Added missing `_showBuilderNewModal()` function
+- **Remote Builder Command Selection** - Now shows dropdown with available commands from selected device
+- **Device command dropdown** - Re-renders when device selection changes
+
+### Changed
+- Builder property panel now shows command count when commands are available
+- Helpful messages when no commands found for a device
+
+
+## [1.10.4] - 2024-02-28
+
+### Fixed
+- **Physical Remote Button Mapping** - Complete rewrite of button mapping UI
+  - Now properly supports: Scenes, IR Commands (with device/command/blaster), HA Services, Volume controls
+  - Dynamic dropdowns update when device selection changes
+  - Added blaster selection for IR commands
+  - Proper form field collection on save
+- **API save_button_mappings** - New endpoint to save all button mappings at once with proper field mapping
+- **Flipper Zero async_discover_all** - Fixed broken function definition
+
+### Changed
+- **Flipper Bluetooth Discovery** - Much more detailed logging to help diagnose issues
+  - Logs total number of BLE devices found by HA
+  - Logs individual device names for debugging
+  - Clear instructions in logs for Flipper setup
+
+### Notes
+For Flipper Bluetooth to work:
+1. On Flipper: Settings → Bluetooth → ON
+2. Flipper must NOT be connected to qFlipper or mobile app
+3. Check HA logs for "Starting Flipper Zero Bluetooth discovery..."
+

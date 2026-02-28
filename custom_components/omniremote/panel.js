@@ -3,7 +3,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.3";
+const OMNIREMOTE_VERSION = "1.10.4";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -5135,86 +5135,220 @@ data:
     const rooms = this._data.rooms || [];
     const scenes = this._data.scenes || [];
     const devices = this._data.devices || [];
+    const blasters = this._data.blasters || [];
     const mappings = remote.button_mappings || {};
     
-    // Get profile buttons if available
+    // Get profile buttons if available, or use existing mapping keys
     const profile = this._data.remoteProfiles?.find(p => p.id === remote.profile);
-    const buttons = profile?.buttons || Object.keys(mappings);
+    let buttons = [];
+    if (profile?.buttons?.length > 0) {
+      buttons = profile.buttons.map(b => b.id || b.label || b.command_name).filter(Boolean);
+    } else if (Object.keys(mappings).length > 0) {
+      buttons = Object.keys(mappings);
+    }
     
     const actionTypes = [
-      { value: 'scene', label: 'Run Scene' },
-      { value: 'ir_command', label: 'Send IR Command' },
-      { value: 'volume_up', label: 'Volume Up (Room)' },
-      { value: 'volume_down', label: 'Volume Down (Room)' },
-      { value: 'mute', label: 'Mute (Room)' },
-      { value: 'channel_up', label: 'Channel Up (Room)' },
-      { value: 'channel_down', label: 'Channel Down (Room)' },
-      { value: 'toggle_device', label: 'Toggle Device Power' },
-      { value: 'ha_service', label: 'Call HA Service' },
+      { value: 'scene', label: '🎬 Run Scene' },
+      { value: 'ir_command', label: '📡 Send IR Command' },
+      { value: 'ha_service', label: '🏠 Call HA Service' },
+      { value: 'volume_up', label: '🔊 Volume Up (Room Default)' },
+      { value: 'volume_down', label: '🔉 Volume Down (Room Default)' },
+      { value: 'mute', label: '🔇 Mute (Room Default)' },
     ];
     
     this._editingRemote = remote;
     this._buttonMappings = { ...mappings };
     
     this._modal = `
-      <div class="modal-content" style="max-width:700px;max-height:80vh;overflow-y:auto;">
+      <div class="modal-content" style="max-width:800px;max-height:85vh;overflow-y:auto;">
         <h3><ha-icon icon="mdi:gesture-tap-button"></ha-icon> Button Mapping - ${remote.name}</h3>
-        <p style="color:#888;margin-top:0;">Assign actions to each button on your remote.</p>
-        
-        <table style="width:100%;border-collapse:collapse;margin-top:16px;">
-          <thead>
-            <tr style="background:#252545;">
-              <th style="padding:8px;text-align:left;">Button</th>
-              <th style="padding:8px;text-align:left;">Action Type</th>
-              <th style="padding:8px;text-align:left;">Target</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${buttons.map(btn => {
-              const mapping = mappings[btn] || {};
-              return `
-                <tr style="border-bottom:1px solid #333;">
-                  <td style="padding:8px;font-weight:600;">${btn}</td>
-                  <td style="padding:8px;">
-                    <select class="fi" style="margin:0;" data-button="${btn}" data-field="action_type">
-                      ${actionTypes.map(t => `<option value="${t.value}" ${mapping.action_type === t.value ? 'selected' : ''}>${t.label}</option>`).join('')}
-                    </select>
-                  </td>
-                  <td style="padding:8px;">
-                    <select class="fi" style="margin:0;" data-button="${btn}" data-field="action_target">
-                      <option value="">-- Select --</option>
-                      ${mapping.action_type === 'scene' || !mapping.action_type ? 
-                        scenes.map(s => `<option value="${s.id}" ${mapping.action_target === s.id ? 'selected' : ''}>${s.name}</option>`).join('') :
-                        devices.map(d => `<option value="${d.id}" ${mapping.action_target === d.id ? 'selected' : ''}>${d.name}</option>`).join('')
-                      }
-                    </select>
-                  </td>
-                </tr>
-              `;
-            }).join('')}
-          </tbody>
-        </table>
+        <p style="color:#888;margin-top:0;">Map each button to a scene, IR command, or HA service.</p>
         
         ${buttons.length === 0 ? `
-          <p style="color:#888;text-align:center;padding:20px;">
-            No buttons defined. Select a profile or add a custom button.
-          </p>
-          <div class="fg">
-            <label class="fl">Add Custom Button</label>
-            <div style="display:flex;gap:8px;">
-              <input type="text" class="fi" id="new-button-name" placeholder="Button name (e.g., KEY_POWER)">
-              <button class="btn btn-s" id="add-button-btn">Add</button>
+          <div style="background:#1a1a2e;padding:20px;border-radius:8px;margin-bottom:16px;">
+            <p style="color:#888;text-align:center;margin:0 0 12px;">
+              No buttons defined yet. Add buttons to map them to actions.
+            </p>
+            <div style="display:flex;gap:8px;justify-content:center;">
+              <input type="text" class="fi" id="new-button-name" placeholder="Button name (e.g., KEY_POWER)" style="width:200px;">
+              <button class="btn btn-p" id="add-button-btn">
+                <ha-icon icon="mdi:plus"></ha-icon> Add Button
+              </button>
             </div>
           </div>
-        ` : ''}
+        ` : `
+          <div style="margin-bottom:16px;">
+            ${buttons.map((btn, idx) => {
+              const mapping = mappings[btn] || {};
+              const actionType = mapping.action_type || 'scene';
+              
+              return `
+                <div class="mapping-row" style="background:#1a1a2e;padding:12px;border-radius:8px;margin-bottom:8px;" data-button="${btn}">
+                  <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+                    <div style="font-weight:600;min-width:120px;color:#64b5f6;">
+                      <ha-icon icon="mdi:gesture-tap-button" style="margin-right:4px;"></ha-icon>${btn}
+                    </div>
+                    <select class="fi mapping-action-type" style="flex:1;margin:0;" data-button="${btn}">
+                      ${actionTypes.map(t => `<option value="${t.value}" ${actionType === t.value ? 'selected' : ''}>${t.label}</option>`).join('')}
+                    </select>
+                    <button class="btn btn-sm btn-danger" data-action="remove-mapping-button" data-button="${btn}" title="Remove">
+                      <ha-icon icon="mdi:delete"></ha-icon>
+                    </button>
+                  </div>
+                  
+                  <!-- Scene Options -->
+                  <div class="mapping-options scene-options" style="display:${actionType === 'scene' ? 'block' : 'none'};">
+                    <div class="fg" style="margin:0;">
+                      <label class="fl">Scene</label>
+                      <select class="fi mapping-target" data-button="${btn}" data-field="scene_id">
+                        <option value="">-- Select Scene --</option>
+                        ${scenes.map(s => `<option value="${s.id}" ${mapping.scene_id === s.id ? 'selected' : ''}>${s.name}</option>`).join('')}
+                      </select>
+                    </div>
+                  </div>
+                  
+                  <!-- IR Command Options -->
+                  <div class="mapping-options ir-options" style="display:${actionType === 'ir_command' ? 'flex' : 'none'};gap:8px;flex-wrap:wrap;">
+                    <div class="fg" style="flex:1;min-width:150px;margin:0;">
+                      <label class="fl">Device</label>
+                      <select class="fi mapping-device" data-button="${btn}">
+                        <option value="">-- Select Device --</option>
+                        ${devices.map(d => `<option value="${d.id}" ${mapping.device_id === d.id ? 'selected' : ''}>${d.name}</option>`).join('')}
+                      </select>
+                    </div>
+                    <div class="fg" style="flex:1;min-width:150px;margin:0;">
+                      <label class="fl">Command</label>
+                      <select class="fi mapping-command" data-button="${btn}">
+                        <option value="">-- Select Command --</option>
+                        ${(() => {
+                          const dev = devices.find(d => d.id === mapping.device_id);
+                          const cmds = dev?.commands ? Object.keys(dev.commands) : [];
+                          return cmds.map(c => `<option value="${c}" ${mapping.command_name === c ? 'selected' : ''}>${c}</option>`).join('');
+                        })()}
+                      </select>
+                    </div>
+                    <div class="fg" style="flex:1;min-width:150px;margin:0;">
+                      <label class="fl">Blaster</label>
+                      <select class="fi mapping-blaster" data-button="${btn}">
+                        <option value="">-- Default --</option>
+                        ${blasters.map(b => `<option value="${b.id}" ${mapping.blaster_id === b.id ? 'selected' : ''}>${b.name}</option>`).join('')}
+                      </select>
+                    </div>
+                  </div>
+                  
+                  <!-- HA Service Options -->
+                  <div class="mapping-options ha-options" style="display:${actionType === 'ha_service' ? 'flex' : 'none'};gap:8px;flex-wrap:wrap;">
+                    <div class="fg" style="flex:1;min-width:120px;margin:0;">
+                      <label class="fl">Domain</label>
+                      <input type="text" class="fi mapping-ha-domain" data-button="${btn}" value="${mapping.ha_domain || ''}" placeholder="light, switch...">
+                    </div>
+                    <div class="fg" style="flex:1;min-width:120px;margin:0;">
+                      <label class="fl">Service</label>
+                      <input type="text" class="fi mapping-ha-service" data-button="${btn}" value="${mapping.ha_service || ''}" placeholder="turn_on, toggle...">
+                    </div>
+                    <div class="fg" style="flex:1;min-width:180px;margin:0;">
+                      <label class="fl">Entity ID</label>
+                      <input type="text" class="fi mapping-ha-entity" data-button="${btn}" value="${mapping.ha_entity_id || ''}" placeholder="light.living_room">
+                    </div>
+                  </div>
+                  
+                  <!-- Volume/Room Options -->
+                  <div class="mapping-options room-options" style="display:${['volume_up', 'volume_down', 'mute'].includes(actionType) ? 'block' : 'none'};">
+                    <div class="fg" style="margin:0;">
+                      <label class="fl">Room (uses default AV device)</label>
+                      <select class="fi mapping-room" data-button="${btn}">
+                        <option value="">-- Current Room --</option>
+                        ${rooms.map(r => `<option value="${r.id}" ${mapping.room_id === r.id ? 'selected' : ''}>${r.name}</option>`).join('')}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+          
+          <!-- Add more buttons -->
+          <div style="background:#252545;padding:12px;border-radius:8px;margin-bottom:16px;">
+            <div style="display:flex;gap:8px;align-items:center;">
+              <input type="text" class="fi" id="new-button-name" placeholder="Add another button..." style="flex:1;">
+              <button class="btn btn-s" id="add-button-btn">
+                <ha-icon icon="mdi:plus"></ha-icon> Add
+              </button>
+            </div>
+          </div>
+        `}
         
-        <div style="margin-top:20px;display:flex;gap:8px;justify-content:flex-end;">
+        <div style="display:flex;gap:8px;justify-content:flex-end;">
           <button class="btn btn-s" data-action="close-modal">Cancel</button>
-          <button class="btn btn-p" data-action="save-button-mapping"><ha-icon icon="mdi:check"></ha-icon> Save Mappings</button>
+          <button class="btn btn-p" data-action="save-button-mapping">
+            <ha-icon icon="mdi:check"></ha-icon> Save Mappings
+          </button>
         </div>
       </div>
     `;
     this._render();
+    
+    // Set up event handlers after render
+    setTimeout(() => this._setupMappingHandlers(), 100);
+  }
+  
+  _setupMappingHandlers() {
+    const devices = this._data.devices || [];
+    
+    // Action type change handlers
+    this.shadowRoot.querySelectorAll('.mapping-action-type').forEach(sel => {
+      sel.addEventListener('change', (e) => {
+        const btn = e.target.dataset.button;
+        const row = this.shadowRoot.querySelector(`.mapping-row[data-button="${btn}"]`);
+        if (!row) return;
+        
+        const val = e.target.value;
+        row.querySelector('.scene-options').style.display = val === 'scene' ? 'block' : 'none';
+        row.querySelector('.ir-options').style.display = val === 'ir_command' ? 'flex' : 'none';
+        row.querySelector('.ha-options').style.display = val === 'ha_service' ? 'flex' : 'none';
+        row.querySelector('.room-options').style.display = ['volume_up', 'volume_down', 'mute'].includes(val) ? 'block' : 'none';
+      });
+    });
+    
+    // Device change handlers - update command dropdown
+    this.shadowRoot.querySelectorAll('.mapping-device').forEach(sel => {
+      sel.addEventListener('change', (e) => {
+        const btn = e.target.dataset.button;
+        const deviceId = e.target.value;
+        const device = devices.find(d => d.id === deviceId);
+        const commands = device?.commands ? Object.keys(device.commands) : [];
+        
+        const cmdSelect = this.shadowRoot.querySelector(`.mapping-command[data-button="${btn}"]`);
+        if (cmdSelect) {
+          cmdSelect.innerHTML = `
+            <option value="">-- Select Command --</option>
+            ${commands.map(c => `<option value="${c}">${c}</option>`).join('')}
+          `;
+        }
+      });
+    });
+    
+    // Add button handler
+    const addBtn = this.shadowRoot.getElementById('add-button-btn');
+    const nameInput = this.shadowRoot.getElementById('new-button-name');
+    if (addBtn && nameInput) {
+      addBtn.addEventListener('click', () => {
+        const name = nameInput.value.trim();
+        if (name) {
+          this._buttonMappings[name] = { action_type: 'scene' };
+          this._showButtonMappingModal(this._editingRemote.id);
+        }
+      });
+    }
+    
+    // Remove button handlers
+    this.shadowRoot.querySelectorAll('[data-action="remove-mapping-button"]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const buttonName = e.target.closest('[data-button]').dataset.button;
+        delete this._buttonMappings[buttonName];
+        this._showButtonMappingModal(this._editingRemote.id);
+      });
+    });
   }
 
   async _saveButtonMapping() {
@@ -5222,34 +5356,50 @@ data:
     if (!remote) return;
     
     // Collect all mappings from the modal
-    const selects = this.shadowRoot.querySelectorAll('[data-button][data-field]');
     const mappings = {};
     
-    selects.forEach(sel => {
-      const btn = sel.dataset.button;
-      const field = sel.dataset.field;
+    // Get all mapping rows
+    this.shadowRoot.querySelectorAll('.mapping-row').forEach(row => {
+      const btn = row.dataset.button;
+      const actionType = row.querySelector('.mapping-action-type')?.value;
       
-      if (!mappings[btn]) mappings[btn] = { button_id: btn };
-      mappings[btn][field] = sel.value;
+      mappings[btn] = {
+        button_id: btn,
+        action_type: actionType,
+      };
+      
+      // Collect fields based on action type
+      if (actionType === 'scene') {
+        mappings[btn].scene_id = row.querySelector('.mapping-target[data-field="scene_id"]')?.value;
+      } else if (actionType === 'ir_command') {
+        mappings[btn].device_id = row.querySelector('.mapping-device')?.value;
+        mappings[btn].command_name = row.querySelector('.mapping-command')?.value;
+        mappings[btn].blaster_id = row.querySelector('.mapping-blaster')?.value;
+      } else if (actionType === 'ha_service') {
+        mappings[btn].ha_domain = row.querySelector('.mapping-ha-domain')?.value;
+        mappings[btn].ha_service = row.querySelector('.mapping-ha-service')?.value;
+        mappings[btn].ha_entity_id = row.querySelector('.mapping-ha-entity')?.value;
+      } else if (['volume_up', 'volume_down', 'mute'].includes(actionType)) {
+        mappings[btn].room_id = row.querySelector('.mapping-room')?.value;
+      }
     });
     
-    // Save each mapping
-    for (const [btnId, mapping] of Object.entries(mappings)) {
-      if (mapping.action_type && mapping.action_target) {
-        await this._api('/api/omniremote/physical_remotes', 'POST', {
-          action: 'map_button',
-          remote_id: remote.id,
-          button_id: btnId,
-          action_type: mapping.action_type,
-          action_target: mapping.action_target,
-        });
-      }
+    // Save to API
+    try {
+      await this._api('/api/omniremote/physical_remotes', 'POST', {
+        action: 'save_button_mappings',
+        remote_id: remote.id,
+        button_mappings: mappings,
+      });
+      
+      this._modal = null;
+      this._editingRemote = null;
+      await this._loadData();
+      this._render();
+    } catch (err) {
+      console.error('[OmniRemote] Error saving button mappings:', err);
+      alert('Error saving mappings: ' + err.message);
     }
-    
-    this._modal = null;
-    this._editingRemote = null;
-    await this._loadData();
-    this._render();
   }
 
   // ==========================================================================
