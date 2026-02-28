@@ -3413,11 +3413,12 @@ class OmniApiFlipperZero(HomeAssistantView):
                         else:
                             error_msg = f"Bluetooth connection to {device.port} failed"
                             troubleshooting = [
-                                "On Flipper: Settings → Bluetooth → Make sure it's ON",
-                                "On Flipper: Settings → Bluetooth → Remote Control → Enable",
-                                "Disconnect Flipper from phone app or qFlipper",
+                                "HA Bluetooth may be out of connection slots - disconnect other BT devices",
+                                "On Flipper: Settings → Bluetooth → Turn ON",
+                                "Disconnect Flipper from phone app and qFlipper",
                                 "Try moving Flipper closer to Home Assistant",
-                                "USB connection is more reliable - consider using USB instead",
+                                "USB connection is much more reliable than Bluetooth",
+                                "Consider adding ESPHome Bluetooth Proxy for more slots",
                             ]
                     _LOGGER.warning("[OmniRemote] Flipper connection failed: %s", error_msg)
                     return web.json_response({

@@ -382,7 +382,20 @@ class FlipperZeroManager:
                     connection_method = "bleak-retry-connector"
                     _LOGGER.info("[OmniRemote] Connected via bleak-retry-connector!")
                 except Exception as retry_ex:
+                    error_str = str(retry_ex)
                     _debug("bleak-retry-connector failed: %s", retry_ex)
+                    
+                    # Check for connection slot exhaustion
+                    if "connection slot" in error_str.lower() or "out of connection" in error_str.lower():
+                        _LOGGER.error("[OmniRemote] Bluetooth adapter out of connection slots!")
+                        _LOGGER.error("[OmniRemote] Your HA Bluetooth adapter has reached its connection limit (typically 3-7 devices)")
+                        _LOGGER.error("[OmniRemote] Solutions:")
+                        _LOGGER.error("[OmniRemote]   1. Disconnect other Bluetooth devices from HA")
+                        _LOGGER.error("[OmniRemote]   2. Use USB connection instead (more reliable)")
+                        _LOGGER.error("[OmniRemote]   3. Add ESPHome Bluetooth Proxy: https://esphome.github.io/bluetooth-proxies/")
+                        # Return False immediately - no point trying direct connection
+                        return False
+                    
                     _LOGGER.warning("[OmniRemote] bleak-retry-connector failed: %s", retry_ex)
                     client = None
             else:
@@ -393,7 +406,15 @@ class FlipperZeroManager:
             _debug("bleak-retry-connector not available: %s", ie)
             _LOGGER.debug("[OmniRemote] bleak-retry-connector not available")
         except Exception as ex:
+            error_str = str(ex)
             _debug("HA Bluetooth lookup error: %s", ex)
+            
+            # Also check here for slot errors
+            if "connection slot" in error_str.lower() or "out of connection" in error_str.lower():
+                _LOGGER.error("[OmniRemote] Bluetooth adapter out of connection slots!")
+                _LOGGER.error("[OmniRemote] Disconnect other Bluetooth devices or use USB")
+                return False
+                
             _LOGGER.warning("[OmniRemote] HA Bluetooth lookup error: %s", ex)
         
         # Method 2: Direct BleakClient connection

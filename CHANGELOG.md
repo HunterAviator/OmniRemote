@@ -452,3 +452,30 @@ Click the stethoscope icon (🩺) next to a Bluetooth Flipper to run diagnostics
 - Checks bleak-retry-connector availability
 - Shows current connection status
 
+
+## [1.10.10] - 2024-02-28
+
+### New Remote Models Added
+- **RUPA** Bluetooth Voice Remote
+- **Dupad Story** Bluetooth Remote
+- **Amazon Fire TV Voice Remote L5B83G** (with app shortcut buttons)
+- **G20S Pro Plus** Air Mouse (20BTS Plus with gyroscope, backlight, IR learning)
+
+### Flipper Zero Bluetooth Connection Fixes
+- **Connection Slot Detection** - Now properly detects when HA Bluetooth adapter is out of connection slots
+- **Better Error Messages** - Shows specific troubleshooting for slot exhaustion
+- **Removed incorrect setting** - Removed reference to non-existent "Remote Control → Enable" setting
+
+### Connection Slot Issue Explained
+Your HA Yellow's Bluetooth adapter has limited connection slots (typically 3-7). If you have other Bluetooth devices connected (sensors, trackers, etc.), the Flipper can't connect.
+
+**Solutions:**
+1. **Use USB instead** - Most reliable option
+2. **Disconnect other BT devices** - Free up slots
+3. **Add ESPHome Bluetooth Proxy** - https://esphome.github.io/bluetooth-proxies/
+
+### What to Do
+1. Plug Flipper into HA via USB cable
+2. In OmniRemote, click "Find USB" instead of "Find Bluetooth"
+3. USB connection is faster and more reliable anyway
+

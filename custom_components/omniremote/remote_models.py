@@ -425,3 +425,144 @@ def list_models_grouped() -> dict[str, list[dict]]:
     for manufacturer, models in REMOTE_MODELS_BY_MANUFACTURER.items():
         result[manufacturer] = [m.to_dict() for m in models]
     return result
+
+# ============================================================================
+# Budget/Generic Android TV Remotes
+# ============================================================================
+
+RUPA_REMOTE = RemoteModel(
+    id="rupa_bt_remote",
+    name="RUPA Bluetooth Voice Remote",
+    manufacturer="RUPA",
+    description="Budget Bluetooth voice remote for Android TV boxes. Includes voice, navigation, and media controls.",
+    remote_type="bluetooth",
+    buttons=[
+        RemoteModelButton("power", "Power", "mdi:power", "#f44336"),
+        RemoteModelButton("voice", "Voice/Mic", "mdi:microphone", "#2196f3", description="Voice search button"),
+        RemoteModelButton("home", "Home", "mdi:home"),
+        RemoteModelButton("back", "Back", "mdi:arrow-left"),
+        RemoteModelButton("up", "Up", "mdi:chevron-up"),
+        RemoteModelButton("down", "Down", "mdi:chevron-down"),
+        RemoteModelButton("left", "Left", "mdi:chevron-left"),
+        RemoteModelButton("right", "Right", "mdi:chevron-right"),
+        RemoteModelButton("ok", "OK/Select", "mdi:checkbox-blank-circle"),
+        RemoteModelButton("menu", "Menu", "mdi:menu"),
+        RemoteModelButton("volume_up", "Volume Up", "mdi:volume-plus", suggested_action="volume_up"),
+        RemoteModelButton("volume_down", "Volume Down", "mdi:volume-minus", suggested_action="volume_down"),
+        RemoteModelButton("mute", "Mute", "mdi:volume-off", suggested_action="mute"),
+        RemoteModelButton("play_pause", "Play/Pause", "mdi:play-pause"),
+    ]
+)
+
+DUPAD_STORY_REMOTE = RemoteModel(
+    id="dupad_story_remote",
+    name="Dupad Story Bluetooth Remote",
+    manufacturer="Dupad Story",
+    description="Bluetooth remote with voice control for Android TV boxes and streaming devices.",
+    remote_type="bluetooth",
+    buttons=[
+        RemoteModelButton("power", "Power", "mdi:power", "#f44336"),
+        RemoteModelButton("voice", "Voice", "mdi:microphone", "#4caf50", description="Press and hold for voice search"),
+        RemoteModelButton("home", "Home", "mdi:home"),
+        RemoteModelButton("back", "Back", "mdi:arrow-left"),
+        RemoteModelButton("up", "Up", "mdi:chevron-up"),
+        RemoteModelButton("down", "Down", "mdi:chevron-down"),
+        RemoteModelButton("left", "Left", "mdi:chevron-left"),
+        RemoteModelButton("right", "Right", "mdi:chevron-right"),
+        RemoteModelButton("ok", "OK/Select", "mdi:checkbox-blank-circle"),
+        RemoteModelButton("menu", "Menu", "mdi:menu"),
+        RemoteModelButton("settings", "Settings", "mdi:cog"),
+        RemoteModelButton("volume_up", "Volume Up", "mdi:volume-plus", suggested_action="volume_up"),
+        RemoteModelButton("volume_down", "Volume Down", "mdi:volume-minus", suggested_action="volume_down"),
+        RemoteModelButton("mute", "Mute", "mdi:volume-off", suggested_action="mute"),
+        RemoteModelButton("play_pause", "Play/Pause", "mdi:play-pause"),
+        RemoteModelButton("rewind", "Rewind", "mdi:rewind"),
+        RemoteModelButton("fast_forward", "Fast Forward", "mdi:fast-forward"),
+    ]
+)
+
+AMAZON_L5B83G_REMOTE = RemoteModel(
+    id="amazon_l5b83g",
+    name="Amazon Fire TV Voice Remote (L5B83G)",
+    manufacturer="Amazon",
+    description="Amazon Fire TV Bluetooth Voice Remote with Alexa. Universal model with quick access buttons.",
+    remote_type="bluetooth",
+    buttons=[
+        RemoteModelButton("power", "Power", "mdi:power", "#f44336", description="Turn TV on/off"),
+        RemoteModelButton("alexa", "Alexa Voice", "mdi:microphone", "#00caff", description="Press and hold for Alexa"),
+        RemoteModelButton("home", "Home", "mdi:home"),
+        RemoteModelButton("back", "Back", "mdi:arrow-left"),
+        RemoteModelButton("menu", "Menu", "mdi:menu"),
+        RemoteModelButton("up", "Up", "mdi:chevron-up"),
+        RemoteModelButton("down", "Down", "mdi:chevron-down"),
+        RemoteModelButton("left", "Left", "mdi:chevron-left"),
+        RemoteModelButton("right", "Right", "mdi:chevron-right"),
+        RemoteModelButton("select", "Select", "mdi:checkbox-blank-circle"),
+        RemoteModelButton("play_pause", "Play/Pause", "mdi:play-pause"),
+        RemoteModelButton("rewind", "Rewind", "mdi:rewind"),
+        RemoteModelButton("fast_forward", "Fast Forward", "mdi:fast-forward"),
+        RemoteModelButton("volume_up", "Volume Up", "mdi:volume-plus", suggested_action="volume_up"),
+        RemoteModelButton("volume_down", "Volume Down", "mdi:volume-minus", suggested_action="volume_down"),
+        RemoteModelButton("mute", "Mute", "mdi:volume-off", suggested_action="mute"),
+        RemoteModelButton("app_1", "App Button 1", "mdi:apps", description="Quick launch button (configurable)"),
+        RemoteModelButton("app_2", "App Button 2", "mdi:apps", description="Quick launch button (configurable)"),
+        RemoteModelButton("app_3", "App Button 3", "mdi:apps", description="Quick launch button (configurable)"),
+        RemoteModelButton("app_4", "App Button 4", "mdi:apps", description="Quick launch button (configurable)"),
+    ]
+)
+
+G20S_PRO_PLUS_REMOTE = RemoteModel(
+    id="g20s_pro_plus",
+    name="G20S Pro Plus Air Mouse",
+    manufacturer="Generic",
+    description="20BTS Plus Wireless Bluetooth 5.0 Voice Backlit Remote with 2.4G USB dongle, gyroscope air mouse, and IR learning.",
+    remote_type="bluetooth",
+    buttons=[
+        RemoteModelButton("power", "Power", "mdi:power", "#f44336"),
+        RemoteModelButton("voice", "Voice/Mic", "mdi:microphone", "#4caf50", description="Voice search button"),
+        RemoteModelButton("home", "Home", "mdi:home"),
+        RemoteModelButton("back", "Back", "mdi:arrow-left"),
+        RemoteModelButton("menu", "Menu", "mdi:menu"),
+        RemoteModelButton("up", "Up", "mdi:chevron-up"),
+        RemoteModelButton("down", "Down", "mdi:chevron-down"),
+        RemoteModelButton("left", "Left", "mdi:chevron-left"),
+        RemoteModelButton("right", "Right", "mdi:chevron-right"),
+        RemoteModelButton("ok", "OK/Select", "mdi:checkbox-blank-circle"),
+        RemoteModelButton("volume_up", "Volume Up", "mdi:volume-plus", suggested_action="volume_up"),
+        RemoteModelButton("volume_down", "Volume Down", "mdi:volume-minus", suggested_action="volume_down"),
+        RemoteModelButton("mute", "Mute", "mdi:volume-off", suggested_action="mute"),
+        RemoteModelButton("play_pause", "Play/Pause", "mdi:play-pause"),
+        RemoteModelButton("rewind", "Rewind", "mdi:rewind"),
+        RemoteModelButton("fast_forward", "Fast Forward", "mdi:fast-forward"),
+        RemoteModelButton("stop", "Stop", "mdi:stop"),
+        RemoteModelButton("channel_up", "Channel Up", "mdi:chevron-double-up"),
+        RemoteModelButton("channel_down", "Channel Down", "mdi:chevron-double-down"),
+        RemoteModelButton("mouse_mode", "Mouse/Air Mode", "mdi:cursor-move", description="Toggle gyroscope air mouse"),
+        RemoteModelButton("keyboard", "Keyboard", "mdi:keyboard", description="On-screen keyboard"),
+        RemoteModelButton("num_0", "0", "mdi:numeric-0"),
+        RemoteModelButton("num_1", "1", "mdi:numeric-1"),
+        RemoteModelButton("num_2", "2", "mdi:numeric-2"),
+        RemoteModelButton("num_3", "3", "mdi:numeric-3"),
+        RemoteModelButton("num_4", "4", "mdi:numeric-4"),
+        RemoteModelButton("num_5", "5", "mdi:numeric-5"),
+        RemoteModelButton("num_6", "6", "mdi:numeric-6"),
+        RemoteModelButton("num_7", "7", "mdi:numeric-7"),
+        RemoteModelButton("num_8", "8", "mdi:numeric-8"),
+        RemoteModelButton("num_9", "9", "mdi:numeric-9"),
+        RemoteModelButton("ir_tv_power", "IR TV Power", "mdi:television", description="IR learning button for TV power"),
+        RemoteModelButton("ir_input", "IR Input/Source", "mdi:import", description="IR learning button for input select"),
+    ]
+)
+
+# Add new remotes to registry
+REMOTE_MODELS["rupa_bt_remote"] = RUPA_REMOTE
+REMOTE_MODELS["dupad_story_remote"] = DUPAD_STORY_REMOTE
+REMOTE_MODELS["amazon_l5b83g"] = AMAZON_L5B83G_REMOTE
+REMOTE_MODELS["g20s_pro_plus"] = G20S_PRO_PLUS_REMOTE
+
+# Update manufacturer groupings
+for model_id in ["rupa_bt_remote", "dupad_story_remote", "amazon_l5b83g", "g20s_pro_plus"]:
+    model = REMOTE_MODELS[model_id]
+    if model.manufacturer not in REMOTE_MODELS_BY_MANUFACTURER:
+        REMOTE_MODELS_BY_MANUFACTURER[model.manufacturer] = []
+    REMOTE_MODELS_BY_MANUFACTURER[model.manufacturer].append(model)
