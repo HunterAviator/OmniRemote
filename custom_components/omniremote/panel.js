@@ -3,7 +3,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.4";
+const OMNIREMOTE_VERSION = "1.10.6";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -480,6 +480,7 @@ class OmniRemotePanel extends HTMLElement {
       case 'builder-settings':
       case 'builder-clear':
       case 'builder-pick-icon':
+      case 'builder-dashboard-card':
         await this._handleBuilderAction(action, data);
         break;
 
@@ -488,6 +489,9 @@ class OmniRemotePanel extends HTMLElement {
           this._builderProfile.rows = parseInt(this.shadowRoot.getElementById('grid-rows')?.value) || 8;
           this._builderProfile.cols = parseInt(this.shadowRoot.getElementById('grid-cols')?.value) || 4;
           this._builderProfile.device_type = this.shadowRoot.getElementById('grid-device-type')?.value || 'universal';
+          this._builderProfile.room_id = this.shadowRoot.getElementById('grid-room')?.value || null;
+          this._builderProfile.blaster_id = this.shadowRoot.getElementById('grid-blaster')?.value || null;
+          this._builderProfile.default_device_id = this.shadowRoot.getElementById('grid-default-device')?.value || null;
           this._builderProfile.icon = this.shadowRoot.getElementById('grid-icon')?.value || 'mdi:remote';
           this._builderProfile.description = this.shadowRoot.getElementById('grid-description')?.value || '';
           this._modal = null;
@@ -996,6 +1000,7 @@ class OmniRemotePanel extends HTMLElement {
             <button class="btn btn-s" data-action="builder-back"><ha-icon icon="mdi:arrow-left"></ha-icon>Back</button>
             <button class="btn btn-p" data-action="builder-save" style="margin-left:8px;"><ha-icon icon="mdi:content-save"></ha-icon>Save Profile</button>
             <button class="btn btn-s" data-action="builder-preview" style="margin-left:8px;"><ha-icon icon="mdi:eye"></ha-icon>Preview</button>
+            <button class="btn btn-s" data-action="builder-dashboard-card" style="margin-left:8px;"><ha-icon icon="mdi:view-dashboard"></ha-icon>Dashboard Card</button>
             ${refreshBtn}
           `;
         }
@@ -3071,24 +3076,99 @@ data:
     
     // Update button
     const btn = this.shadowRoot.querySelector('[data-action="discover"]');
-    if (btn) btn.innerHTML = '<ha-icon icon="mdi:loading"></ha-icon>Discovering...';
+    if (btn) btn.innerHTML = '<ha-icon icon="mdi:loading" class="spin"></ha-icon> Discovering...';
     
     const res = await this._api('/api/omniremote/blasters', 'POST', {});
     
     console.log('[OmniRemote] Discovery result:', res);
     
+    // Reset button
+    if (btn) btn.innerHTML = '<ha-icon icon="mdi:magnify"></ha-icon> Discover';
+    
     if (res.error) {
       alert('Discovery error: ' + res.error);
-    } else {
-      const count = res.discovered_count || res.blasters?.length || 0;
-      if (count === 0) {
-        alert('No Broadlink devices found.\n\nTips:\n• Broadcast discovery only works on same subnet\n• Try "mDNS" for cross-VLAN discovery\n• Try "Add by IP" with device\'s IP address');
-      } else {
-        alert(`Found ${count} device(s)!`);
-      }
+      return;
     }
     
-    await this._loadData();
+    // Show discovered devices in a modal
+    const discovered = res.discovered || res.blasters || [];
+    const count = res.discovered_count || discovered.length;
+    
+    if (count === 0) {
+      this._modal = `
+        <div class="modal-content" style="max-width:500px;">
+          <h3><ha-icon icon="mdi:access-point-off"></ha-icon> No Devices Found</h3>
+          <div style="color:#888;line-height:1.8;">
+            <p>No Broadlink devices found on the network.</p>
+            <p><strong>Tips:</strong></p>
+            <ul style="margin:0;padding-left:20px;">
+              <li>Broadcast discovery only works on the same subnet</li>
+              <li>Try "mDNS" for cross-VLAN discovery</li>
+              <li>Try "Add by IP" if you know the device IP</li>
+              <li>Make sure the device is powered on and connected to WiFi</li>
+            </ul>
+          </div>
+          <div style="margin-top:20px;text-align:right;">
+            <button class="btn btn-s" data-action="close-modal">Close</button>
+          </div>
+        </div>
+      `;
+      this._render();
+    } else {
+      this._modal = `
+        <div class="modal-content" style="max-width:600px;">
+          <h3><ha-icon icon="mdi:access-point"></ha-icon> Discovered ${count} Device(s)</h3>
+          <p style="color:#888;">These devices were found on your network. Click "Add" to register them.</p>
+          
+          <div style="max-height:400px;overflow-y:auto;">
+            ${discovered.map((d, i) => `
+              <div style="display:flex;align-items:center;gap:12px;padding:12px;background:#1a1a2e;border-radius:8px;margin-bottom:8px;">
+                <ha-icon icon="mdi:remote" style="font-size:24px;color:#64b5f6;"></ha-icon>
+                <div style="flex:1;">
+                  <div style="font-weight:600;">${d.name || 'Broadlink Device'}</div>
+                  <div style="font-size:12px;color:#888;">
+                    ${d.ip || d.host || 'Unknown IP'} • 
+                    ${d.type || d.device_type || 'Unknown Type'} • 
+                    MAC: ${d.mac || 'Unknown'}
+                  </div>
+                </div>
+                <button class="btn btn-sm btn-p discover-add-btn" data-index="${i}">
+                  <ha-icon icon="mdi:plus"></ha-icon> Add
+                </button>
+              </div>
+            `).join('')}
+          </div>
+          
+          <div style="margin-top:20px;text-align:right;">
+            <button class="btn btn-s" data-action="close-modal">Close</button>
+          </div>
+        </div>
+      `;
+      this._render();
+      
+      // Attach add handlers
+      this._discoveredDevices = discovered;
+      setTimeout(() => {
+        this.shadowRoot.querySelectorAll('.discover-add-btn').forEach(btn => {
+          btn.addEventListener('click', async (e) => {
+            const idx = parseInt(e.target.closest('[data-index]').dataset.index);
+            const device = this._discoveredDevices[idx];
+            if (device) {
+              btn.disabled = true;
+              btn.innerHTML = '<ha-icon icon="mdi:check"></ha-icon> Added';
+              await this._api('/api/omniremote/blasters', 'POST', {
+                action: 'add',
+                ip: device.ip || device.host,
+                name: device.name,
+                mac: device.mac,
+                type: device.type || device.device_type,
+              });
+              await this._loadData();
+            }
+          });
+        });
+      }, 100);
+    }
   }
 
   async _discoverMdns() {
@@ -5136,16 +5216,23 @@ data:
     const scenes = this._data.scenes || [];
     const devices = this._data.devices || [];
     const blasters = this._data.blasters || [];
-    const mappings = remote.button_mappings || {};
     
-    // Get profile buttons if available, or use existing mapping keys
+    // Use existing _buttonMappings if we're re-rendering, otherwise load from remote
+    const mappings = (this._editingRemote?.id === remoteId && this._buttonMappings) 
+      ? this._buttonMappings 
+      : (remote.button_mappings || {});
+    
+    // Get profile buttons if available, or use existing mapping keys, or use _buttonMappings keys
     const profile = this._data.remoteProfiles?.find(p => p.id === remote.profile);
     let buttons = [];
     if (profile?.buttons?.length > 0) {
       buttons = profile.buttons.map(b => b.id || b.label || b.command_name).filter(Boolean);
-    } else if (Object.keys(mappings).length > 0) {
-      buttons = Object.keys(mappings);
-    }
+    } 
+    // Add any buttons from current mappings that aren't in profile
+    const mappingKeys = Object.keys(mappings);
+    mappingKeys.forEach(k => {
+      if (!buttons.includes(k)) buttons.push(k);
+    });
     
     const actionTypes = [
       { value: 'scene', label: '🎬 Run Scene' },
@@ -5760,13 +5847,24 @@ data:
   // =============================================================================
 
   async _flipperDiscover(connectionType) {
+    console.log('[OmniRemote] _flipperDiscover called with:', connectionType);
+    
     const statusDiv = this.shadowRoot.getElementById('flipper-discovered');
     const listDiv = this.shadowRoot.getElementById('flipper-discovered-list');
     
-    if (statusDiv) statusDiv.style.display = 'block';
-    if (listDiv) listDiv.innerHTML = '<p style="text-align:center;padding:16px;"><ha-icon icon="mdi:loading" class="spin"></ha-icon> Scanning for Flipper Zero devices...</p>';
+    console.log('[OmniRemote] Flipper discover elements - statusDiv:', !!statusDiv, 'listDiv:', !!listDiv);
+    
+    // If we're not on blasters view, we need to show feedback differently
+    if (!statusDiv || !listDiv) {
+      console.log('[OmniRemote] Elements not found - showing modal instead');
+      // We'll show results in a modal
+    } else {
+      statusDiv.style.display = 'block';
+      listDiv.innerHTML = '<p style="text-align:center;padding:16px;"><ha-icon icon="mdi:loading" class="spin"></ha-icon> Scanning for Flipper Zero devices...</p>';
+    }
     
     try {
+      console.log('[OmniRemote] Making Flipper discover API call...');
       const res = await this._api('/api/omniremote/flipper', 'POST', {
         action: 'discover',
         connection_type: connectionType,
@@ -5774,68 +5872,115 @@ data:
       
       console.log('[OmniRemote] Flipper discover result:', res);
       
+      // Store discovered devices for add handlers
+      this._flipperDiscoveredDevices = res.devices || [];
+      
       if (res.devices && res.devices.length > 0) {
-        if (listDiv) {
-          listDiv.innerHTML = res.devices.map((d, i) => `
-            <div class="flipper-device-row" style="display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid #333;">
-              <ha-icon icon="${d.connection_type === 'bluetooth' ? 'mdi:bluetooth' : 'mdi:usb'}" 
-                       style="font-size:24px;color:#2196f3;"></ha-icon>
-              <div style="flex:1;">
-                <div style="font-weight:600;">${d.name}</div>
-                <div style="font-size:12px;color:#888;">${d.port} ${d.rssi ? '• RSSI: ' + d.rssi : ''}</div>
+        const devicesHtml = res.devices.map((d, i) => `
+          <div class="flipper-device-row" style="display:flex;align-items:center;gap:12px;padding:12px;background:#1a1a2e;border-radius:8px;margin-bottom:8px;">
+            <ha-icon icon="${d.connection_type === 'bluetooth' ? 'mdi:bluetooth' : 'mdi:usb'}" 
+                     style="font-size:24px;color:#2196f3;"></ha-icon>
+            <div style="flex:1;">
+              <div style="font-weight:600;">${d.name || 'Flipper Zero'}</div>
+              <div style="font-size:12px;color:#888;">
+                ${d.connection_type === 'bluetooth' ? 'Bluetooth' : 'USB'} • 
+                ${d.port} ${d.rssi ? '• RSSI: ' + d.rssi : ''}
               </div>
-              <button class="btn btn-sm btn-p" id="flipper-add-${i}"
-                      style="min-width:80px;">
-                <ha-icon icon="mdi:plus"></ha-icon> Add
-              </button>
             </div>
-          `).join('');
-          
-          // Attach click handlers after a brief delay to ensure DOM is ready
-          setTimeout(() => {
-            res.devices.forEach((d, i) => {
-              const btn = this.shadowRoot.getElementById(`flipper-add-${i}`);
-              if (btn) {
-                console.log('[OmniRemote] Attaching click handler to flipper-add-' + i);
-                btn.onclick = async (e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  
-                  // Visual feedback
-                  btn.disabled = true;
-                  btn.innerHTML = '<ha-icon icon="mdi:loading" class="spin"></ha-icon> Adding...';
-                  
-                  const data = {
-                    deviceId: d.id,
-                    name: d.name,
-                    connectionType: d.connection_type,
-                    port: d.port,
-                  };
-                  console.log('[OmniRemote] Add button clicked for:', data);
-                  await this._flipperAdd(data);
-                };
-              } else {
-                console.error('[OmniRemote] Could not find button flipper-add-' + i);
-              }
-            });
-          }, 50);
-        }
-      } else {
+            <button class="btn btn-sm btn-p flipper-add-btn" data-flipper-index="${i}"
+                    style="min-width:80px;">
+              <ha-icon icon="mdi:plus"></ha-icon> Add
+            </button>
+          </div>
+        `).join('');
+        
         if (listDiv) {
-          listDiv.innerHTML = `
-            <p style="text-align:center;padding:16px;color:#888;">
-              No Flipper Zero devices found. Make sure your Flipper is:
-              <br>• Powered on
-              <br>• Connected via USB or Bluetooth enabled
-              <br>• Not in use by another application
-            </p>
+          listDiv.innerHTML = devicesHtml;
+        } else {
+          // Show in modal
+          this._modal = `
+            <div class="modal-content" style="max-width:500px;">
+              <h3><ha-icon icon="mdi:dolphin"></ha-icon> Found ${res.devices.length} Flipper(s)</h3>
+              <div style="max-height:400px;overflow-y:auto;">
+                ${devicesHtml}
+              </div>
+              <div style="margin-top:16px;text-align:right;">
+                <button class="btn btn-s" data-action="close-modal">Close</button>
+              </div>
+            </div>
           `;
+          this._render();
+        }
+        
+        // Attach click handlers
+        setTimeout(() => {
+          this.shadowRoot.querySelectorAll('.flipper-add-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              
+              const idx = parseInt(btn.dataset.flipperIndex);
+              const d = this._flipperDiscoveredDevices[idx];
+              if (!d) return;
+              
+              btn.disabled = true;
+              btn.innerHTML = '<ha-icon icon="mdi:loading" class="spin"></ha-icon> Adding...';
+              
+              await this._flipperAdd({
+                deviceId: d.id,
+                name: d.name,
+                connectionType: d.connection_type,
+                port: d.port,
+              });
+            });
+          });
+        }, 100);
+        
+      } else {
+        const noDevicesHtml = `
+          <p style="text-align:center;padding:16px;color:#888;">
+            No Flipper Zero devices found.<br><br>
+            <strong>For Bluetooth:</strong><br>
+            • On Flipper: Settings → Bluetooth → ON<br>
+            • Flipper must NOT be connected to another app<br><br>
+            <strong>For USB:</strong><br>
+            • Flipper connected via USB cable<br>
+            • Flipper at main menu (not in an app)
+          </p>
+        `;
+        
+        if (listDiv) {
+          listDiv.innerHTML = noDevicesHtml;
+        } else {
+          this._modal = `
+            <div class="modal-content" style="max-width:400px;">
+              <h3><ha-icon icon="mdi:dolphin"></ha-icon> No Flipper Found</h3>
+              ${noDevicesHtml}
+              <div style="margin-top:16px;text-align:right;">
+                <button class="btn btn-s" data-action="close-modal">Close</button>
+              </div>
+            </div>
+          `;
+          this._render();
         }
       }
     } catch (err) {
       console.error('[OmniRemote] Flipper discover error:', err);
+      const errorHtml = `<p style="text-align:center;padding:16px;color:#f44336;">Error: ${err.message}</p>`;
+      
       if (listDiv) {
-        listDiv.innerHTML = `<p style="text-align:center;padding:16px;color:#f44336;">Error: ${err.message}</p>`;
+        listDiv.innerHTML = errorHtml;
+      } else {
+        this._modal = `
+          <div class="modal-content" style="max-width:400px;">
+            <h3 style="color:#f44336;"><ha-icon icon="mdi:alert"></ha-icon> Discovery Error</h3>
+            ${errorHtml}
+            <div style="margin-top:16px;text-align:right;">
+              <button class="btn btn-s" data-action="close-modal">Close</button>
+            </div>
+          </div>
+        `;
+        this._render();
       }
     }
   }
@@ -6720,7 +6865,95 @@ data:
       case 'builder-pick-icon':
         this._showIconPickerForBuilder();
         break;
+        
+      case 'builder-dashboard-card':
+        this._showDashboardCardModal();
+        break;
     }
+  }
+  
+  _showDashboardCardModal() {
+    if (!this._builderProfile) return;
+    
+    const profileId = this._builderProfile.id;
+    const profileName = this._builderProfile.name || 'Remote';
+    
+    const cardYaml = `type: custom:omniremote-card
+profile: ${profileId}
+# Optional settings:
+# room: living_room
+# blaster: rm4_living_room
+# show_header: true
+# show_room: true`;
+
+    const cardJson = JSON.stringify({
+      type: 'custom:omniremote-card',
+      profile: profileId,
+    }, null, 2);
+
+    this._modal = `
+      <div class="modal-content" style="max-width:600px;">
+        <h3><ha-icon icon="mdi:view-dashboard"></ha-icon> Add to Dashboard</h3>
+        <p style="color:#888;margin-top:0;">Use this remote profile as a Lovelace dashboard card.</p>
+        
+        <div style="background:#1a1a2e;padding:16px;border-radius:8px;margin-bottom:16px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <strong>YAML Configuration</strong>
+            <button class="btn btn-sm" id="copy-yaml-btn">
+              <ha-icon icon="mdi:content-copy"></ha-icon> Copy
+            </button>
+          </div>
+          <pre style="margin:0;padding:12px;background:#0d0d1a;border-radius:4px;overflow-x:auto;font-size:13px;color:#8bc34a;" id="card-yaml">${cardYaml}</pre>
+        </div>
+        
+        <div style="background:#252545;padding:12px;border-radius:8px;margin-bottom:16px;">
+          <h4 style="margin:0 0 8px;">How to add:</h4>
+          <ol style="margin:0;padding-left:20px;color:#888;line-height:1.8;">
+            <li>Go to your HA Dashboard</li>
+            <li>Click <strong>Edit Dashboard</strong> (⋮ menu)</li>
+            <li>Click <strong>+ Add Card</strong></li>
+            <li>Search for <strong>Manual</strong> card</li>
+            <li>Paste the YAML above</li>
+          </ol>
+        </div>
+        
+        <div style="font-size:12px;color:#666;">
+          <strong>Note:</strong> Make sure you've saved this profile first. The card will automatically load the profile settings.
+        </div>
+        
+        <div style="margin-top:16px;text-align:right;">
+          <button class="btn btn-s" data-action="close-modal">Close</button>
+        </div>
+      </div>
+    `;
+    this._render();
+    
+    // Copy button handler
+    setTimeout(() => {
+      const copyBtn = this.shadowRoot.getElementById('copy-yaml-btn');
+      const yamlPre = this.shadowRoot.getElementById('card-yaml');
+      if (copyBtn && yamlPre) {
+        copyBtn.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(yamlPre.textContent);
+            copyBtn.innerHTML = '<ha-icon icon="mdi:check"></ha-icon> Copied!';
+            setTimeout(() => {
+              copyBtn.innerHTML = '<ha-icon icon="mdi:content-copy"></ha-icon> Copy';
+            }, 2000);
+          } catch (err) {
+            console.error('Copy failed:', err);
+            // Fallback for older browsers
+            const textarea = document.createElement('textarea');
+            textarea.value = yamlPre.textContent;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            copyBtn.innerHTML = '<ha-icon icon="mdi:check"></ha-icon> Copied!';
+          }
+        });
+      }
+    }, 100);
   }
 
   _showBuilderNewModal() {
@@ -7255,20 +7488,28 @@ data:
 
   _showGridSettingsModal() {
     if (!this._builderProfile) return;
+    
+    const rooms = this._data.rooms || [];
+    const blasters = this._data.blasters || [];
+    const devices = this._data.devices || [];
 
     this._modal = `
       <div class="modal-head">
-        <h3>Grid Settings</h3>
+        <h3>Remote Settings</h3>
         <button class="modal-close" data-action="close-modal">&times;</button>
       </div>
-      <div class="fg">
-        <label class="fl">Rows</label>
-        <input type="number" class="fi" id="grid-rows" value="${this._builderProfile.rows}" min="2" max="20">
+      
+      <div style="display:flex;gap:12px;">
+        <div class="fg" style="flex:1;">
+          <label class="fl">Rows</label>
+          <input type="number" class="fi" id="grid-rows" value="${this._builderProfile.rows}" min="2" max="20">
+        </div>
+        <div class="fg" style="flex:1;">
+          <label class="fl">Columns</label>
+          <input type="number" class="fi" id="grid-cols" value="${this._builderProfile.cols}" min="2" max="6">
+        </div>
       </div>
-      <div class="fg">
-        <label class="fl">Columns</label>
-        <input type="number" class="fi" id="grid-cols" value="${this._builderProfile.cols}" min="2" max="6">
-      </div>
+      
       <div class="fg">
         <label class="fl">Device Type</label>
         <select class="fi" id="grid-device-type">
@@ -7281,14 +7522,44 @@ data:
           <option value="ac" ${this._builderProfile.device_type === 'ac' ? 'selected' : ''}>Air Conditioner</option>
         </select>
       </div>
+      
+      <div class="fg">
+        <label class="fl">Room</label>
+        <select class="fi" id="grid-room">
+          <option value="">-- No Room --</option>
+          ${rooms.map(r => `<option value="${r.id}" ${this._builderProfile.room_id === r.id ? 'selected' : ''}>${r.name}</option>`).join('')}
+        </select>
+        <p style="font-size:11px;color:#666;margin-top:4px;">Associate this remote with a room for context-aware control</p>
+      </div>
+      
+      <div class="fg">
+        <label class="fl">Default Blaster</label>
+        <select class="fi" id="grid-blaster">
+          <option value="">-- Auto (use device's blaster) --</option>
+          ${blasters.map(b => `<option value="${b.id}" ${this._builderProfile.blaster_id === b.id ? 'selected' : ''}>${b.name}</option>`).join('')}
+        </select>
+        <p style="font-size:11px;color:#666;margin-top:4px;">IR blaster to use for buttons that don't specify a device</p>
+      </div>
+      
+      <div class="fg">
+        <label class="fl">Default Device</label>
+        <select class="fi" id="grid-default-device">
+          <option value="">-- None --</option>
+          ${devices.map(d => `<option value="${d.id}" ${this._builderProfile.default_device_id === d.id ? 'selected' : ''}>${d.name}</option>`).join('')}
+        </select>
+        <p style="font-size:11px;color:#666;margin-top:4px;">Default IR device for buttons that use command names</p>
+      </div>
+      
       <div class="fg">
         <label class="fl">Icon</label>
         <input type="text" class="fi" id="grid-icon" value="${this._builderProfile.icon || 'mdi:remote'}" placeholder="mdi:remote">
       </div>
+      
       <div class="fg">
         <label class="fl">Description</label>
         <textarea class="fi" id="grid-description" rows="2" placeholder="Optional description...">${this._builderProfile.description || ''}</textarea>
       </div>
+      
       <div style="margin-top:16px;text-align:right;">
         <button class="btn btn-p" data-action="apply-grid-settings">
           <ha-icon icon="mdi:check"></ha-icon> Apply
