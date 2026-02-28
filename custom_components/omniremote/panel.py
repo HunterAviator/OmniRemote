@@ -3388,10 +3388,12 @@ class OmniApiFlipperZero(HomeAssistantView):
                 return web.json_response({"error": "device_id required"}, status=400)
             
             try:
+                _LOGGER.info("[OmniRemote] Attempting to connect to Flipper: %s", device_id)
                 success = await manager.async_connect(device_id)
                 device = manager.get_device(device_id)
                 
                 if success:
+                    _LOGGER.info("[OmniRemote] Successfully connected to Flipper: %s", device_id)
                     return web.json_response({
                         "success": True,
                         "device": device.to_dict() if device else None,
@@ -3399,20 +3401,38 @@ class OmniApiFlipperZero(HomeAssistantView):
                 else:
                     # Provide more helpful error message
                     error_msg = "Connection failed"
+                    troubleshooting = []
                     if device:
                         if device.connection_type.value == "usb":
-                            error_msg = f"USB connection to {device.port} failed. Check that Flipper is connected and no other app is using the port."
+                            error_msg = f"USB connection to {device.port} failed"
+                            troubleshooting = [
+                                "Check USB cable is connected",
+                                "Close qFlipper or other apps using the port",
+                                "Try a different USB port",
+                            ]
                         else:
-                            error_msg = f"Bluetooth connection failed. Make sure Flipper Bluetooth is enabled and in range."
+                            error_msg = f"Bluetooth connection to {device.port} failed"
+                            troubleshooting = [
+                                "On Flipper: Settings → Bluetooth → Make sure it's ON",
+                                "On Flipper: Settings → Bluetooth → Remote Control → Enable",
+                                "Disconnect Flipper from phone app or qFlipper",
+                                "Try moving Flipper closer to Home Assistant",
+                                "USB connection is more reliable - consider using USB instead",
+                            ]
+                    _LOGGER.warning("[OmniRemote] Flipper connection failed: %s", error_msg)
                     return web.json_response({
                         "success": False,
                         "error": error_msg,
+                        "troubleshooting": troubleshooting,
                     })
             except Exception as ex:
-                _LOGGER.error("Flipper connect error: %s", ex)
+                import traceback
+                tb = traceback.format_exc()
+                _LOGGER.error("[OmniRemote] Flipper connect exception: %s\n%s", ex, tb)
                 return web.json_response({
                     "success": False,
                     "error": str(ex),
+                    "traceback": tb,
                 })
         
         elif action == "disconnect":
@@ -3439,6 +3459,84 @@ class OmniApiFlipperZero(HomeAssistantView):
             )
             
             return web.json_response({"success": success})
+        
+        elif action == "diagnose":
+            # Diagnose Bluetooth connection issues
+            device_id = data.get("device_id")
+            results = {
+                "device_id": device_id,
+                "checks": [],
+            }
+            
+            device = manager.get_device(device_id) if device_id else None
+            
+            if device:
+                results["device_name"] = device.name
+                results["connection_type"] = device.connection_type.value
+                results["port"] = device.port
+                results["connected"] = device.connected
+                
+                if device.connection_type.value == "bluetooth":
+                    # Try to scan for the device
+                    try:
+                        from homeassistant.components.bluetooth import async_ble_device_from_address
+                        
+                        ble_device = async_ble_device_from_address(
+                            self.hass, device.port, connectable=True
+                        )
+                        
+                        if ble_device:
+                            results["checks"].append({
+                                "check": "HA Bluetooth cache",
+                                "status": "found",
+                                "details": f"Device found: {ble_device.name or 'unnamed'}",
+                            })
+                        else:
+                            results["checks"].append({
+                                "check": "HA Bluetooth cache", 
+                                "status": "not_found",
+                                "details": "Device not in HA Bluetooth cache. Try scanning again.",
+                            })
+                    except Exception as ex:
+                        results["checks"].append({
+                            "check": "HA Bluetooth cache",
+                            "status": "error",
+                            "details": str(ex),
+                        })
+                    
+                    # Check if bleak is available
+                    try:
+                        import bleak
+                        results["checks"].append({
+                            "check": "bleak library",
+                            "status": "ok",
+                            "details": f"Version: {bleak.__version__}",
+                        })
+                    except ImportError:
+                        results["checks"].append({
+                            "check": "bleak library",
+                            "status": "missing",
+                            "details": "bleak not installed",
+                        })
+                    
+                    # Check bleak-retry-connector
+                    try:
+                        import bleak_retry_connector
+                        results["checks"].append({
+                            "check": "bleak-retry-connector",
+                            "status": "ok",
+                            "details": "Available",
+                        })
+                    except ImportError:
+                        results["checks"].append({
+                            "check": "bleak-retry-connector",
+                            "status": "missing",
+                            "details": "Not installed (optional but recommended)",
+                        })
+            else:
+                results["error"] = "Device not found"
+            
+            return web.json_response(results)
         
         elif action == "list_files":
             # List IR files on Flipper SD card

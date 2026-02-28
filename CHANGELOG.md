@@ -429,3 +429,26 @@ profile: profile_abc123
 - Fixed indentation error in original OmniApiDebug class
 - Removed duplicate OmniApiDebug class definition
 
+
+## [1.10.9] - 2024-02-28
+
+### Flipper Zero Bluetooth Connection Improvements
+- **Better error messages** - Connection failures now show specific troubleshooting steps
+- **Diagnose button** - For Bluetooth Flippers, click the stethoscope icon to run diagnostics
+- **Enhanced logging** - All connection attempts logged with `[OmniRemote]` prefix at INFO level
+- **Traceback capture** - Full error details captured and shown in browser console
+
+### Key Troubleshooting for Flipper Bluetooth
+If connection fails, check:
+1. **Flipper → Settings → Bluetooth → ON**
+2. **Flipper → Settings → Bluetooth → Remote Control → Enable** (this is critical!)
+3. **Disconnect Flipper from phone app and qFlipper**
+4. **USB is more reliable** - consider using USB instead of Bluetooth
+
+### Diagnose Feature
+Click the stethoscope icon (🩺) next to a Bluetooth Flipper to run diagnostics:
+- Checks if device is in HA Bluetooth cache
+- Verifies bleak library is installed
+- Checks bleak-retry-connector availability
+- Shows current connection status
+

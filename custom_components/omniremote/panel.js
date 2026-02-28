@@ -3,7 +3,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.8";
+const OMNIREMOTE_VERSION = "1.10.9";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -568,6 +568,9 @@ class OmniRemotePanel extends HTMLElement {
         break;
       case 'flipper-remove':
         await this._flipperRemove(data.flipperId);
+        break;
+      case 'flipper-diagnose':
+        await this._flipperDiagnose(data.flipperId);
         break;
       case 'flipper-test':
         await this._flipperTest(data.flipperId);
@@ -1313,6 +1316,11 @@ class OmniRemotePanel extends HTMLElement {
                     <button class="btn btn-sm btn-p" data-action="flipper-connect" data-flipper-id="${f.id}">
                       Connect
                     </button>
+                    ${f.connection_type === 'bluetooth' ? `
+                      <button class="btn btn-sm" data-action="flipper-diagnose" data-flipper-id="${f.id}" title="Diagnose connection issues">
+                        <ha-icon icon="mdi:stethoscope"></ha-icon>
+                      </button>
+                    ` : ''}
                     <button class="btn btn-sm btn-danger" data-action="flipper-remove" data-flipper-id="${f.id}">
                       Remove
                     </button>
@@ -6157,6 +6165,8 @@ data:
       
       if (res.success || res.device) {
         // Device added successfully, now try to connect
+        console.log('[OmniRemote] Device added, attempting connection...');
+        
         const connectRes = await this._api('/api/omniremote/flipper', 'POST', {
           action: 'connect',
           device_id: data.deviceId,
@@ -6169,10 +6179,24 @@ data:
         this._render();
         
         if (connectRes.success) {
-          alert('Flipper Zero added and connected successfully!');
+          alert('✓ Flipper Zero added and connected successfully!');
         } else {
-          // Added but not connected - this is OK
-          alert('Flipper Zero added! Connection failed: ' + (connectRes.error || 'Check USB/Bluetooth connection.') + '\n\nYou can try connecting later.');
+          // Added but not connected
+          let msg = 'Flipper Zero added, but connection failed:\n\n' + (connectRes.error || 'Unknown error');
+          
+          if (connectRes.troubleshooting && connectRes.troubleshooting.length > 0) {
+            msg += '\n\nTroubleshooting:\n';
+            connectRes.troubleshooting.forEach((tip, i) => {
+              msg += `${i + 1}. ${tip}\n`;
+            });
+          }
+          
+          msg += '\n\nThe device has been added. You can try connecting again later.';
+          alert(msg);
+          
+          if (connectRes.traceback) {
+            console.error('[OmniRemote] Connection traceback:', connectRes.traceback);
+          }
         }
       } else {
         alert('Failed to add Flipper: ' + (res.error || 'Unknown error'));
@@ -6184,16 +6208,35 @@ data:
   }
 
   async _flipperConnect(deviceId) {
+    console.log('[OmniRemote] Connecting to Flipper:', deviceId);
+    
     const res = await this._api('/api/omniremote/flipper', 'POST', {
       action: 'connect',
       device_id: deviceId,
     });
     
+    console.log('[OmniRemote] Flipper connect response:', res);
+    
     if (res.success) {
       await this._loadFlipperDevices();
       this._render();
+      alert('Connected to Flipper Zero!');
     } else {
-      alert('Failed to connect to Flipper: ' + (res.error || 'Unknown error'));
+      let msg = 'Failed to connect to Flipper:\n\n' + (res.error || 'Unknown error');
+      
+      if (res.troubleshooting && res.troubleshooting.length > 0) {
+        msg += '\n\nTroubleshooting:\n';
+        res.troubleshooting.forEach((tip, i) => {
+          msg += `${i + 1}. ${tip}\n`;
+        });
+      }
+      
+      alert(msg);
+      
+      // Also log to console for debugging
+      if (res.traceback) {
+        console.error('[OmniRemote] Connection traceback:', res.traceback);
+      }
     }
   }
 
@@ -6215,6 +6258,50 @@ data:
     });
     await this._loadFlipperDevices();
     this._render();
+  }
+
+  async _flipperDiagnose(deviceId) {
+    console.log('[OmniRemote] Diagnosing Flipper:', deviceId);
+    
+    const res = await this._api('/api/omniremote/flipper', 'POST', {
+      action: 'diagnose',
+      device_id: deviceId,
+    });
+    
+    console.log('[OmniRemote] Diagnose result:', res);
+    
+    // Build diagnostic report
+    let report = `Flipper Bluetooth Diagnostics\n`;
+    report += `${'='.repeat(40)}\n\n`;
+    
+    if (res.device_name) {
+      report += `Device: ${res.device_name}\n`;
+      report += `Connection Type: ${res.connection_type}\n`;
+      report += `MAC Address: ${res.port}\n`;
+      report += `Currently Connected: ${res.connected ? 'Yes' : 'No'}\n\n`;
+    }
+    
+    if (res.checks && res.checks.length > 0) {
+      report += `Checks:\n`;
+      res.checks.forEach(check => {
+        const icon = check.status === 'ok' || check.status === 'found' ? '✓' : 
+                     check.status === 'error' || check.status === 'missing' ? '✗' : '?';
+        report += `  ${icon} ${check.check}: ${check.details}\n`;
+      });
+    }
+    
+    if (res.error) {
+      report += `\nError: ${res.error}\n`;
+    }
+    
+    report += `\nTroubleshooting Steps:\n`;
+    report += `1. On Flipper: Settings → Bluetooth → Turn ON\n`;
+    report += `2. On Flipper: Settings → Bluetooth → Remote Control → Enable\n`;
+    report += `3. Make sure Flipper is NOT connected to phone or qFlipper\n`;
+    report += `4. Try moving Flipper closer to Home Assistant\n`;
+    report += `5. Check HA logs for detailed error messages\n`;
+    
+    alert(report);
   }
 
   async _flipperTest(deviceId) {

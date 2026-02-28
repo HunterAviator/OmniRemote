@@ -337,99 +337,134 @@ class FlipperZeroManager:
         
         USB connection is more reliable - recommend USB if available.
         """
+        _debug("async_connect_bluetooth called for device: %s (%s)", device.name, device.port)
+        _LOGGER.info("[OmniRemote] Connecting to Flipper Zero Bluetooth: %s at %s", device.name, device.port)
+        
         try:
             from bleak import BleakClient
-            
-            _LOGGER.info("Connecting to Flipper Zero Bluetooth: %s", device.port)
-            _LOGGER.info("NOTE: Ensure Flipper has Bluetooth ON and 'RPC over Bluetooth' enabled")
-            
-            # Flipper's BLE Serial service UUID (Nordic UART Service compatible)
-            FLIPPER_SERIAL_SERVICE = "8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000"
-            FLIPPER_RX_CHAR = "19ed82ae-ed21-4c9d-4145-228e62fe0000"  # Write to Flipper
-            FLIPPER_TX_CHAR = "19ed82ae-ed21-4c9d-4145-228e61fe0000"  # Read from Flipper
-            
-            client = None
-            
-            # Try to use HA's bluetooth integration with bleak-retry-connector
-            try:
-                from bleak_retry_connector import establish_connection
-                from homeassistant.components.bluetooth import async_ble_device_from_address
-                
-                # NOTE: async_ble_device_from_address is NOT async despite the name
-                ble_device = async_ble_device_from_address(
-                    self.hass, device.port, connectable=True
-                )
-                
-                if ble_device:
-                    _LOGGER.debug("Found BLE device in HA, using bleak-retry-connector")
-                    try:
-                        client = await establish_connection(
-                            BleakClient,
-                            ble_device,
-                            device.name,
-                            max_attempts=2,
-                        )
-                    except Exception as retry_ex:
-                        _LOGGER.warning("bleak-retry-connector failed: %s", retry_ex)
-                else:
-                    _LOGGER.debug("BLE device not found in HA Bluetooth cache")
-                    
-            except ImportError as ie:
-                _LOGGER.debug("HA Bluetooth integration not available: %s", ie)
-            except Exception as ex:
-                _LOGGER.debug("HA Bluetooth lookup failed: %s", ex)
-            
-            # Fallback to direct BleakClient connection
-            if client is None or not client.is_connected:
-                _LOGGER.info("Attempting direct BLE connection to %s", device.port)
-                client = BleakClient(device.port, timeout=20.0)
-                try:
-                    await client.connect()
-                except Exception as conn_ex:
-                    error_msg = str(conn_ex) if str(conn_ex) else "Connection timed out"
-                    _LOGGER.error("Direct BLE connection failed: %s", error_msg)
-                    _LOGGER.error("Troubleshooting steps:")
-                    _LOGGER.error("  1. On Flipper: Settings > Bluetooth > Make sure it's ON")
-                    _LOGGER.error("  2. On Flipper: Settings > Bluetooth > RPC over Bluetooth > Enable")
-                    _LOGGER.error("  3. Ensure Flipper is not connected to qFlipper or phone app")
-                    _LOGGER.error("  4. Consider using USB connection instead (more reliable)")
-                    return False
-            
-            if not client.is_connected:
-                _LOGGER.error("Failed to establish BLE connection to Flipper")
-                return False
-            
-            # Verify Flipper serial service is available
-            try:
-                services = client.services
-                serial_found = False
-                for service in services:
-                    _LOGGER.debug("Found BLE service: %s", service.uuid)
-                    if "fe00" in service.uuid.lower() or "8fe5b3d5" in service.uuid.lower():
-                        serial_found = True
-                        _LOGGER.info("Found Flipper Serial service")
-                        break
-                
-                if not serial_found:
-                    _LOGGER.warning("Flipper Serial service not found - RPC over Bluetooth may be disabled")
-                    
-            except Exception as svc_ex:
-                _LOGGER.debug("Could not enumerate services: %s", svc_ex)
-            
-            device._connection = client
-            device.connected = True
-            
-            _LOGGER.info("Connected to Flipper Zero Bluetooth: %s", device.name)
-            return True
-            
+            from bleak.exc import BleakError
         except ImportError:
-            _LOGGER.error("bleak not installed - run: pip install bleak")
+            _LOGGER.error("[OmniRemote] bleak not installed - run: pip install bleak")
             return False
+        
+        # Flipper's BLE Serial service UUID (Nordic UART Service compatible)
+        FLIPPER_SERIAL_SERVICE = "8fe5b3d5-2e7f-4a98-2a48-7acc60fe0000"
+        FLIPPER_RX_CHAR = "19ed82ae-ed21-4c9d-4145-228e62fe0000"  # Write to Flipper
+        FLIPPER_TX_CHAR = "19ed82ae-ed21-4c9d-4145-228e61fe0000"  # Read from Flipper
+        
+        client = None
+        connection_method = "unknown"
+        
+        # Method 1: Try to use HA's bluetooth integration with bleak-retry-connector
+        try:
+            from bleak_retry_connector import establish_connection
+            from homeassistant.components.bluetooth import async_ble_device_from_address
+            
+            _debug("Trying HA Bluetooth integration...")
+            _LOGGER.info("[OmniRemote] Looking up device in HA Bluetooth cache...")
+            
+            # NOTE: async_ble_device_from_address is NOT async despite the name
+            ble_device = async_ble_device_from_address(
+                self.hass, device.port, connectable=True
+            )
+            
+            if ble_device:
+                _debug("Found BLE device in HA: %s", ble_device)
+                _LOGGER.info("[OmniRemote] Found device in HA cache, connecting via bleak-retry-connector...")
+                
+                try:
+                    client = await establish_connection(
+                        BleakClient,
+                        ble_device,
+                        device.name,
+                        max_attempts=3,
+                    )
+                    connection_method = "bleak-retry-connector"
+                    _LOGGER.info("[OmniRemote] Connected via bleak-retry-connector!")
+                except Exception as retry_ex:
+                    _debug("bleak-retry-connector failed: %s", retry_ex)
+                    _LOGGER.warning("[OmniRemote] bleak-retry-connector failed: %s", retry_ex)
+                    client = None
+            else:
+                _debug("Device not in HA Bluetooth cache")
+                _LOGGER.info("[OmniRemote] Device not found in HA Bluetooth cache")
+                
+        except ImportError as ie:
+            _debug("bleak-retry-connector not available: %s", ie)
+            _LOGGER.debug("[OmniRemote] bleak-retry-connector not available")
         except Exception as ex:
-            _LOGGER.error("Failed to connect to Flipper BLE %s: %s", device.port, ex)
-            _LOGGER.error("TIP: USB connection is more reliable than Bluetooth")
+            _debug("HA Bluetooth lookup error: %s", ex)
+            _LOGGER.warning("[OmniRemote] HA Bluetooth lookup error: %s", ex)
+        
+        # Method 2: Direct BleakClient connection
+        if client is None or not client.is_connected:
+            _debug("Trying direct BleakClient connection to %s", device.port)
+            _LOGGER.info("[OmniRemote] Attempting direct BLE connection to %s (20s timeout)...", device.port)
+            
+            try:
+                client = BleakClient(device.port, timeout=20.0)
+                await client.connect()
+                connection_method = "direct-bleak"
+                _LOGGER.info("[OmniRemote] Connected via direct BleakClient!")
+            except BleakError as ble_ex:
+                error_str = str(ble_ex)
+                _LOGGER.error("[OmniRemote] BLE connection error: %s", error_str)
+                
+                # Provide specific troubleshooting based on error
+                if "not found" in error_str.lower():
+                    _LOGGER.error("[OmniRemote] Device not found - make sure Flipper Bluetooth is ON and not connected elsewhere")
+                elif "timeout" in error_str.lower():
+                    _LOGGER.error("[OmniRemote] Connection timed out - Flipper may need RPC over Bluetooth enabled")
+                elif "refused" in error_str.lower() or "rejected" in error_str.lower():
+                    _LOGGER.error("[OmniRemote] Connection refused - try restarting Bluetooth on Flipper")
+                
+                return False
+            except Exception as conn_ex:
+                _LOGGER.error("[OmniRemote] Connection failed: %s", conn_ex)
+                _LOGGER.error("[OmniRemote] Troubleshooting:")
+                _LOGGER.error("[OmniRemote]   1. Flipper: Settings > Bluetooth > ON")
+                _LOGGER.error("[OmniRemote]   2. Flipper: Settings > Bluetooth > RPC over Bluetooth > ON")
+                _LOGGER.error("[OmniRemote]   3. Disconnect Flipper from phone/qFlipper")
+                _LOGGER.error("[OmniRemote]   4. Consider USB connection (more reliable)")
+                return False
+        
+        # Verify connection
+        if not client or not client.is_connected:
+            _LOGGER.error("[OmniRemote] Failed to establish BLE connection")
             return False
-            return False
+        
+        _debug("Connection established via %s, checking services...", connection_method)
+        
+        # Verify Flipper serial service is available
+        try:
+            services = client.services
+            serial_found = False
+            service_list = []
+            
+            for service in services:
+                service_list.append(service.uuid)
+                if "fe00" in service.uuid.lower() or "8fe5b3d5" in service.uuid.lower():
+                    serial_found = True
+            
+            _debug("Available services: %s", service_list)
+            
+            if serial_found:
+                _LOGGER.info("[OmniRemote] Found Flipper Serial service - connection ready!")
+            else:
+                _LOGGER.warning("[OmniRemote] Flipper Serial service not found!")
+                _LOGGER.warning("[OmniRemote] Available services: %s", service_list)
+                _LOGGER.warning("[OmniRemote] Enable: Flipper > Settings > Bluetooth > RPC over Bluetooth")
+                # Don't fail - some operations might still work
+                
+        except Exception as svc_ex:
+            _debug("Could not enumerate services: %s", svc_ex)
+            _LOGGER.warning("[OmniRemote] Could not enumerate BLE services: %s", svc_ex)
+        
+        device._connection = client
+        device.connected = True
+        
+        _LOGGER.info("[OmniRemote] ✓ Connected to Flipper Zero '%s' via %s", device.name, connection_method)
+        return True
     
     async def async_connect(self, device_id: str) -> bool:
         """Connect to a Flipper Zero device."""
