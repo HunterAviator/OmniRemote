@@ -390,3 +390,42 @@ profile: profile_abc123
    - `[OmniRemote DEBUG] save_button_mappings called with data: ...`
    - `[OmniRemote DEBUG] Button ... -> scene: ...`
 
+
+## [1.10.8] - 2024-02-28
+
+### Added
+- **Remote Model Database** - Pre-configured button profiles for 15+ popular remotes:
+  - IKEA: SYMFONISK Gen 2, TRÅDFRI Remote, TRÅDFRI Dimmer, STYRBAR, RODRET
+  - Philips Hue: Dimmer Switch, Tap Dial
+  - Aqara: Opple 6-Button, Mini Switch, Magic Cube
+  - Lutron: Pico Remote
+  - Sonoff: SNZB-01
+  - Tuya: 4-Button Scene Controller
+  - Apple TV Remote, Amazon Fire TV Remote
+  
+- **Model Selection in UI** - When adding a physical remote:
+  - Dropdown to select remote model by manufacturer
+  - Auto-populates button mappings with suggested actions
+  - Icons, labels, and colors pre-configured
+
+- **Enhanced Debug Panel**:
+  - Debug Mode status indicator (shows if DEBUG=True in const.py)
+  - "Test Log" button - writes test entry to HA log
+  - "View HA Log" button - shows OmniRemote entries from home-assistant.log
+  - "Download Log" button - downloads complete debug log file with:
+    - IR encoder debug entries
+    - All OmniRemote/Flipper entries from HA log
+    - Version and timestamp info
+
+### API Endpoints
+- `GET /api/omniremote/remote_models` - List all remote model profiles
+- `GET /api/omniremote/remote_models?grouped=true` - List grouped by manufacturer
+- `POST /api/omniremote/remote_models` with action=apply - Apply model to physical remote
+- `GET /api/omniremote/debug?download=true` - Download debug log file
+- `GET /api/omniremote/debug?ha_log=true` - Get HA log entries
+
+### Fixed
+- Debug log refresh now shows debug_enabled status
+- Fixed indentation error in original OmniApiDebug class
+- Removed duplicate OmniApiDebug class definition
+

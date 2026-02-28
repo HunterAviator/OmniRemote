@@ -82,6 +82,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     hass.http.register_view(OmniApiPhysicalRemotes(hass))
     hass.http.register_view(OmniApiRemoteBridges(hass))
     hass.http.register_view(OmniApiRemoteProfiles(hass))
+    hass.http.register_view(OmniApiRemoteModels(hass))
     hass.http.register_view(OmniApiDebug(hass))
     hass.http.register_view(OmniIconView(hass))
     hass.http.register_view(OmniLogoView(hass))
@@ -2208,7 +2209,7 @@ class OmniApiVersion(HomeAssistantView):
 
 
 class OmniApiDebug(HomeAssistantView):
-    """API for IR command debugging and logging."""
+    """API for IR command debugging, logging, and log download."""
     
     url = "/api/omniremote/debug"
     name = "api:omniremote:debug"
@@ -2218,13 +2219,89 @@ class OmniApiDebug(HomeAssistantView):
         self.hass = hass
     
     async def get(self, request: web.Request) -> web.Response:
-        """Get debug log entries."""
+        """Get debug log entries and status."""
         from .ir_encoder import get_debug_log
+        from .const import DEBUG
+        
+        # Check for download request
+        if request.query.get("download") == "true":
+            return await self._download_log()
+        
+        # Check for HA log entries
+        if request.query.get("ha_log") == "true":
+            return await self._get_ha_log()
         
         return web.json_response({
-            "log": get_debug_log(),
-            "count": len(get_debug_log()),
+            "debug_enabled": DEBUG,
+            "ir_log": get_debug_log(),
+            "ir_log_count": len(get_debug_log()),
         })
+    
+    async def _get_ha_log(self) -> web.Response:
+        """Get OmniRemote entries from HA log."""
+        log_entries = []
+        try:
+            import os
+            log_path = self.hass.config.path("home-assistant.log")
+            if os.path.exists(log_path):
+                with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    lines = f.readlines()
+                    for line in lines[-3000:]:
+                        if 'omniremote' in line.lower() or 'OmniRemote' in line or 'Flipper' in line:
+                            log_entries.append(line.strip())
+                    log_entries = log_entries[-500:]
+        except Exception as ex:
+            log_entries = [f"Error reading log: {ex}"]
+        
+        from .const import DEBUG
+        return web.json_response({
+            "debug_enabled": DEBUG,
+            "log_entries": log_entries,
+            "log_count": len(log_entries),
+        })
+    
+    async def _download_log(self) -> web.Response:
+        """Generate downloadable log file."""
+        from datetime import datetime
+        from .ir_encoder import get_debug_log
+        from .const import DEBUG, VERSION
+        
+        log_content = []
+        log_content.append(f"OmniRemote Debug Log")
+        log_content.append(f"Generated: {datetime.now().isoformat()}")
+        log_content.append(f"Version: {VERSION}")
+        log_content.append(f"Debug Mode: {DEBUG}")
+        log_content.append("=" * 60)
+        log_content.append("")
+        
+        # Add IR debug log
+        log_content.append("=== IR Encoder Debug Log ===")
+        for entry in get_debug_log():
+            log_content.append(str(entry))
+        log_content.append("")
+        
+        # Add HA log entries
+        log_content.append("=== Home Assistant Log (OmniRemote entries) ===")
+        try:
+            import os
+            log_path = self.hass.config.path("home-assistant.log")
+            if os.path.exists(log_path):
+                with open(log_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    for line in f:
+                        if 'omniremote' in line.lower() or 'OmniRemote' in line or 'Flipper' in line:
+                            log_content.append(line.rstrip())
+        except Exception as ex:
+            log_content.append(f"Error reading HA log: {ex}")
+        
+        log_text = "\n".join(log_content)
+        
+        return web.Response(
+            body=log_text,
+            content_type="text/plain",
+            headers={
+                "Content-Disposition": f"attachment; filename=omniremote-debug-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
+            }
+        )
     
     async def post(self, request: web.Request) -> web.Response:
         """Debug actions."""
@@ -2237,8 +2314,20 @@ class OmniApiDebug(HomeAssistantView):
             clear_debug_log()
             return web.json_response({"success": True, "message": "Debug log cleared"})
         
+        elif action == "test_log":
+            _LOGGER.info("[OmniRemote] Test log entry from debug panel at %s", 
+                        __import__('datetime').datetime.now().isoformat())
+            return web.json_response({"success": True, "message": "Test log entry written"})
+        
+        elif action == "set_debug":
+            # Can't change at runtime without file modification
+            from .const import DEBUG
+            return web.json_response({
+                "debug_enabled": DEBUG,
+                "note": "Debug mode is set in const.py. Current setting will persist until changed there."
+            })
+        
         elif action == "test_encode":
-            # Test encoding a specific protocol/address/command
             from .ir_encoder import encode_ir_to_broadlink
             from .catalog import IRCode, IRProtocol
             
@@ -2246,7 +2335,6 @@ class OmniApiDebug(HomeAssistantView):
             address = data.get("address", "07")
             command = data.get("command", "02")
             
-            # Map string to enum
             protocol_map = {
                 "nec": IRProtocol.NEC,
                 "nec_ext": IRProtocol.NEC_EXT,
@@ -2290,10 +2378,9 @@ class OmniApiDebug(HomeAssistantView):
                 })
         
         elif action == "test_send":
-            # Test send a code
             database = _get_database(self.hass)
-        if not database:
-            return web.json_response({"error": "Integration not configured"}, status=500)
+            if not database:
+                return web.json_response({"error": "Integration not configured"}, status=500)
             
             profile_id = data.get("profile_id")
             command_name = data.get("command")
@@ -2312,7 +2399,6 @@ class OmniApiDebug(HomeAssistantView):
             if not ir_code:
                 return web.json_response({"error": f"Command not found: {command_name}"}, status=404)
             
-            # Log the attempt
             _log_debug({
                 "action": "test_send_request",
                 "profile_id": profile_id,
@@ -2334,10 +2420,9 @@ class OmniApiDebug(HomeAssistantView):
             })
         
         elif action == "blaster_status":
-            # Get blaster connection status
             database = _get_database(self.hass)
-        if not database:
-            return web.json_response({"error": "Integration not configured"}, status=500)
+            if not database:
+                return web.json_response({"error": "Integration not configured"}, status=500)
             
             blasters_status = []
             for blaster in database.blasters.values():
@@ -2771,6 +2856,108 @@ class OmniApiPhysicalRemotes(HomeAssistantView):
             result["executed"] = False
         
         return result
+
+
+class OmniApiRemoteModels(HomeAssistantView):
+    """API for remote model profiles (pre-configured button mappings)."""
+    
+    url = "/api/omniremote/remote_models"
+    name = "api:omniremote:remote_models"
+    requires_auth = False
+    
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+    
+    async def get(self, request: web.Request) -> web.Response:
+        """Get available remote models."""
+        from .remote_models import list_models, list_models_grouped
+        
+        grouped = request.query.get("grouped", "false").lower() == "true"
+        
+        if grouped:
+            return web.json_response({
+                "models_by_manufacturer": list_models_grouped()
+            })
+        else:
+            return web.json_response({
+                "models": list_models()
+            })
+    
+    async def post(self, request: web.Request) -> web.Response:
+        """Get a specific model or apply model to remote."""
+        from .remote_models import get_model, get_model_by_zigbee
+        from .physical_remotes import ButtonMapping, ActionType
+        
+        data = await request.json()
+        action = data.get("action", "get")
+        
+        if action == "get":
+            model_id = data.get("model_id")
+            if model_id:
+                model = get_model(model_id)
+                if model:
+                    return web.json_response({"model": model.to_dict()})
+                return web.json_response({"error": "Model not found"}, status=404)
+            return web.json_response({"error": "model_id required"}, status=400)
+        
+        elif action == "detect":
+            # Try to detect model from zigbee identifier
+            zigbee_model = data.get("zigbee_model", "")
+            if zigbee_model:
+                model = get_model_by_zigbee(zigbee_model)
+                if model:
+                    return web.json_response({"model": model.to_dict()})
+            return web.json_response({"model": None})
+        
+        elif action == "apply":
+            # Apply a model's buttons to a physical remote
+            model_id = data.get("model_id")
+            remote_id = data.get("remote_id")
+            
+            if not model_id or not remote_id:
+                return web.json_response({"error": "model_id and remote_id required"}, status=400)
+            
+            model = get_model(model_id)
+            if not model:
+                return web.json_response({"error": "Model not found"}, status=404)
+            
+            database = _get_database(self.hass)
+            if not database or remote_id not in database.physical_remotes:
+                return web.json_response({"error": "Remote not found"}, status=404)
+            
+            remote = database.physical_remotes[remote_id]
+            remote.model_id = model_id
+            
+            # Create button mappings from model with suggested actions
+            for btn in model.buttons:
+                action_type = ActionType.SCENE
+                if btn.suggested_action == "volume_up":
+                    action_type = ActionType.VOLUME_UP
+                elif btn.suggested_action == "volume_down":
+                    action_type = ActionType.VOLUME_DOWN
+                elif btn.suggested_action == "mute":
+                    action_type = ActionType.MUTE
+                elif btn.suggested_action == "ir_command":
+                    action_type = ActionType.IR_COMMAND
+                elif btn.suggested_action == "ha_service":
+                    action_type = ActionType.HA_SERVICE
+                
+                mapping = ButtonMapping(
+                    button_id=btn.button_id,
+                    action_type=action_type,
+                    action_target="",
+                    action_data={"icon": btn.icon, "label": btn.label, "color": btn.color},
+                )
+                remote.button_mappings[btn.button_id] = mapping
+            
+            await database.async_save()
+            
+            return web.json_response({
+                "success": True,
+                "buttons_created": len(model.buttons)
+            })
+        
+        return web.json_response({"error": "Unknown action"}, status=400)
 
 
 class OmniApiRemoteBridges(HomeAssistantView):

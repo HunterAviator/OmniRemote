@@ -190,6 +190,7 @@ class PhysicalRemote:
     
     # Remote profile (pre-defined button layouts)
     profile: str | None = None         # e.g., "ikea_tradfri", "mx3_pro"
+    model_id: str | None = None        # Reference to remote_models.py profile
     
     # Status
     battery_level: int | None = None
@@ -208,6 +209,7 @@ class PhysicalRemote:
             "usb_device_name": self.usb_device_name,
             "button_mappings": {k: v.to_dict() for k, v in self.button_mappings.items()},
             "profile": self.profile,
+            "model_id": self.model_id,
             "battery_level": self.battery_level,
             "last_seen": self.last_seen,
         }
@@ -230,6 +232,7 @@ class PhysicalRemote:
             usb_device_name=data.get("usb_device_name"),
             button_mappings=mappings,
             profile=data.get("profile"),
+            model_id=data.get("model_id"),
             battery_level=data.get("battery_level"),
             last_seen=data.get("last_seen"),
         )

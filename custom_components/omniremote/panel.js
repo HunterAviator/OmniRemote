@@ -3,7 +3,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.7";
+const OMNIREMOTE_VERSION = "1.10.8";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -80,6 +80,7 @@ class OmniRemotePanel extends HTMLElement {
         this._api('/api/omniremote/remote_profiles'),
         this._api('/api/omniremote/debug'),
         this._api('/api/omniremote/flipper'),
+        this._api('/api/omniremote/remote_models'),
       ]);
       
       this._data = {
@@ -99,8 +100,12 @@ class OmniRemotePanel extends HTMLElement {
         flippers: results[9]?.devices || [],
       };
       
-      // Store debug log separately (can get large)
-      this._debugLog = results[8]?.log || [];
+      // Store debug info separately
+      this._debugLog = results[8]?.ir_log || results[8]?.log || [];
+      this._debugEnabled = results[8]?.debug_enabled || false;
+      
+      // Store remote models
+      this._remoteModels = results[10]?.models || [];
       
       console.log('[OmniRemote] Data loaded:', this._data);
       this._render();
@@ -806,6 +811,15 @@ class OmniRemotePanel extends HTMLElement {
       case 'clear-debug-log':
         await this._clearDebugLog();
         break;
+      case 'test-debug-log':
+        await this._testDebugLog();
+        break;
+      case 'view-ha-log':
+        await this._viewHALog();
+        break;
+      case 'close-ha-log':
+        this._closeHALog();
+        break;
       case 'check-blasters':
         await this._checkBlasterStatus();
         break;
@@ -1491,6 +1505,42 @@ class OmniRemotePanel extends HTMLElement {
           <button class="btn btn-s" data-action="refresh-debug-log"><ha-icon icon="mdi:refresh"></ha-icon> Refresh</button>
           <button class="btn btn-s" data-action="clear-debug-log"><ha-icon icon="mdi:delete"></ha-icon> Clear Log</button>
         </div>
+      </div>
+      
+      <!-- Debug Mode Control -->
+      <div class="card" style="margin-bottom:24px;background:#1a2a2a;border-color:#4caf50;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <ha-icon icon="mdi:bug-check" style="font-size:24px;color:#4caf50;"></ha-icon>
+            <div>
+              <div style="font-weight:600;">Debug Mode</div>
+              <div style="font-size:12px;color:#888;">Verbose logging enabled in const.py</div>
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <span id="debug-status" style="color:${this._debugEnabled ? '#4caf50' : '#f44336'};">
+              ${this._debugEnabled ? '● Enabled' : '○ Disabled'}
+            </span>
+            <button class="btn btn-s" data-action="test-debug-log" title="Write test entry to HA log">
+              <ha-icon icon="mdi:pencil"></ha-icon> Test Log
+            </button>
+            <button class="btn btn-s" data-action="view-ha-log" title="View OmniRemote entries from HA log">
+              <ha-icon icon="mdi:text-box-search"></ha-icon> View HA Log
+            </button>
+            <a href="/api/omniremote/debug?download=true" class="btn btn-p" download style="text-decoration:none;">
+              <ha-icon icon="mdi:download"></ha-icon> Download Log
+            </a>
+          </div>
+        </div>
+      </div>
+      
+      <!-- HA Log Viewer (hidden by default) -->
+      <div id="ha-log-viewer" class="card" style="display:none;margin-bottom:24px;max-height:400px;overflow-y:auto;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+          <h3 style="margin:0;"><ha-icon icon="mdi:text-box-outline"></ha-icon> Home Assistant Log (OmniRemote entries)</h3>
+          <button class="btn btn-sm" data-action="close-ha-log"><ha-icon icon="mdi:close"></ha-icon></button>
+        </div>
+        <pre id="ha-log-content" style="background:#0d0d1a;padding:12px;border-radius:4px;font-size:11px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;max-height:300px;overflow-y:auto;margin:0;"></pre>
       </div>
       
       <!-- Blaster Selection -->
@@ -4814,11 +4864,21 @@ data:
     const rooms = this._data.rooms || [];
     const bridges = this._data.remoteBridges || [];
     const profiles = this._data.remoteProfiles || [];
+    const remoteModels = this._remoteModels || [];
     
     // Filter profiles by type if specified
     const filteredProfiles = remoteType 
       ? profiles.filter(p => p.type === remoteType || p.type === remoteType.replace('_', ''))
       : profiles;
+    
+    // Group remote models by manufacturer
+    const modelsByManufacturer = {};
+    remoteModels.forEach(m => {
+      if (!modelsByManufacturer[m.manufacturer]) {
+        modelsByManufacturer[m.manufacturer] = [];
+      }
+      modelsByManufacturer[m.manufacturer].push(m);
+    });
     
     this._editingRemote = null;
     
@@ -4835,6 +4895,19 @@ data:
             <option value="bluetooth" ${remoteType === 'bluetooth' ? 'selected' : ''}>Bluetooth (ESP32 Proxy)</option>
             <option value="usb_keyboard" ${remoteType === 'usb_keyboard' ? 'selected' : ''}>USB Keyboard (Pi Bridge)</option>
           </select>
+        </div>
+        
+        <div class="fg">
+          <label class="fl">Remote Model (optional)</label>
+          <select class="fi" id="remote-model">
+            <option value="">-- Select for auto button mapping --</option>
+            ${Object.entries(modelsByManufacturer).map(([mfr, models]) => `
+              <optgroup label="${mfr}">
+                ${models.map(m => `<option value="${m.id}">${m.name}</option>`).join('')}
+              </optgroup>
+            `).join('')}
+          </select>
+          <small style="color:#888;">Pre-populates button mappings with common actions</small>
         </div>
         
         <div class="fg">
@@ -5684,8 +5757,9 @@ data:
 
   async _refreshDebugLog() {
     const res = await this._api('/api/omniremote/debug');
-    if (res.log) {
-      this._debugLog = res.log;
+    if (res) {
+      this._debugLog = res.ir_log || res.log || [];
+      this._debugEnabled = res.debug_enabled || false;
       this._render();
     }
   }
@@ -5695,6 +5769,50 @@ data:
     if (res.success) {
       this._debugLog = [];
       this._render();
+    }
+  }
+
+  async _testDebugLog() {
+    const res = await this._api('/api/omniremote/debug', 'POST', { action: 'test_log' });
+    if (res.success) {
+      // Show quick feedback
+      const statusEl = this.shadowRoot.querySelector('#debug-status');
+      if (statusEl) {
+        const orig = statusEl.innerHTML;
+        statusEl.innerHTML = '✓ Test entry written';
+        statusEl.style.color = '#4caf50';
+        setTimeout(() => {
+          statusEl.innerHTML = orig;
+        }, 2000);
+      }
+    }
+  }
+
+  async _viewHALog() {
+    const viewer = this.shadowRoot.querySelector('#ha-log-viewer');
+    const content = this.shadowRoot.querySelector('#ha-log-content');
+    
+    if (viewer && content) {
+      viewer.style.display = 'block';
+      content.textContent = 'Loading...';
+      
+      try {
+        const res = await this._api('/api/omniremote/debug?ha_log=true');
+        if (res.log_entries) {
+          content.textContent = res.log_entries.join('\n') || 'No OmniRemote entries found in HA log.';
+        } else {
+          content.textContent = 'No log entries returned.';
+        }
+      } catch (err) {
+        content.textContent = 'Error loading log: ' + err.message;
+      }
+    }
+  }
+
+  _closeHALog() {
+    const viewer = this.shadowRoot.querySelector('#ha-log-viewer');
+    if (viewer) {
+      viewer.style.display = 'none';
     }
   }
 
