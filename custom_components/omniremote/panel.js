@@ -3,7 +3,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.6";
+const OMNIREMOTE_VERSION = "1.10.7";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -5440,15 +5440,25 @@ data:
 
   async _saveButtonMapping() {
     const remote = this._editingRemote;
-    if (!remote) return;
+    if (!remote) {
+      console.error('[OmniRemote] No remote being edited');
+      return;
+    }
+    
+    console.log('[OmniRemote] Saving button mappings for remote:', remote.id, remote.name);
     
     // Collect all mappings from the modal
     const mappings = {};
     
     // Get all mapping rows
-    this.shadowRoot.querySelectorAll('.mapping-row').forEach(row => {
+    const rows = this.shadowRoot.querySelectorAll('.mapping-row');
+    console.log('[OmniRemote] Found', rows.length, 'mapping rows');
+    
+    rows.forEach(row => {
       const btn = row.dataset.button;
       const actionType = row.querySelector('.mapping-action-type')?.value;
+      
+      console.log('[OmniRemote] Processing button:', btn, 'action_type:', actionType);
       
       mappings[btn] = {
         button_id: btn,
@@ -5457,30 +5467,51 @@ data:
       
       // Collect fields based on action type
       if (actionType === 'scene') {
-        mappings[btn].scene_id = row.querySelector('.mapping-target[data-field="scene_id"]')?.value;
+        const sceneId = row.querySelector('.mapping-target[data-field="scene_id"]')?.value;
+        mappings[btn].scene_id = sceneId;
+        console.log('[OmniRemote]   Scene ID:', sceneId);
       } else if (actionType === 'ir_command') {
-        mappings[btn].device_id = row.querySelector('.mapping-device')?.value;
-        mappings[btn].command_name = row.querySelector('.mapping-command')?.value;
-        mappings[btn].blaster_id = row.querySelector('.mapping-blaster')?.value;
+        const deviceId = row.querySelector('.mapping-device')?.value;
+        const commandName = row.querySelector('.mapping-command')?.value;
+        const blasterId = row.querySelector('.mapping-blaster')?.value;
+        mappings[btn].device_id = deviceId;
+        mappings[btn].command_name = commandName;
+        mappings[btn].blaster_id = blasterId;
+        console.log('[OmniRemote]   IR Command: device=', deviceId, 'cmd=', commandName, 'blaster=', blasterId);
       } else if (actionType === 'ha_service') {
         mappings[btn].ha_domain = row.querySelector('.mapping-ha-domain')?.value;
         mappings[btn].ha_service = row.querySelector('.mapping-ha-service')?.value;
         mappings[btn].ha_entity_id = row.querySelector('.mapping-ha-entity')?.value;
+        console.log('[OmniRemote]   HA Service:', mappings[btn].ha_domain + '.' + mappings[btn].ha_service);
       } else if (['volume_up', 'volume_down', 'mute'].includes(actionType)) {
         mappings[btn].room_id = row.querySelector('.mapping-room')?.value;
+        console.log('[OmniRemote]   Room:', mappings[btn].room_id);
       }
     });
     
+    console.log('[OmniRemote] Final mappings object:', mappings);
+    
     // Save to API
     try {
-      await this._api('/api/omniremote/physical_remotes', 'POST', {
+      const result = await this._api('/api/omniremote/physical_remotes', 'POST', {
         action: 'save_button_mappings',
         remote_id: remote.id,
         button_mappings: mappings,
       });
       
+      console.log('[OmniRemote] Save result:', result);
+      
+      if (result.success) {
+        console.log('[OmniRemote] Successfully saved', result.mappings_saved, 'mappings');
+      } else if (result.error) {
+        console.error('[OmniRemote] Save error:', result.error);
+        alert('Error saving mappings: ' + result.error);
+        return;
+      }
+      
       this._modal = null;
       this._editingRemote = null;
+      this._buttonMappings = null;
       await this._loadData();
       this._render();
     } catch (err) {

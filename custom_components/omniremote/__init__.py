@@ -81,6 +81,80 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     except Exception as e:
         _LOGGER.warning("Physical remote support not available: %s", e)
     
+    # Register event listeners for button execution
+    async def handle_send_ir(event):
+        """Handle omniremote_send_ir event."""
+        data = event.data
+        device_id = data.get("device_id")
+        command_name = data.get("command_name")
+        blaster_id = data.get("blaster_id")
+        broadlink_code = data.get("broadlink_code")
+        
+        _LOGGER.info("[OmniRemote] Send IR event: device=%s, cmd=%s, blaster=%s", 
+                    device_id, command_name, blaster_id)
+        
+        try:
+            # Find the blaster to use
+            blaster = None
+            if blaster_id and blaster_id in database.blasters:
+                blaster = database.blasters[blaster_id]
+            elif database.blasters:
+                # Use first available blaster
+                blaster = next(iter(database.blasters.values()))
+            
+            if not blaster:
+                _LOGGER.error("[OmniRemote] No blaster available to send IR")
+                return
+            
+            # Send the IR code
+            if broadlink_code:
+                import broadlink
+                import base64
+                
+                device = broadlink.gendevice(
+                    0x5f36,  # RM4 Mini type
+                    (blaster.host, 80),
+                    bytes.fromhex(blaster.mac.replace(":", "")),
+                    name=blaster.name
+                )
+                await hass.async_add_executor_job(device.auth)
+                code_bytes = base64.b64decode(broadlink_code)
+                await hass.async_add_executor_job(device.send_data, code_bytes)
+                _LOGGER.info("[OmniRemote] IR sent successfully via %s", blaster.name)
+        except Exception as ex:
+            _LOGGER.error("[OmniRemote] Error sending IR: %s", ex)
+    
+    async def handle_run_scene(event):
+        """Handle omniremote_run_scene event."""
+        scene_id = event.data.get("scene_id")
+        _LOGGER.info("[OmniRemote] Run scene event: %s", scene_id)
+        
+        if scene_id and scene_id in database.scenes:
+            scene = database.scenes[scene_id]
+            _LOGGER.info("[OmniRemote] Activating scene: %s", scene.name)
+            # Fire each action in the scene
+            for action in scene.on_actions or scene.actions:
+                if action.action_type == "ir_command" and action.device_id:
+                    device = database.devices.get(action.device_id)
+                    if device and action.command_name in device.commands:
+                        cmd = device.commands[action.command_name]
+                        hass.bus.async_fire("omniremote_send_ir", {
+                            "device_id": action.device_id,
+                            "command_name": action.command_name,
+                            "blaster_id": action.blaster_id or scene.blaster_id,
+                            "broadlink_code": cmd.broadlink_code,
+                        })
+                        if action.delay_seconds > 0:
+                            import asyncio
+                            await asyncio.sleep(action.delay_seconds)
+        else:
+            _LOGGER.warning("[OmniRemote] Scene not found: %s", scene_id)
+    
+    # Register event listeners
+    hass.bus.async_listen("omniremote_send_ir", handle_send_ir)
+    hass.bus.async_listen("omniremote_run_scene", handle_run_scene)
+    _LOGGER.info("[OmniRemote] Event listeners registered for IR send and scene execution")
+    
     # Store in hass.data
     hass.data[DOMAIN][entry.entry_id] = {
         "database": database,

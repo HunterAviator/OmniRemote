@@ -24,7 +24,14 @@ from typing import TYPE_CHECKING, Callable
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
+from .const import DEBUG
+
 _LOGGER = logging.getLogger(__name__)
+
+def _debug(msg: str, *args) -> None:
+    """Log debug message if DEBUG is enabled."""
+    if DEBUG:
+        _LOGGER.info("[Flipper DEBUG] " + msg, *args)
 
 
 class FlipperConnectionType(Enum):
@@ -161,19 +168,21 @@ class FlipperZeroManager:
         """Discover Flipper Zero devices via Bluetooth."""
         devices = []
         
-        _LOGGER.info("Starting Flipper Zero Bluetooth discovery...")
+        _debug("Starting Flipper Zero Bluetooth discovery...")
+        _LOGGER.info("[OmniRemote] Starting Flipper Zero Bluetooth discovery...")
         
         # First try using HA's Bluetooth integration (preferred on HA Yellow)
         try:
             from homeassistant.components import bluetooth
             
-            _LOGGER.info("Using HA Bluetooth integration for discovery...")
+            _debug("Using HA Bluetooth integration for discovery...")
             
             # Get all discovered BLE devices from HA
             discovered = bluetooth.async_discovered_service_info(self.hass)
             discovered_list = list(discovered)
             
-            _LOGGER.info("HA Bluetooth found %d total devices", len(discovered_list))
+            _debug("HA Bluetooth found %d total devices", len(discovered_list))
+            _LOGGER.info("[OmniRemote] HA Bluetooth found %d BLE devices", len(discovered_list))
             
             # Log all discovered device names for debugging
             for service_info in discovered_list:
@@ -249,7 +258,6 @@ class FlipperZeroManager:
         
         return devices
         
-        return devices
 
     async def async_discover_all(self) -> list[dict]:
         """Discover all Flipper Zero devices."""

@@ -14,12 +14,18 @@ from homeassistant.components import frontend, panel_custom
 from homeassistant.components.http import HomeAssistantView
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN, VERSION, DeviceCategory, SceneAction, Blaster
+from .const import DOMAIN, VERSION, DEBUG, DeviceCategory, SceneAction, Blaster
 from .database import RemoteDatabase
 from .catalog import DEVICE_CATALOG, CATALOG_BY_BRAND, CATALOG_BY_CATEGORY, get_catalog_device, search_catalog, list_catalog
 from .activities import Activity, ActivityAction, ActionType, ActivityRunner
 
 _LOGGER = logging.getLogger(__name__)
+
+# Debug logging helper
+def _debug(msg: str, *args) -> None:
+    """Log debug message if DEBUG is enabled."""
+    if DEBUG:
+        _LOGGER.info("[OmniRemote DEBUG] " + msg, *args)
 
 PANEL_URL = "/omniremote"
 PANEL_TITLE = "OmniRemote Manager"
@@ -2557,12 +2563,18 @@ class OmniApiPhysicalRemotes(HomeAssistantView):
         
         elif action == "save_button_mappings":
             # Save all button mappings at once (new format)
+            _debug("save_button_mappings called with data: %s", data)
+            
             remote_id = data.get("remote_id")
             if not remote_id or remote_id not in database.physical_remotes:
+                _debug("Remote not found: %s", remote_id)
                 return web.json_response({"error": "Remote not found"}, status=404)
             
             remote = database.physical_remotes[remote_id]
             button_mappings = data.get("button_mappings", {})
+            
+            _debug("Saving %d button mappings for remote %s (%s)", 
+                   len(button_mappings), remote_id, remote.name)
             
             from .physical_remotes import ButtonMapping, ActionType
             
@@ -2578,20 +2590,26 @@ class OmniApiPhysicalRemotes(HomeAssistantView):
                 
                 if action_type_str == "scene":
                     action_target = mapping_data.get("scene_id", "")
+                    _debug("  Button %s -> scene: %s", btn_id, action_target)
                 elif action_type_str == "ir_command":
                     action_target = mapping_data.get("device_id", "")
                     action_data = {
                         "command_name": mapping_data.get("command_name", ""),
                         "blaster_id": mapping_data.get("blaster_id", ""),
                     }
+                    _debug("  Button %s -> ir_command: device=%s, cmd=%s, blaster=%s", 
+                           btn_id, action_target, action_data.get("command_name"), action_data.get("blaster_id"))
                 elif action_type_str == "ha_service":
                     action_data = {
                         "domain": mapping_data.get("ha_domain", ""),
                         "service": mapping_data.get("ha_service", ""),
                         "entity_id": mapping_data.get("ha_entity_id", ""),
                     }
+                    _debug("  Button %s -> ha_service: %s.%s on %s", 
+                           btn_id, action_data.get("domain"), action_data.get("service"), action_data.get("entity_id"))
                 elif action_type_str in ["volume_up", "volume_down", "mute"]:
                     action_target = mapping_data.get("room_id", "")
+                    _debug("  Button %s -> %s: room=%s", btn_id, action_type_str, action_target)
                 
                 mapping = ButtonMapping(
                     button_id=btn_id,
@@ -2602,11 +2620,50 @@ class OmniApiPhysicalRemotes(HomeAssistantView):
                 remote.button_mappings[btn_id] = mapping
             
             await database.async_save()
+            _debug("Button mappings saved successfully for remote %s", remote_id)
             
             return web.json_response({
                 "success": True,
                 "mappings_saved": len(button_mappings)
             })
+        
+        elif action == "execute_button":
+            # Execute a button press on a physical remote
+            remote_id = data.get("remote_id")
+            button_id = data.get("button_id")
+            
+            _debug("execute_button called: remote=%s, button=%s", remote_id, button_id)
+            
+            if not remote_id or remote_id not in database.physical_remotes:
+                _debug("Remote not found: %s", remote_id)
+                return web.json_response({"error": "Remote not found"}, status=404)
+            
+            remote = database.physical_remotes[remote_id]
+            
+            if button_id not in remote.button_mappings:
+                _debug("Button mapping not found: %s", button_id)
+                return web.json_response({"error": f"Button '{button_id}' not mapped"}, status=404)
+            
+            mapping = remote.button_mappings[button_id]
+            _debug("Executing mapping: type=%s, target=%s, data=%s", 
+                   mapping.action_type.value, mapping.action_target, mapping.action_data)
+            
+            try:
+                # Execute based on action type
+                result = await self._execute_button_mapping(database, remote, mapping)
+                _debug("Button execution result: %s", result)
+                
+                return web.json_response({
+                    "success": True,
+                    "action_type": mapping.action_type.value,
+                    "result": result
+                })
+            except Exception as ex:
+                _LOGGER.error("[OmniRemote] Error executing button: %s", ex)
+                return web.json_response({
+                    "success": False,
+                    "error": str(ex)
+                }, status=500)
         
         elif action == "discover_zigbee":
             # Discover Zigbee remotes from ZHA/deCONZ
@@ -2624,6 +2681,96 @@ class OmniApiPhysicalRemotes(HomeAssistantView):
                 }, status=500)
         
         return web.json_response({"error": "Unknown action"}, status=400)
+    
+    async def _execute_button_mapping(self, database, remote, mapping) -> dict:
+        """Execute a button mapping action."""
+        from .physical_remotes import ActionType
+        
+        action_type = mapping.action_type
+        target = mapping.action_target
+        data = mapping.action_data or {}
+        
+        result = {"executed": True}
+        
+        if action_type == ActionType.SCENE:
+            # Run a scene
+            _debug("Executing scene: %s", target)
+            if target and target in database.scenes:
+                scene = database.scenes[target]
+                # Fire event to run scene
+                self.hass.bus.async_fire("omniremote_run_scene", {"scene_id": target})
+                result["scene_id"] = target
+                result["scene_name"] = scene.name
+            else:
+                result["error"] = f"Scene not found: {target}"
+                result["executed"] = False
+        
+        elif action_type == ActionType.IR_COMMAND:
+            # Send IR command
+            device_id = target
+            command_name = data.get("command_name")
+            blaster_id = data.get("blaster_id")
+            
+            _debug("Executing IR command: device=%s, cmd=%s, blaster=%s", 
+                   device_id, command_name, blaster_id)
+            
+            if device_id and device_id in database.devices:
+                device = database.devices[device_id]
+                if command_name and command_name in device.commands:
+                    cmd = device.commands[command_name]
+                    # Fire event to send IR
+                    self.hass.bus.async_fire("omniremote_send_ir", {
+                        "device_id": device_id,
+                        "command_name": command_name,
+                        "blaster_id": blaster_id or device.room_id,
+                        "broadlink_code": cmd.broadlink_code,
+                    })
+                    result["device"] = device.name
+                    result["command"] = command_name
+                else:
+                    result["error"] = f"Command not found: {command_name}"
+                    result["executed"] = False
+            else:
+                result["error"] = f"Device not found: {device_id}"
+                result["executed"] = False
+        
+        elif action_type == ActionType.HA_SERVICE:
+            # Call HA service
+            domain = data.get("domain")
+            service = data.get("service")
+            entity_id = data.get("entity_id")
+            
+            _debug("Executing HA service: %s.%s on %s", domain, service, entity_id)
+            
+            if domain and service:
+                service_data = {}
+                if entity_id:
+                    service_data["entity_id"] = entity_id
+                
+                await self.hass.services.async_call(domain, service, service_data)
+                result["service"] = f"{domain}.{service}"
+                result["entity_id"] = entity_id
+            else:
+                result["error"] = "Domain and service required"
+                result["executed"] = False
+        
+        elif action_type in [ActionType.VOLUME_UP, ActionType.VOLUME_DOWN, ActionType.MUTE]:
+            # Volume control - fire events for room to handle
+            room_id = target or remote.room_id
+            _debug("Executing volume action: %s for room %s", action_type.value, room_id)
+            
+            self.hass.bus.async_fire(f"omniremote_{action_type.value}", {
+                "room_id": room_id,
+                "remote_id": remote.id,
+            })
+            result["action"] = action_type.value
+            result["room_id"] = room_id
+        
+        else:
+            result["error"] = f"Unknown action type: {action_type.value}"
+            result["executed"] = False
+        
+        return result
 
 
 class OmniApiRemoteBridges(HomeAssistantView):

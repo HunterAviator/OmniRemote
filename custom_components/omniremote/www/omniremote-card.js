@@ -300,13 +300,17 @@ class OmniRemoteCard extends HTMLElement {
   }
 
   setConfig(config) {
-    if (!config.device && !config.entity) {
-      throw new Error('You need to define a device or entity');
+    // Support profile-based configuration
+    if (!config.device && !config.entity && !config.profile) {
+      throw new Error('You need to define a device, entity, or profile');
     }
     
     this._config = {
+      profile: config.profile || null, // Remote Builder profile ID
       device: config.device || null,
       entity: config.entity || null,
+      room: config.room || null,
+      blaster: config.blaster || null,
       area: config.area || null,
       template: config.template || 'tv',
       name: config.name || config.device || 'Remote',
@@ -314,6 +318,8 @@ class OmniRemoteCard extends HTMLElement {
       size: config.size || 'medium',
       columns: config.columns || null,
       show_name: config.show_name !== false,
+      show_header: config.show_header !== false,
+      show_room: config.show_room !== false,
       show_device_state: config.show_device_state !== false,
       custom_layout: config.custom_layout || null,
       custom_buttons: config.custom_buttons || {},
@@ -327,7 +333,69 @@ class OmniRemoteCard extends HTMLElement {
       bluetooth_remote: config.bluetooth_remote || null,
     };
     
+    // If profile is specified, load it from API
+    if (this._config.profile) {
+      this._loadProfile(this._config.profile);
+    } else {
+      this._render();
+    }
+  }
+  
+  async _loadProfile(profileId) {
+    try {
+      const response = await fetch('/api/omniremote/remote_profiles');
+      const data = await response.json();
+      const profile = data.profiles?.find(p => p.id === profileId);
+      
+      if (profile) {
+        this._profile = profile;
+        this._config.name = profile.name || this._config.name;
+        this._config.custom_layout = this._buildLayoutFromProfile(profile);
+        this._config.custom_buttons = this._buildButtonsFromProfile(profile);
+        if (profile.room_id) this._config.room = profile.room_id;
+        if (profile.blaster_id) this._config.blaster = profile.blaster_id;
+        if (profile.default_device_id) this._config.device = profile.default_device_id;
+      }
+    } catch (err) {
+      console.error('[OmniRemote Card] Error loading profile:', err);
+    }
+    
     this._render();
+  }
+  
+  _buildLayoutFromProfile(profile) {
+    if (!profile.buttons || !profile.rows || !profile.cols) return null;
+    
+    const layout = [];
+    for (let r = 0; r < profile.rows; r++) {
+      const row = [];
+      for (let c = 0; c < profile.cols; c++) {
+        const btn = profile.buttons.find(b => b.row === r && b.col === c);
+        row.push(btn ? btn.id : null);
+      }
+      layout.push(row);
+    }
+    return layout;
+  }
+  
+  _buildButtonsFromProfile(profile) {
+    if (!profile.buttons) return {};
+    
+    const buttons = {};
+    profile.buttons.forEach(btn => {
+      buttons[btn.id] = {
+        icon: btn.icon || 'mdi:circle',
+        label: btn.label || '',
+        color: btn.color || null,
+        command: btn.command_name || null,
+        device: btn.device_id || null,
+        scene: btn.scene_id || null,
+        action_type: btn.action_type || 'ir_command',
+        col_span: btn.col_span || 1,
+        row_span: btn.row_span || 1,
+      };
+    });
+    return buttons;
   }
 
   getCardSize() {

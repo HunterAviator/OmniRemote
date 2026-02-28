@@ -310,3 +310,83 @@ For Flipper Bluetooth to work:
 2. Flipper must NOT be connected to qFlipper or mobile app
 3. Check HA logs for "Starting Flipper Zero Bluetooth discovery..."
 
+
+## [1.10.5] - 2024-02-28
+
+### Fixed
+- **Discover Button** - Now shows discovered devices with type, IP, MAC in a modal instead of just a count. Added "Add" button for each discovered device.
+- **Physical Remote Button Mapping** - Fixed "Add Button" not saving or showing newly added buttons. Modal now properly preserves state when re-rendering.
+
+### Added
+- **Remote Builder - Room Selection** - Associate remote profiles with rooms for context-aware control
+- **Remote Builder - Blaster Selection** - Set a default blaster for the remote profile
+- **Remote Builder - Default Device** - Set a default IR device for command-based buttons
+- **Dashboard Card Button** - New "Dashboard Card" button in builder shows YAML to copy for adding remote as a Lovelace card
+- **Dashboard Card Instructions** - Step-by-step guide for adding remote card to dashboard
+
+### Changed
+- Grid Settings modal renamed to "Remote Settings" with expanded options
+- Improved discovery UI with device details modal
+
+
+## [1.10.6] - 2024-02-28
+
+### Fixed
+- **Flipper Zero Bluetooth Discovery** - Complete rewrite of discovery function
+  - Now shows modal with results if inline UI elements not available
+  - Better error handling and user feedback
+  - Detailed logging for debugging
+  - Shows Bluetooth vs USB icon for each discovered device
+- **Flipper Add Button** - Fixed click handlers not being attached properly
+
+### Changed
+- **Discovery UI** - Results now shown in proper modal with device details
+- **Card Profile Support** - omniremote-card.js now supports loading profiles from Remote Builder
+  - Use `profile: profile_id` in card YAML
+  - Automatically loads buttons, layout, room, and blaster from saved profile
+
+### Dashboard Card Usage
+```yaml
+type: custom:omniremote-card
+profile: profile_abc123
+# Optional overrides:
+# name: Living Room TV
+# blaster: rm4_living_room
+# show_header: true
+```
+
+
+## [1.10.7] - 2024-02-28
+
+### Fixed
+- **Button Mapping Save** - Fixed mappings not persisting after save
+  - ButtonMapping.to_dict() now includes UI-friendly field names (scene_id, device_id, etc.)
+  - Frontend now correctly collects all mapping fields
+  - Added comprehensive console logging for debugging
+
+### Added
+- **Debug Mode** - Added DEBUG = True flag in const.py for verbose logging
+  - All OmniRemote operations now log to HA with [OmniRemote] prefix
+  - Flipper discovery logs all BLE devices found
+  - Button mapping save logs each button being processed
+  - API calls log request/response data
+
+- **Event Handlers** - Added listeners for omniremote_send_ir and omniremote_run_scene events
+  - Physical remote button presses now actually trigger IR sends
+  - Scene activation fires proper events
+
+- **execute_button API** - New action to test button mappings from the UI
+  - Executes the mapped action (scene, IR, HA service, volume)
+  - Returns detailed result for debugging
+
+### How to Debug
+1. After installing, check HA logs for `[OmniRemote]` messages
+2. Open browser DevTools (F12) → Console tab
+3. When saving button mappings, you'll see:
+   - `[OmniRemote] Saving button mappings for remote: ...`
+   - `[OmniRemote] Processing button: ... action_type: ...`
+   - `[OmniRemote] Final mappings object: {...}`
+4. In HA logs you'll see:
+   - `[OmniRemote DEBUG] save_button_mappings called with data: ...`
+   - `[OmniRemote DEBUG] Button ... -> scene: ...`
+

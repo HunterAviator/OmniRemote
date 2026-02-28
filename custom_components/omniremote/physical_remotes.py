@@ -73,7 +73,7 @@ class ButtonMapping:
     double_press_action: dict | None = None # Optional double press override
     
     def to_dict(self) -> dict:
-        return {
+        result = {
             "button_id": self.button_id,
             "action_type": self.action_type.value,
             "action_target": self.action_target,
@@ -81,6 +81,22 @@ class ButtonMapping:
             "long_press_action": self.long_press_action,
             "double_press_action": self.double_press_action,
         }
+        
+        # Add UI-friendly field names based on action type
+        if self.action_type == ActionType.SCENE:
+            result["scene_id"] = self.action_target
+        elif self.action_type == ActionType.IR_COMMAND:
+            result["device_id"] = self.action_target
+            result["command_name"] = self.action_data.get("command_name", "")
+            result["blaster_id"] = self.action_data.get("blaster_id", "")
+        elif self.action_type == ActionType.HA_SERVICE:
+            result["ha_domain"] = self.action_data.get("domain", "")
+            result["ha_service"] = self.action_data.get("service", "")
+            result["ha_entity_id"] = self.action_data.get("entity_id", "")
+        elif self.action_type in [ActionType.VOLUME_UP, ActionType.VOLUME_DOWN, ActionType.MUTE]:
+            result["room_id"] = self.action_target
+        
+        return result
     
     @classmethod
     def from_dict(cls, data: dict) -> "ButtonMapping":
