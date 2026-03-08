@@ -3,7 +3,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.15";
+const OMNIREMOTE_VERSION = "1.10.16";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -2154,6 +2154,95 @@ bluetooth_proxy:
           <ul>
             <li><strong>Athom Bluetooth Proxy</strong> - ~$15, plug and play</li>
             <li><strong>GL-S10</strong> - Bluetooth gateway with proxy support</li>
+          </ul>
+        `
+      },
+      'pi-zero-bridge': {
+        title: 'Pi Zero W Bridge',
+        icon: 'mdi:raspberry-pi',
+        content: `
+          <h3>Raspberry Pi Zero W Remote Bridge</h3>
+          <p>The Pi Zero W can act as both a <strong>Bluetooth proxy</strong> AND a <strong>2.4GHz USB dongle host</strong> simultaneously - perfect for remotes like the G20S that support both modes.</p>
+          
+          <h4>Hardware Needed (~$25)</h4>
+          <ul>
+            <li><strong>Raspberry Pi Zero W</strong> - $10-15 (built-in BT + WiFi)</li>
+            <li><strong>Micro USB OTG adapter</strong> - $3</li>
+            <li><strong>MicroSD card</strong> - 8GB+ ($5)</li>
+            <li><strong>5V USB power supply</strong> - $5</li>
+          </ul>
+          
+          <h4>Architecture</h4>
+          <pre style="background:#1a1a2e;padding:12px;border-radius:8px;font-size:10px;">
+┌─────────────────────────────────────────┐
+│           Raspberry Pi Zero W            │
+│                                          │
+│  Built-in BT        USB OTG Port         │
+│      │                   │               │
+│      ▼                   ▼               │
+│  BT Remotes       2.4GHz Dongle          │
+│                                          │
+│      └─────────┬─────────┘               │
+│                ▼                         │
+│         WiFi → MQTT → HA                 │
+└─────────────────────────────────────────┘</pre>
+          
+          <h4>Step 1: Flash Raspberry Pi OS Lite</h4>
+          <ol>
+            <li>Download <a href="https://www.raspberrypi.com/software/" target="_blank" style="color:#64b5f6;">Raspberry Pi Imager</a></li>
+            <li>Select <strong>Raspberry Pi OS Lite (64-bit)</strong></li>
+            <li>Click ⚙️ → Enable SSH, set WiFi, set hostname to <code>pi-remote-bridge</code></li>
+            <li>Write to SD card, boot the Pi</li>
+          </ol>
+          
+          <h4>Step 2: Install Dependencies</h4>
+          <pre style="background:#1a1a2e;padding:12px;border-radius:8px;font-size:11px;">
+ssh pi@pi-remote-bridge.local
+sudo apt update && sudo apt install -y python3-pip python3-evdev mosquitto-clients
+pip3 install evdev paho-mqtt --break-system-packages</pre>
+          
+          <h4>Step 3: Create Bridge Script</h4>
+          <pre style="background:#1a1a2e;padding:12px;border-radius:8px;font-size:11px;">
+sudo nano /home/pi/remote_bridge.py</pre>
+          <p>See full script in the OmniRemote GitHub wiki. Key features:</p>
+          <ul>
+            <li>Auto-detects USB HID devices (keyboards, remotes, air mice)</li>
+            <li>Maps evdev key codes to friendly button names</li>
+            <li>Publishes to MQTT topic: <code>omniremote/physical_remote</code></li>
+          </ul>
+          
+          <h4>Step 4: Create Systemd Service</h4>
+          <pre style="background:#1a1a2e;padding:12px;border-radius:8px;font-size:11px;">
+sudo nano /etc/systemd/system/remote-bridge.service
+
+[Unit]
+Description=OmniRemote Pi Bridge
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 /home/pi/remote_bridge.py
+Restart=always
+
+[Install]
+WantedBy=multi-user.target</pre>
+          <pre style="background:#1a1a2e;padding:12px;border-radius:8px;font-size:11px;">
+sudo systemctl enable remote-bridge
+sudo systemctl start remote-bridge</pre>
+          
+          <h4>Step 5: Add to OmniRemote</h4>
+          <ol>
+            <li>Go to <em>Physical Remotes</em> → <em>Bridges</em></li>
+            <li>Add Bridge → Type: <strong>USB Bridge (MQTT)</strong></li>
+            <li>MQTT Topic: <code>omniremote/physical_remote</code></li>
+          </ol>
+          
+          <h4>Troubleshooting</h4>
+          <ul>
+            <li><strong>No devices:</strong> Run <code>ls /dev/input/</code> - dongle should create event* files</li>
+            <li><strong>Permission denied:</strong> Run as root or: <code>sudo usermod -a -G input pi</code></li>
+            <li><strong>Test keys:</strong> Use <code>evtest</code> to see raw events</li>
           </ul>
         `
       },

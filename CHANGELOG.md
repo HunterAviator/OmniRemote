@@ -1,5 +1,29 @@
 # OmniRemote Changelog
 
+## [1.10.16] - 2026-03-08
+
+### Fixed
+- **IR Command Button Mapping** - Fixed button-to-IR mapping not sending commands
+  - `_default_action_handler` now correctly looks up `broadlink_code` from device
+  - `handle_send_ir` now falls back to looking up device/command if code not provided
+  - Fixed key name mismatch (`command` vs `command_name`)
+  - Added detailed logging for IR send debugging
+
+### Added
+- **Wiki: Pi Zero W Bridge** - Complete setup guide for Raspberry Pi Zero W as dual-mode remote bridge
+  - Acts as both Bluetooth proxy AND 2.4GHz USB dongle host
+  - Hardware list (~$25 total)
+  - Step-by-step Raspberry Pi OS Lite setup
+  - Python bridge script with evdev key mapping
+  - Systemd service configuration
+  - MQTT integration with Home Assistant
+  - Troubleshooting tips
+
+### Technical
+- IR_COMMAND handler now includes `blaster_id` from mapping
+- Better error logging when device/command not found
+- `handle_send_ir` logs whether code was looked up or provided directly
+
 ## [1.10.15] - 2026-03-07
 
 ### Added

@@ -90,8 +90,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         blaster_id = data.get("blaster_id")
         broadlink_code = data.get("broadlink_code")
         
-        _LOGGER.info("[OmniRemote] Send IR event: device=%s, cmd=%s, blaster=%s", 
-                    device_id, command_name, blaster_id)
+        _LOGGER.info("[OmniRemote] Send IR event: device=%s, cmd=%s, blaster=%s, has_code=%s", 
+                    device_id, command_name, blaster_id, bool(broadlink_code))
+        
+        # Look up broadlink_code from device if not provided directly
+        if not broadlink_code and device_id and command_name:
+            if device_id in database.devices:
+                device = database.devices[device_id]
+                if command_name in device.commands:
+                    cmd = device.commands[command_name]
+                    broadlink_code = cmd.broadlink_code if hasattr(cmd, 'broadlink_code') else cmd.get("broadlink_code")
+                    _LOGGER.debug("[OmniRemote] Looked up IR code for %s/%s", device_id, command_name)
+                else:
+                    _LOGGER.warning("[OmniRemote] Command %s not found in device %s", command_name, device_id)
+            else:
+                _LOGGER.warning("[OmniRemote] Device not found: %s", device_id)
+        
+        if not broadlink_code:
+            _LOGGER.error("[OmniRemote] No IR code to send for device=%s, cmd=%s", device_id, command_name)
+            return
         
         try:
             # Find the blaster to use
@@ -106,21 +123,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.error("[OmniRemote] No blaster available to send IR")
                 return
             
-            # Send the IR code
-            if broadlink_code:
-                import broadlink
-                import base64
-                
-                device = broadlink.gendevice(
-                    0x5f36,  # RM4 Mini type
-                    (blaster.host, 80),
-                    bytes.fromhex(blaster.mac.replace(":", "")),
-                    name=blaster.name
-                )
-                await hass.async_add_executor_job(device.auth)
-                code_bytes = base64.b64decode(broadlink_code)
-                await hass.async_add_executor_job(device.send_data, code_bytes)
-                _LOGGER.info("[OmniRemote] IR sent successfully via %s", blaster.name)
+            # Send the IR code via Broadlink
+            _LOGGER.info("[OmniRemote] Sending IR via blaster %s (%s)", blaster.name, blaster.host)
+            
+            import broadlink
+            import base64
+            
+            device = broadlink.gendevice(
+                0x5f36,  # RM4 Mini type
+                (blaster.host, 80),
+                bytes.fromhex(blaster.mac.replace(":", "")),
+                name=blaster.name
+            )
+            await hass.async_add_executor_job(device.auth)
+            code_bytes = base64.b64decode(broadlink_code)
+            await hass.async_add_executor_job(device.send_data, code_bytes)
+            _LOGGER.info("[OmniRemote] IR sent successfully via %s", blaster.name)
         except Exception as ex:
             _LOGGER.error("[OmniRemote] Error sending IR: %s", ex)
     

@@ -716,13 +716,30 @@ class PhysicalRemoteManager:
             await self._execute_room_media_action(remote.room_id, action_type, data)
         
         elif action_type == ActionType.IR_COMMAND:
-            # Send IR command
-            device_id, command = target.split("/", 1) if "/" in target else (target, data.get("command", ""))
-            self.hass.bus.async_fire("omniremote_send_ir", {
-                "device_id": device_id,
-                "command": command,
-                "room_id": remote.room_id,
-            })
+            # Send IR command - look up the actual broadlink code
+            device_id = target or data.get("device_id", "")
+            command_name = data.get("command_name", "")
+            blaster_id = data.get("blaster_id", "")
+            
+            # Look up the device and command to get the broadlink code
+            broadlink_code = None
+            if hasattr(self.database, "devices") and device_id in self.database.devices:
+                device = self.database.devices[device_id]
+                if command_name and command_name in device.commands:
+                    cmd = device.commands[command_name]
+                    broadlink_code = cmd.broadlink_code if hasattr(cmd, 'broadlink_code') else cmd.get("broadlink_code")
+                    _LOGGER.debug("[OmniRemote] Found IR code for %s/%s", device_id, command_name)
+            
+            if broadlink_code:
+                self.hass.bus.async_fire("omniremote_send_ir", {
+                    "device_id": device_id,
+                    "command_name": command_name,
+                    "blaster_id": blaster_id,
+                    "broadlink_code": broadlink_code,
+                    "room_id": remote.room_id,
+                })
+            else:
+                _LOGGER.warning("[OmniRemote] No IR code found for device=%s, command=%s", device_id, command_name)
     
     async def _execute_room_media_action(
         self, 
