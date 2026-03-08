@@ -1,5 +1,42 @@
 # OmniRemote Changelog
 
+## [1.10.12] - 2026-03-07
+
+### Added
+- **Bluetooth Remote Discovery** - Discover button now searches for both Zigbee AND Bluetooth remotes
+  - Scans Home Assistant's Bluetooth integration for remote-like devices
+  - Detects devices by name patterns (G20, Air Mouse, Fire TV, Roku, etc.)
+  - Identifies HID (keyboard/mouse) devices by service UUID
+  - Shows RSSI signal strength for Bluetooth devices
+  - Checks both discovered and already-paired Bluetooth devices
+
+### Changed
+- **Discover Remotes** - Now shows combined results from Zigbee and Bluetooth
+  - Displays device type (Zigbee vs Bluetooth) in results
+  - Shows IEEE address for Zigbee, MAC address for Bluetooth
+  - Better instructions when no remotes found
+
+### API
+- Added `discover_bluetooth` action to physical_remotes API
+- Added `discover_remotes` action that returns both Zigbee and Bluetooth
+- Returns `{zigbee: [], bluetooth: [], total: N}` format
+
+## [1.10.11] - 2026-03-07
+
+### Added
+- **Wiki: Flipper Zero Setup** - USB vs Bluetooth recommendations, troubleshooting
+- **Wiki: Bluetooth Proxy Setup** - Full 10-step ESP32 setup guide with YAML template
+
+## [1.10.10] - 2026-03-07
+
+### Added
+- New remote models: RUPA BT Voice, Dupad Story BT, Amazon Fire TV L5B83G, G20S Pro Plus
+
+## [1.10.9] - 2026-03-07
+
+### Fixed
+- Flipper Bluetooth connection with retry logic and slot detection
+
 ## [1.9.2] - 2024-02-27
 
 ### Fixed
