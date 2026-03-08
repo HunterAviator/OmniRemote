@@ -2765,6 +2765,38 @@ class OmniApiPhysicalRemotes(HomeAssistantView):
                     "error": str(ex)
                 }, status=500)
         
+        elif action == "discover_bluetooth":
+            # Discover Bluetooth remotes
+            from .physical_remotes import discover_bluetooth_remotes
+            
+            try:
+                discovered = await discover_bluetooth_remotes(self.hass)
+                return web.json_response({
+                    "success": True,
+                    "discovered": discovered
+                })
+            except Exception as ex:
+                return web.json_response({
+                    "error": str(ex)
+                }, status=500)
+        
+        elif action == "discover_remotes":
+            # Discover ALL remotes (Zigbee + Bluetooth)
+            from .physical_remotes import discover_all_remotes
+            
+            try:
+                result = await discover_all_remotes(self.hass)
+                return web.json_response({
+                    "success": True,
+                    "zigbee": result["zigbee"],
+                    "bluetooth": result["bluetooth"],
+                    "total": result["total"]
+                })
+            except Exception as ex:
+                return web.json_response({
+                    "error": str(ex)
+                }, status=500)
+        
         return web.json_response({"error": "Unknown action"}, status=400)
     
     async def _execute_button_mapping(self, database, remote, mapping) -> dict:

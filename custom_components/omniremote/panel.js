@@ -5429,15 +5429,43 @@ data:
   }
 
   async _discoverRemotes() {
+    const btn = this.shadowRoot.querySelector('[data-action="discover-remotes"]');
+    if (btn) btn.innerHTML = '<ha-icon icon="mdi:loading" class="spin"></ha-icon> Discovering...';
+    
     const res = await this._api('/api/omniremote/physical_remotes', 'POST', {
-      action: 'discover_zigbee'
+      action: 'discover_remotes'
     });
     
-    if (res.discovered && res.discovered.length > 0) {
-      const list = res.discovered.map(d => `• ${d.name} (${d.model || d.manufacturer || 'unknown'})`).join('\\n');
-      alert('Found Zigbee remotes:\\n' + list + '\\n\\nAdd them manually with their IEEE address.');
+    if (btn) btn.innerHTML = '<ha-icon icon="mdi:refresh"></ha-icon> Discover';
+    
+    const zigbee = res.zigbee || [];
+    const bluetooth = res.bluetooth || [];
+    const total = res.total || 0;
+    
+    if (total > 0) {
+      let msg = `Found ${total} remote(s):\n\n`;
+      
+      if (zigbee.length > 0) {
+        msg += `📡 ZIGBEE (${zigbee.length}):\n`;
+        msg += zigbee.map(d => `  • ${d.name} (${d.model || d.manufacturer || 'unknown'})\n    IEEE: ${d.ieee}`).join('\n');
+        msg += '\n\n';
+      }
+      
+      if (bluetooth.length > 0) {
+        msg += `🔵 BLUETOOTH (${bluetooth.length}):\n`;
+        msg += bluetooth.map(d => {
+          const rssi = d.rssi ? ` | RSSI: ${d.rssi}` : '';
+          return `  • ${d.name}${rssi}\n    MAC: ${d.mac}`;
+        }).join('\n');
+      }
+      
+      msg += '\n\nAdd them using the + Add Physical Remote button.';
+      alert(msg);
     } else {
-      alert('No new Zigbee remotes found. Make sure they are paired with ZHA/deCONZ/Z2M first.');
+      alert('No remotes found.\n\n' +
+        '📡 Zigbee: Make sure remotes are paired with ZHA/deCONZ/Z2M first.\n\n' +
+        '🔵 Bluetooth: Ensure your remote is in pairing mode and Bluetooth is enabled in Home Assistant.\n\n' +
+        'You can still add remotes manually using the + button.');
     }
   }
 

@@ -789,8 +789,103 @@ async def discover_zigbee_remotes(hass: HomeAssistant) -> list[dict]:
                             "manufacturer": device.manufacturer,
                             "model": device.model,
                             "type": "zha",
+                            "protocol": "zigbee",
                         })
         except Exception as ex:
             _LOGGER.debug("Could not discover ZHA remotes: %s", ex)
     
     return remotes
+
+
+async def discover_bluetooth_remotes(hass: HomeAssistant) -> list[dict]:
+    """Discover Bluetooth remotes via Home Assistant's bluetooth integration."""
+    remotes = []
+    
+    # Known remote name patterns to look for
+    REMOTE_NAME_PATTERNS = [
+        "remote", "keyboard", "g20", "g10", "air mouse", "gyro", 
+        "fire tv", "firetv", "roku", "shield", "apple tv",
+        "dupad", "rupa", "wechip", "mele", "minix", "mx3",
+        "rii", "ipazzport", "sofabaton", "harmony",
+    ]
+    
+    try:
+        # Check if bluetooth component is loaded
+        if "bluetooth" not in hass.config.components:
+            _LOGGER.debug("Bluetooth component not loaded")
+            return remotes
+        
+        # Get discovered Bluetooth devices
+        try:
+            from homeassistant.components.bluetooth import async_discovered_service_info
+            discovered = async_discovered_service_info(hass)
+            
+            for service_info in discovered:
+                name = service_info.name or ""
+                name_lower = name.lower()
+                
+                # Check if this looks like a remote
+                is_remote = any(pattern in name_lower for pattern in REMOTE_NAME_PATTERNS)
+                
+                # Also check for HID-like service UUIDs (keyboard/mouse)
+                # HID UUID: 00001812-0000-1000-8000-00805f9b34fb
+                has_hid = any("1812" in str(uuid).lower() for uuid in (service_info.service_uuids or []))
+                
+                if is_remote or has_hid:
+                    remotes.append({
+                        "mac": service_info.address,
+                        "name": name or f"BT Device {service_info.address[-8:]}",
+                        "manufacturer": service_info.manufacturer or "Unknown",
+                        "model": None,
+                        "rssi": service_info.rssi,
+                        "type": "bluetooth",
+                        "protocol": "bluetooth",
+                    })
+        except ImportError:
+            _LOGGER.debug("Could not import bluetooth discovery functions")
+        except Exception as ex:
+            _LOGGER.debug("Bluetooth discovery error: %s", ex)
+        
+        # Also check for already-paired Bluetooth devices in device registry
+        try:
+            from homeassistant.helpers import device_registry as dr
+            device_registry = dr.async_get(hass)
+            
+            for device in device_registry.devices.values():
+                # Check if device has bluetooth connection
+                for identifier in device.identifiers:
+                    if identifier[0] == "bluetooth":
+                        name_lower = (device.name or "").lower()
+                        is_remote = any(pattern in name_lower for pattern in REMOTE_NAME_PATTERNS)
+                        
+                        if is_remote:
+                            # Don't add duplicates
+                            mac = identifier[1] if len(identifier) > 1 else None
+                            if mac and not any(r.get("mac") == mac for r in remotes):
+                                remotes.append({
+                                    "mac": mac,
+                                    "name": device.name or f"BT Device {mac[-8:]}",
+                                    "manufacturer": device.manufacturer or "Unknown",
+                                    "model": device.model,
+                                    "type": "bluetooth_paired",
+                                    "protocol": "bluetooth",
+                                })
+        except Exception as ex:
+            _LOGGER.debug("Device registry scan error: %s", ex)
+    
+    except Exception as ex:
+        _LOGGER.warning("Bluetooth remote discovery failed: %s", ex)
+    
+    return remotes
+
+
+async def discover_all_remotes(hass: HomeAssistant) -> dict:
+    """Discover all types of remotes (Zigbee + Bluetooth)."""
+    zigbee_remotes = await discover_zigbee_remotes(hass)
+    bluetooth_remotes = await discover_bluetooth_remotes(hass)
+    
+    return {
+        "zigbee": zigbee_remotes,
+        "bluetooth": bluetooth_remotes,
+        "total": len(zigbee_remotes) + len(bluetooth_remotes),
+    }
