@@ -1,5 +1,28 @@
 # OmniRemote Changelog
 
+## [1.10.14] - 2026-03-07
+
+### Added
+- **Import Buttons from Model** - Button mapping modal now has "Import Buttons" feature
+  - Select any remote model and click Import to add all its buttons
+  - Automatically sets suggested action types (volume_up, mute, etc.)
+  - Shows button icons and colors from model definition
+  - Shows button descriptions/hints for each button
+  
+- **Activity Action Type** - Map buttons to run OmniRemote activities
+  - New "🎯 Run Activity" option in action type dropdown
+  - Activities dropdown shows all configured activities
+
+### Changed
+- Button mapping modal now auto-loads buttons from remote's `model_id`
+- Each button row shows icon, label, and description from model
+- Model_id is now saved when saving button mappings
+- Added Enter key support for adding new buttons
+
+### Fixed
+- Button mapping now properly shows buttons from new `remote_models.py` system
+- Activity action type now properly handled in save/load
+
 ## [1.10.13] - 2026-03-07
 
 ### Added

@@ -3,7 +3,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.13";
+const OMNIREMOTE_VERSION = "1.10.14";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -5698,19 +5698,38 @@ data:
     const scenes = this._data.scenes || [];
     const devices = this._data.devices || [];
     const blasters = this._data.blasters || [];
+    const remoteModels = this._remoteModels || [];
     
     // Use existing _buttonMappings if we're re-rendering, otherwise load from remote
     const mappings = (this._editingRemote?.id === remoteId && this._buttonMappings) 
       ? this._buttonMappings 
       : (remote.button_mappings || {});
     
-    // Get profile buttons if available, or use existing mapping keys, or use _buttonMappings keys
-    const profile = this._data.remoteProfiles?.find(p => p.id === remote.profile);
+    // Get buttons from model_id (new system) or profile (old system)
     let buttons = [];
-    if (profile?.buttons?.length > 0) {
-      buttons = profile.buttons.map(b => b.id || b.label || b.command_name).filter(Boolean);
-    } 
-    // Add any buttons from current mappings that aren't in profile
+    let modelButtons = {}; // Store full button info for icons/descriptions
+    
+    // First check model_id (new remote_models.py system)
+    const model = remoteModels.find(m => m.id === remote.model_id);
+    if (model?.buttons?.length > 0) {
+      model.buttons.forEach(b => {
+        const btnId = b.button_id || b.id || b.label;
+        if (btnId && !buttons.includes(btnId)) {
+          buttons.push(btnId);
+          modelButtons[btnId] = b;
+        }
+      });
+    }
+    
+    // Fall back to profile (old system)
+    if (buttons.length === 0) {
+      const profile = this._data.remoteProfiles?.find(p => p.id === remote.profile);
+      if (profile?.buttons?.length > 0) {
+        buttons = profile.buttons.map(b => b.id || b.label || b.command_name).filter(Boolean);
+      }
+    }
+    
+    // Add any buttons from current mappings that aren't in profile/model
     const mappingKeys = Object.keys(mappings);
     mappingKeys.forEach(k => {
       if (!buttons.includes(k)) buttons.push(k);
@@ -5720,26 +5739,59 @@ data:
       { value: 'scene', label: '🎬 Run Scene' },
       { value: 'ir_command', label: '📡 Send IR Command' },
       { value: 'ha_service', label: '🏠 Call HA Service' },
-      { value: 'volume_up', label: '🔊 Volume Up (Room Default)' },
-      { value: 'volume_down', label: '🔉 Volume Down (Room Default)' },
-      { value: 'mute', label: '🔇 Mute (Room Default)' },
+      { value: 'activity', label: '🎯 Run Activity' },
+      { value: 'volume_up', label: '🔊 Volume Up (Room)' },
+      { value: 'volume_down', label: '🔉 Volume Down (Room)' },
+      { value: 'mute', label: '🔇 Mute (Room)' },
     ];
     
     this._editingRemote = remote;
     this._buttonMappings = { ...mappings };
+    this._modelButtons = modelButtons; // Store for reference
+    
+    // Group remote models by manufacturer for import dropdown
+    const modelsByManufacturer = {};
+    remoteModels.forEach(m => {
+      if (!modelsByManufacturer[m.manufacturer]) {
+        modelsByManufacturer[m.manufacturer] = [];
+      }
+      modelsByManufacturer[m.manufacturer].push(m);
+    });
     
     this._modal = `
-      <div class="modal-content" style="max-width:800px;max-height:85vh;overflow-y:auto;">
+      <div class="modal-content" style="max-width:850px;max-height:85vh;overflow-y:auto;">
         <h3><ha-icon icon="mdi:gesture-tap-button"></ha-icon> Button Mapping - ${remote.name}</h3>
-        <p style="color:#888;margin-top:0;">Map each button to a scene, IR command, or HA service.</p>
+        <p style="color:#888;margin-top:0;">
+          Map each button to a scene, IR command, activity, or HA service.
+          ${model ? `<span style="color:#4caf50;">Using ${model.name} (${buttons.length} buttons)</span>` : ''}
+        </p>
+        
+        <!-- Import from Model Section -->
+        <div style="background:#1a2744;border-radius:8px;padding:12px;margin-bottom:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+          <div style="color:#64b5f6;font-weight:500;white-space:nowrap;">
+            <ha-icon icon="mdi:import"></ha-icon> Import Buttons:
+          </div>
+          <select class="fi" id="import-model-select" style="flex:1;min-width:200px;margin:0;">
+            <option value="">-- Select a remote model --</option>
+            ${Object.entries(modelsByManufacturer).map(([mfr, models]) => `
+              <optgroup label="${mfr}">
+                ${models.map(m => `<option value="${m.id}" ${m.id === remote.model_id ? 'selected' : ''}>${m.name} (${m.buttons?.length || 0} buttons)</option>`).join('')}
+              </optgroup>
+            `).join('')}
+          </select>
+          <button class="btn btn-p" id="import-model-btn">
+            <ha-icon icon="mdi:download"></ha-icon> Import
+          </button>
+        </div>
         
         ${buttons.length === 0 ? `
-          <div style="background:#1a1a2e;padding:20px;border-radius:8px;margin-bottom:16px;">
-            <p style="color:#888;text-align:center;margin:0 0 12px;">
-              No buttons defined yet. Add buttons to map them to actions.
+          <div style="background:#1a1a2e;padding:30px;border-radius:8px;margin-bottom:16px;text-align:center;">
+            <ha-icon icon="mdi:gesture-tap-button" style="font-size:48px;color:#666;"></ha-icon>
+            <p style="color:#888;margin:16px 0 8px;">
+              No buttons defined yet. Import from a model above or add manually below.
             </p>
-            <div style="display:flex;gap:8px;justify-content:center;">
-              <input type="text" class="fi" id="new-button-name" placeholder="Button name (e.g., KEY_POWER)" style="width:200px;">
+            <div style="display:flex;gap:8px;justify-content:center;margin-top:16px;">
+              <input type="text" class="fi" id="new-button-name" placeholder="Button name (e.g., power, volume_up)" style="width:250px;">
               <button class="btn btn-p" id="add-button-btn">
                 <ha-icon icon="mdi:plus"></ha-icon> Add Button
               </button>
@@ -5749,13 +5801,18 @@ data:
           <div style="margin-bottom:16px;">
             ${buttons.map((btn, idx) => {
               const mapping = mappings[btn] || {};
-              const actionType = mapping.action_type || 'scene';
+              const modelBtn = modelButtons[btn] || {};
+              const actionType = mapping.action_type || modelBtn.suggested_action || 'scene';
+              const btnIcon = modelBtn.icon || 'mdi:gesture-tap-button';
+              const btnColor = modelBtn.color || '#64b5f6';
+              const btnDesc = modelBtn.description || '';
               
               return `
                 <div class="mapping-row" style="background:#1a1a2e;padding:12px;border-radius:8px;margin-bottom:8px;" data-button="${btn}">
                   <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
-                    <div style="font-weight:600;min-width:120px;color:#64b5f6;">
-                      <ha-icon icon="mdi:gesture-tap-button" style="margin-right:4px;"></ha-icon>${btn}
+                    <div style="font-weight:600;min-width:150px;display:flex;align-items:center;gap:6px;">
+                      <ha-icon icon="${btnIcon}" style="color:${btnColor};"></ha-icon>
+                      <span style="color:${btnColor};">${modelBtn.label || btn}</span>
                     </div>
                     <select class="fi mapping-action-type" style="flex:1;margin:0;" data-button="${btn}">
                       ${actionTypes.map(t => `<option value="${t.value}" ${actionType === t.value ? 'selected' : ''}>${t.label}</option>`).join('')}
@@ -5764,6 +5821,7 @@ data:
                       <ha-icon icon="mdi:delete"></ha-icon>
                     </button>
                   </div>
+                  ${btnDesc ? `<div style="color:#666;font-size:11px;margin-bottom:8px;margin-left:30px;">${btnDesc}</div>` : ''}
                   
                   <!-- Scene Options -->
                   <div class="mapping-options scene-options" style="display:${actionType === 'scene' ? 'block' : 'none'};">
@@ -5805,6 +5863,17 @@ data:
                     </div>
                   </div>
                   
+                  <!-- Activity Options -->
+                  <div class="mapping-options activity-options" style="display:${actionType === 'activity' ? 'block' : 'none'};">
+                    <div class="fg" style="margin:0;">
+                      <label class="fl">Activity</label>
+                      <select class="fi mapping-activity" data-button="${btn}">
+                        <option value="">-- Select Activity --</option>
+                        ${(this._data.activities || []).map(a => `<option value="${a.id}" ${mapping.activity_id === a.id ? 'selected' : ''}>${a.name}</option>`).join('')}
+                      </select>
+                    </div>
+                  </div>
+                  
                   <!-- HA Service Options -->
                   <div class="mapping-options ha-options" style="display:${actionType === 'ha_service' ? 'flex' : 'none'};gap:8px;flex-wrap:wrap;">
                     <div class="fg" style="flex:1;min-width:120px;margin:0;">
@@ -5824,9 +5893,9 @@ data:
                   <!-- Volume/Room Options -->
                   <div class="mapping-options room-options" style="display:${['volume_up', 'volume_down', 'mute'].includes(actionType) ? 'block' : 'none'};">
                     <div class="fg" style="margin:0;">
-                      <label class="fl">Room (uses default AV device)</label>
+                      <label class="fl">Room (uses room's AV receiver/soundbar)</label>
                       <select class="fi mapping-room" data-button="${btn}">
-                        <option value="">-- Current Room --</option>
+                        <option value="">-- Remote's Room --</option>
                         ${rooms.map(r => `<option value="${r.id}" ${mapping.room_id === r.id ? 'selected' : ''}>${r.name}</option>`).join('')}
                       </select>
                     </div>
@@ -5863,6 +5932,7 @@ data:
   
   _setupMappingHandlers() {
     const devices = this._data.devices || [];
+    const remoteModels = this._remoteModels || [];
     
     // Action type change handlers
     this.shadowRoot.querySelectorAll('.mapping-action-type').forEach(sel => {
@@ -5874,6 +5944,7 @@ data:
         const val = e.target.value;
         row.querySelector('.scene-options').style.display = val === 'scene' ? 'block' : 'none';
         row.querySelector('.ir-options').style.display = val === 'ir_command' ? 'flex' : 'none';
+        row.querySelector('.activity-options').style.display = val === 'activity' ? 'block' : 'none';
         row.querySelector('.ha-options').style.display = val === 'ha_service' ? 'flex' : 'none';
         row.querySelector('.room-options').style.display = ['volume_up', 'volume_down', 'mute'].includes(val) ? 'block' : 'none';
       });
@@ -5897,6 +5968,52 @@ data:
       });
     });
     
+    // Import from model handler
+    const importBtn = this.shadowRoot.getElementById('import-model-btn');
+    const importSelect = this.shadowRoot.getElementById('import-model-select');
+    if (importBtn && importSelect) {
+      importBtn.addEventListener('click', () => {
+        const modelId = importSelect.value;
+        if (!modelId) {
+          alert('Please select a remote model to import buttons from.');
+          return;
+        }
+        
+        const model = remoteModels.find(m => m.id === modelId);
+        if (!model || !model.buttons?.length) {
+          alert('Selected model has no buttons defined.');
+          return;
+        }
+        
+        // Import all buttons from the model
+        const imported = [];
+        model.buttons.forEach(b => {
+          const btnId = b.button_id || b.id || b.label;
+          if (btnId && !this._buttonMappings[btnId]) {
+            // Add button with suggested action type
+            this._buttonMappings[btnId] = {
+              action_type: b.suggested_action || 'scene',
+              button_id: btnId,
+            };
+            imported.push(btnId);
+          }
+        });
+        
+        // Update the remote's model_id
+        if (this._editingRemote) {
+          this._editingRemote.model_id = modelId;
+        }
+        
+        // Re-render the modal
+        this._showButtonMappingModal(this._editingRemote.id);
+        
+        // Show confirmation
+        if (imported.length > 0) {
+          console.log(`[OmniRemote] Imported ${imported.length} buttons from ${model.name}`);
+        }
+      });
+    }
+    
     // Add button handler
     const addBtn = this.shadowRoot.getElementById('add-button-btn');
     const nameInput = this.shadowRoot.getElementById('new-button-name');
@@ -5906,6 +6023,16 @@ data:
         if (name) {
           this._buttonMappings[name] = { action_type: 'scene' };
           this._showButtonMappingModal(this._editingRemote.id);
+        }
+      });
+      // Also handle Enter key
+      nameInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+          const name = nameInput.value.trim();
+          if (name) {
+            this._buttonMappings[name] = { action_type: 'scene' };
+            this._showButtonMappingModal(this._editingRemote.id);
+          }
         }
       });
     }
@@ -5960,6 +6087,10 @@ data:
         mappings[btn].command_name = commandName;
         mappings[btn].blaster_id = blasterId;
         console.log('[OmniRemote]   IR Command: device=', deviceId, 'cmd=', commandName, 'blaster=', blasterId);
+      } else if (actionType === 'activity') {
+        const activityId = row.querySelector('.mapping-activity')?.value;
+        mappings[btn].activity_id = activityId;
+        console.log('[OmniRemote]   Activity ID:', activityId);
       } else if (actionType === 'ha_service') {
         mappings[btn].ha_domain = row.querySelector('.mapping-ha-domain')?.value;
         mappings[btn].ha_service = row.querySelector('.mapping-ha-service')?.value;
@@ -5973,12 +6104,16 @@ data:
     
     console.log('[OmniRemote] Final mappings object:', mappings);
     
+    // Also get the model_id if it was updated
+    const modelId = remote.model_id;
+    
     // Save to API
     try {
       const result = await this._api('/api/omniremote/physical_remotes', 'POST', {
         action: 'save_button_mappings',
         remote_id: remote.id,
         button_mappings: mappings,
+        model_id: modelId,  // Include model_id in save
       });
       
       console.log('[OmniRemote] Save result:', result);
@@ -5994,6 +6129,7 @@ data:
       this._modal = null;
       this._editingRemote = null;
       this._buttonMappings = null;
+      this._modelButtons = null;
       await this._loadData();
       this._render();
     } catch (err) {

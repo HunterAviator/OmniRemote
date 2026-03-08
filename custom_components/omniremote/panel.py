@@ -2658,6 +2658,12 @@ class OmniApiPhysicalRemotes(HomeAssistantView):
             remote = database.physical_remotes[remote_id]
             button_mappings = data.get("button_mappings", {})
             
+            # Update model_id if provided
+            new_model_id = data.get("model_id")
+            if new_model_id:
+                remote.model_id = new_model_id
+                _debug("Updated model_id to %s", new_model_id)
+            
             _debug("Saving %d button mappings for remote %s (%s)", 
                    len(button_mappings), remote_id, remote.name)
             
@@ -2676,6 +2682,9 @@ class OmniApiPhysicalRemotes(HomeAssistantView):
                 if action_type_str == "scene":
                     action_target = mapping_data.get("scene_id", "")
                     _debug("  Button %s -> scene: %s", btn_id, action_target)
+                elif action_type_str == "activity":
+                    action_target = mapping_data.get("activity_id", "")
+                    _debug("  Button %s -> activity: %s", btn_id, action_target)
                 elif action_type_str == "ir_command":
                     action_target = mapping_data.get("device_id", "")
                     action_data = {
@@ -2696,9 +2705,17 @@ class OmniApiPhysicalRemotes(HomeAssistantView):
                     action_target = mapping_data.get("room_id", "")
                     _debug("  Button %s -> %s: room=%s", btn_id, action_type_str, action_target)
                 
+                # Handle activity type - it's not in ActionType enum yet, so treat as SCENE for now
+                try:
+                    action_type = ActionType(action_type_str)
+                except ValueError:
+                    # Fallback for new action types not yet in enum
+                    _debug("  Unknown action type %s, using SCENE", action_type_str)
+                    action_type = ActionType.SCENE
+                
                 mapping = ButtonMapping(
                     button_id=btn_id,
-                    action_type=ActionType(action_type_str),
+                    action_type=action_type,
                     action_target=action_target,
                     action_data=action_data,
                 )
