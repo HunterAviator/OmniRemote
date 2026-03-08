@@ -801,6 +801,13 @@ async def discover_bluetooth_remotes(hass: HomeAssistant) -> list[dict]:
     """Discover Bluetooth remotes via Home Assistant's bluetooth integration."""
     remotes = []
     
+    # Import model matching function
+    try:
+        from .remote_models import get_model_for_bluetooth, REMOTE_MODELS
+    except ImportError:
+        get_model_for_bluetooth = None
+        REMOTE_MODELS = {}
+    
     # Known remote name patterns to look for
     REMOTE_NAME_PATTERNS = [
         "remote", "keyboard", "g20", "g10", "air mouse", "gyro", 
@@ -829,18 +836,42 @@ async def discover_bluetooth_remotes(hass: HomeAssistant) -> list[dict]:
                 
                 # Also check for HID-like service UUIDs (keyboard/mouse)
                 # HID UUID: 00001812-0000-1000-8000-00805f9b34fb
-                has_hid = any("1812" in str(uuid).lower() for uuid in (service_info.service_uuids or []))
+                service_uuids = list(service_info.service_uuids or [])
+                has_hid = any("1812" in str(uuid).lower() for uuid in service_uuids)
                 
                 if is_remote or has_hid:
-                    remotes.append({
+                    manufacturer = service_info.manufacturer or "Unknown"
+                    
+                    # Try to match to a known model
+                    model_match = None
+                    if get_model_for_bluetooth:
+                        model_match = get_model_for_bluetooth(
+                            name, 
+                            manufacturer,
+                            service_uuids
+                        )
+                    
+                    remote_data = {
                         "mac": service_info.address,
                         "name": name or f"BT Device {service_info.address[-8:]}",
-                        "manufacturer": service_info.manufacturer or "Unknown",
+                        "manufacturer": manufacturer,
                         "model": None,
                         "rssi": service_info.rssi,
                         "type": "bluetooth",
                         "protocol": "bluetooth",
-                    })
+                        "has_hid": has_hid,
+                        "service_uuids": service_uuids[:5],  # Limit to first 5
+                    }
+                    
+                    # Add model match info if found
+                    if model_match:
+                        remote_data["suggested_model_id"] = model_match["model_id"]
+                        remote_data["suggested_model"] = model_match["model"]
+                        remote_data["match_confidence"] = model_match["confidence"]
+                        remote_data["match_reason"] = model_match["match_reason"]
+                    
+                    remotes.append(remote_data)
+                    
         except ImportError:
             _LOGGER.debug("Could not import bluetooth discovery functions")
         except Exception as ex:
@@ -862,14 +893,35 @@ async def discover_bluetooth_remotes(hass: HomeAssistant) -> list[dict]:
                             # Don't add duplicates
                             mac = identifier[1] if len(identifier) > 1 else None
                             if mac and not any(r.get("mac") == mac for r in remotes):
-                                remotes.append({
+                                manufacturer = device.manufacturer or "Unknown"
+                                
+                                # Try to match to a known model
+                                model_match = None
+                                if get_model_for_bluetooth:
+                                    model_match = get_model_for_bluetooth(
+                                        device.name or "",
+                                        manufacturer,
+                                        None
+                                    )
+                                
+                                remote_data = {
                                     "mac": mac,
                                     "name": device.name or f"BT Device {mac[-8:]}",
-                                    "manufacturer": device.manufacturer or "Unknown",
+                                    "manufacturer": manufacturer,
                                     "model": device.model,
                                     "type": "bluetooth_paired",
                                     "protocol": "bluetooth",
-                                })
+                                    "paired": True,
+                                }
+                                
+                                if model_match:
+                                    remote_data["suggested_model_id"] = model_match["model_id"]
+                                    remote_data["suggested_model"] = model_match["model"]
+                                    remote_data["match_confidence"] = model_match["confidence"]
+                                    remote_data["match_reason"] = model_match["match_reason"]
+                                
+                                remotes.append(remote_data)
+                                
         except Exception as ex:
             _LOGGER.debug("Device registry scan error: %s", ex)
     

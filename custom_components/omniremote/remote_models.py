@@ -426,6 +426,133 @@ def list_models_grouped() -> dict[str, list[dict]]:
         result[manufacturer] = [m.to_dict() for m in models]
     return result
 
+
+# ============================================================================
+# Bluetooth Device Name Patterns for Auto-Detection
+# ============================================================================
+
+# Maps name patterns (lowercase) to model IDs
+BLUETOOTH_NAME_PATTERNS: dict[str, list[str]] = {
+    # Amazon Fire TV remotes
+    "amazon_fire_remote": ["fire tv", "firetv", "amazon fire", "fire stick"],
+    "amazon_l5b83g": ["l5b83g", "l5b83h", "cv98lm"],
+    
+    # Apple remotes
+    "apple_tv_remote": ["apple tv remote", "siri remote", "apple remote"],
+    
+    # G20 series air mouse remotes
+    "g20s_pro_plus": ["g20s", "g20bts", "g20 pro", "20bts"],
+    
+    # Generic Android TV remotes
+    "rupa_bt_remote": ["rupa", "rupa remote"],
+    "dupad_story_remote": ["dupad", "dupad story"],
+    
+    # Common air mouse patterns
+    "g20s_pro_plus": ["air mouse", "airmouse", "gyro remote", "gyroscope"],
+    
+    # MX3 style remotes (common rebranded)
+    "g20s_pro_plus": ["mx3", "mx-3", "minix"],
+    
+    # Generic keyboard remotes
+    "g20s_pro_plus": ["rii", "ipazzport", "wechip", "mele"],
+}
+
+# Chipset/manufacturer hints from service data
+BLUETOOTH_MANUFACTURER_HINTS: dict[str, str] = {
+    "amazon": "amazon_fire_remote",
+    "apple": "apple_tv_remote",
+    "nvidia": None,  # Shield uses WiFi, not BT remote
+    "roku": None,    # Roku uses WiFi
+}
+
+
+def match_bluetooth_device(name: str, manufacturer: str | None = None) -> dict | None:
+    """
+    Match a Bluetooth device to a known remote model.
+    
+    Returns dict with:
+        - model_id: The matched model ID
+        - model: The full RemoteModel object as dict
+        - confidence: "high", "medium", or "low"
+        - match_reason: Why this model was matched
+    """
+    if not name:
+        return None
+    
+    name_lower = name.lower().strip()
+    mfr_lower = (manufacturer or "").lower()
+    
+    # Check exact/high confidence patterns first
+    for model_id, patterns in BLUETOOTH_NAME_PATTERNS.items():
+        for pattern in patterns:
+            if pattern in name_lower:
+                model = REMOTE_MODELS.get(model_id)
+                if model:
+                    return {
+                        "model_id": model_id,
+                        "model": model.to_dict(),
+                        "confidence": "high" if len(pattern) > 4 else "medium",
+                        "match_reason": f"Name contains '{pattern}'"
+                    }
+    
+    # Check manufacturer hints
+    if mfr_lower:
+        for mfr_pattern, model_id in BLUETOOTH_MANUFACTURER_HINTS.items():
+            if mfr_pattern in mfr_lower and model_id:
+                model = REMOTE_MODELS.get(model_id)
+                if model:
+                    return {
+                        "model_id": model_id,
+                        "model": model.to_dict(),
+                        "confidence": "low",
+                        "match_reason": f"Manufacturer '{manufacturer}'"
+                    }
+    
+    # Generic remote detection - suggest the most versatile model
+    generic_keywords = ["remote", "keyboard", "controller", "input"]
+    if any(kw in name_lower for kw in generic_keywords):
+        model = REMOTE_MODELS.get("g20s_pro_plus")
+        if model:
+            return {
+                "model_id": "g20s_pro_plus",
+                "model": model.to_dict(),
+                "confidence": "low",
+                "match_reason": "Generic Bluetooth remote - using versatile mapping"
+            }
+    
+    return None
+
+
+def get_model_for_bluetooth(name: str, manufacturer: str | None = None, service_uuids: list[str] | None = None) -> dict | None:
+    """
+    Get the best matching model for a Bluetooth device.
+    Also checks for HID service UUID to confirm it's likely a remote.
+    """
+    # First check if it has HID UUID (keyboard/mouse/remote)
+    has_hid = False
+    if service_uuids:
+        has_hid = any("1812" in str(uuid).lower() for uuid in service_uuids)
+    
+    match = match_bluetooth_device(name, manufacturer)
+    
+    if match:
+        match["has_hid_service"] = has_hid
+        return match
+    
+    # If no match but has HID service, it's probably a remote
+    if has_hid:
+        model = REMOTE_MODELS.get("g20s_pro_plus")
+        if model:
+            return {
+                "model_id": "g20s_pro_plus",
+                "model": model.to_dict(),
+                "confidence": "low",
+                "match_reason": "Has HID service UUID - likely a remote/keyboard",
+                "has_hid_service": True
+            }
+    
+    return None
+
 # ============================================================================
 # Budget/Generic Android TV Remotes
 # ============================================================================

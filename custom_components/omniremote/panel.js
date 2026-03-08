@@ -3,7 +3,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.12";
+const OMNIREMOTE_VERSION = "1.10.13";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -785,6 +785,22 @@ class OmniRemotePanel extends HTMLElement {
         break;
       case 'discover-remotes':
         await this._discoverRemotes();
+        break;
+      case 'add-discovered-remote':
+        this._addDiscoveredRemote(
+          data.protocol,
+          data.deviceId,
+          data.deviceName,
+          data.modelId,
+          data.manufacturer
+        );
+        break;
+      case 'back-to-discovery':
+        // Go back to discovery modal with cached results
+        const zigbee = this._discoveredDevices?.zigbee || [];
+        const bluetooth = this._discoveredDevices?.bluetooth || [];
+        const total = zigbee.length + bluetooth.length;
+        this._showDiscoveryModal(zigbee, bluetooth, total);
         break;
       case 'save-remote':
         await this._saveRemote();
@@ -5442,31 +5458,236 @@ data:
     const bluetooth = res.bluetooth || [];
     const total = res.total || 0;
     
-    if (total > 0) {
-      let msg = `Found ${total} remote(s):\n\n`;
+    // Store discovered devices for the add flow
+    this._discoveredDevices = { zigbee, bluetooth };
+    
+    // Show discovery modal
+    this._showDiscoveryModal(zigbee, bluetooth, total);
+  }
+  
+  _showDiscoveryModal(zigbee, bluetooth, total) {
+    const rooms = this._data.rooms || [];
+    
+    const confidenceIcon = (conf) => {
+      if (conf === 'high') return '<span style="color:#4caf50;" title="High confidence match">✓✓</span>';
+      if (conf === 'medium') return '<span style="color:#ff9800;" title="Medium confidence">✓</span>';
+      return '<span style="color:#888;" title="Low confidence - verify">?</span>';
+    };
+    
+    const renderDevice = (device, protocol) => {
+      const hasModel = device.suggested_model_id;
+      const modelName = device.suggested_model?.name || 'Unknown Model';
+      const modelMfr = device.suggested_model?.manufacturer || device.manufacturer || 'Unknown';
+      const confidence = device.match_confidence || 'low';
+      const matchReason = device.match_reason || '';
+      const isPaired = device.paired || device.type === 'bluetooth_paired';
+      const hasHid = device.has_hid;
       
-      if (zigbee.length > 0) {
-        msg += `📡 ZIGBEE (${zigbee.length}):\n`;
-        msg += zigbee.map(d => `  • ${d.name} (${d.model || d.manufacturer || 'unknown'})\n    IEEE: ${d.ieee}`).join('\n');
-        msg += '\n\n';
+      const deviceId = protocol === 'zigbee' ? device.ieee : device.mac;
+      const rssiDisplay = device.rssi ? `<span style="color:#888;font-size:11px;">RSSI: ${device.rssi}dBm</span>` : '';
+      
+      return `
+        <div style="background:#1a1a2e;border-radius:8px;padding:12px;margin-bottom:8px;border-left:3px solid ${hasModel ? '#4caf50' : '#666'};">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
+            <div style="flex:1;">
+              <div style="font-weight:600;color:#fff;display:flex;align-items:center;gap:8px;">
+                ${device.name}
+                ${isPaired ? '<span style="color:#4caf50;font-size:11px;">● Paired</span>' : ''}
+                ${hasHid ? '<span style="color:#2196f3;font-size:10px;background:#1a2744;padding:2px 6px;border-radius:4px;">HID</span>' : ''}
+              </div>
+              <div style="color:#888;font-size:12px;margin-top:4px;">
+                ${protocol === 'zigbee' ? `IEEE: ${device.ieee}` : `MAC: ${device.mac}`}
+                ${rssiDisplay ? ` | ${rssiDisplay}` : ''}
+              </div>
+              ${hasModel ? `
+                <div style="margin-top:8px;background:#0d1117;padding:8px;border-radius:6px;">
+                  <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+                    ${confidenceIcon(confidence)}
+                    <span style="color:#4caf50;font-weight:500;">${modelName}</span>
+                    <span style="color:#666;">by ${modelMfr}</span>
+                  </div>
+                  <div style="color:#888;font-size:11px;">${matchReason}</div>
+                  <div style="color:#666;font-size:11px;margin-top:4px;">
+                    ${device.suggested_model?.buttons?.length || 0} pre-mapped buttons
+                  </div>
+                </div>
+              ` : `
+                <div style="margin-top:8px;color:#666;font-size:12px;">
+                  <ha-icon icon="mdi:help-circle-outline" style="font-size:14px;"></ha-icon>
+                  No matching profile found - will need manual button mapping
+                </div>
+              `}
+            </div>
+            <div style="display:flex;flex-direction:column;gap:6px;">
+              <button class="btn btn-p" style="white-space:nowrap;" 
+                data-action="add-discovered-remote"
+                data-protocol="${protocol}"
+                data-device-id="${deviceId}"
+                data-device-name="${device.name}"
+                data-model-id="${device.suggested_model_id || ''}"
+                data-manufacturer="${modelMfr}">
+                <ha-icon icon="mdi:plus"></ha-icon> Add
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    };
+    
+    this._modal = `
+      <div class="modal-content" style="max-width:650px;max-height:85vh;overflow-y:auto;">
+        <h3><ha-icon icon="mdi:access-point"></ha-icon> Discovered Remotes</h3>
+        
+        ${total === 0 ? `
+          <div style="text-align:center;padding:40px 20px;">
+            <ha-icon icon="mdi:remote-off" style="font-size:48px;color:#666;"></ha-icon>
+            <p style="color:#888;margin:16px 0 8px;">No remotes found</p>
+            <div style="color:#666;font-size:13px;text-align:left;max-width:400px;margin:0 auto;">
+              <p><strong>📡 Zigbee:</strong> Remotes must be paired with ZHA/deCONZ/Z2M first</p>
+              <p><strong>🔵 Bluetooth:</strong> Put remote in pairing mode (LED blinking) and ensure Bluetooth is enabled in HA</p>
+            </div>
+            <button class="btn btn-s" style="margin-top:20px;" data-action="discover-remotes">
+              <ha-icon icon="mdi:refresh"></ha-icon> Scan Again
+            </button>
+          </div>
+        ` : `
+          <p style="color:#888;margin-top:0;">
+            Found <strong>${total}</strong> remote${total !== 1 ? 's' : ''}. 
+            Click <strong>Add</strong> to configure with auto-detected settings.
+          </p>
+          
+          ${zigbee.length > 0 ? `
+            <div style="margin-bottom:16px;">
+              <div style="color:#ff9800;font-weight:500;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
+                <ha-icon icon="mdi:zigbee"></ha-icon> Zigbee Remotes (${zigbee.length})
+              </div>
+              ${zigbee.map(d => renderDevice(d, 'zigbee')).join('')}
+            </div>
+          ` : ''}
+          
+          ${bluetooth.length > 0 ? `
+            <div style="margin-bottom:16px;">
+              <div style="color:#2196f3;font-weight:500;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
+                <ha-icon icon="mdi:bluetooth"></ha-icon> Bluetooth Remotes (${bluetooth.length})
+              </div>
+              ${bluetooth.map(d => renderDevice(d, 'bluetooth')).join('')}
+            </div>
+          ` : ''}
+        `}
+        
+        <div style="margin-top:20px;display:flex;gap:8px;justify-content:space-between;border-top:1px solid #333;padding-top:16px;">
+          <button class="btn btn-s" data-action="add-remote" data-type="">
+            <ha-icon icon="mdi:plus"></ha-icon> Add Manually
+          </button>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-s" data-action="discover-remotes">
+              <ha-icon icon="mdi:refresh"></ha-icon> Rescan
+            </button>
+            <button class="btn btn-s" data-action="close-modal">Close</button>
+          </div>
+        </div>
+      </div>
+    `;
+    this._render();
+  }
+  
+  _addDiscoveredRemote(protocol, deviceId, deviceName, modelId, manufacturer) {
+    // Find the full device data
+    const devices = protocol === 'zigbee' 
+      ? (this._discoveredDevices?.zigbee || [])
+      : (this._discoveredDevices?.bluetooth || []);
+    
+    const device = devices.find(d => 
+      (protocol === 'zigbee' ? d.ieee : d.mac) === deviceId
+    );
+    
+    const rooms = this._data.rooms || [];
+    const remoteModels = this._remoteModels || [];
+    
+    // Group remote models by manufacturer
+    const modelsByManufacturer = {};
+    remoteModels.forEach(m => {
+      if (!modelsByManufacturer[m.manufacturer]) {
+        modelsByManufacturer[m.manufacturer] = [];
       }
-      
-      if (bluetooth.length > 0) {
-        msg += `🔵 BLUETOOTH (${bluetooth.length}):\n`;
-        msg += bluetooth.map(d => {
-          const rssi = d.rssi ? ` | RSSI: ${d.rssi}` : '';
-          return `  • ${d.name}${rssi}\n    MAC: ${d.mac}`;
-        }).join('\n');
-      }
-      
-      msg += '\n\nAdd them using the + Add Physical Remote button.';
-      alert(msg);
-    } else {
-      alert('No remotes found.\n\n' +
-        '📡 Zigbee: Make sure remotes are paired with ZHA/deCONZ/Z2M first.\n\n' +
-        '🔵 Bluetooth: Ensure your remote is in pairing mode and Bluetooth is enabled in Home Assistant.\n\n' +
-        'You can still add remotes manually using the + button.');
+      modelsByManufacturer[m.manufacturer].push(m);
+    });
+    
+    // Determine remote type
+    let remoteType = protocol === 'zigbee' ? 'zigbee' : 'bluetooth_ha';
+    if (device?.type === 'bluetooth' && !device?.paired) {
+      remoteType = 'bluetooth_ha'; // Use HA native bluetooth for new devices
     }
+    
+    // Pre-fill values
+    const preFillName = deviceName || device?.name || '';
+    const preFillModel = modelId || device?.suggested_model_id || '';
+    const preFillMac = protocol === 'bluetooth' ? deviceId : '';
+    const preFillIeee = protocol === 'zigbee' ? deviceId : '';
+    
+    this._editingRemote = null;
+    
+    // Create a simplified add form with pre-filled values
+    this._modal = `
+      <div class="modal-content" style="max-width:500px;">
+        <h3><ha-icon icon="mdi:remote"></ha-icon> Add Discovered Remote</h3>
+        
+        <div style="background:#1a2744;border-radius:8px;padding:12px;margin-bottom:16px;border-left:3px solid #4caf50;">
+          <div style="color:#4caf50;font-weight:500;margin-bottom:4px;">
+            <ha-icon icon="mdi:check-circle"></ha-icon> Auto-detected Settings
+          </div>
+          <div style="color:#90caf9;font-size:13px;">
+            ${protocol === 'zigbee' ? `IEEE: ${preFillIeee}` : `MAC: ${preFillMac}`}
+            ${preFillModel ? ` • Model: ${device?.suggested_model?.name || preFillModel}` : ''}
+          </div>
+        </div>
+        
+        <div class="fg">
+          <label class="fl">Name</label>
+          <input type="text" class="fi" id="remote-name" value="${preFillName}" placeholder="Living Room Remote">
+        </div>
+        
+        <div class="fg">
+          <label class="fl">Remote Model</label>
+          <select class="fi" id="remote-model">
+            <option value="">-- Select for auto button mapping --</option>
+            ${Object.entries(modelsByManufacturer).map(([mfr, models]) => `
+              <optgroup label="${mfr}">
+                ${models.map(m => `<option value="${m.id}" ${m.id === preFillModel ? 'selected' : ''}>${m.name}</option>`).join('')}
+              </optgroup>
+            `).join('')}
+          </select>
+          ${preFillModel ? `<small style="color:#4caf50;">✓ Auto-selected based on device detection</small>` : ''}
+        </div>
+        
+        <div class="fg">
+          <label class="fl">Room</label>
+          <select class="fi" id="remote-room">
+            <option value="">-- No Room --</option>
+            ${rooms.map(r => `<option value="${r.id}">${r.name}</option>`).join('')}
+          </select>
+        </div>
+        
+        <!-- Hidden fields for the actual identifiers -->
+        <input type="hidden" id="remote-type" value="${remoteType}">
+        <input type="hidden" id="remote-zigbee-ieee" value="${preFillIeee}">
+        <input type="hidden" id="remote-bt-mac-ha" value="${preFillMac}">
+        <input type="hidden" id="remote-bt-mac" value="${preFillMac}">
+        <input type="hidden" id="remote-bridge" value="">
+        <input type="hidden" id="remote-profile" value="">
+        <input type="hidden" id="remote-rf-prefix" value="">
+        
+        <div style="margin-top:20px;display:flex;gap:8px;justify-content:flex-end;">
+          <button class="btn btn-s" data-action="back-to-discovery">
+            <ha-icon icon="mdi:arrow-left"></ha-icon> Back
+          </button>
+          <button class="btn btn-p" data-action="save-remote">
+            <ha-icon icon="mdi:check"></ha-icon> Add Remote
+          </button>
+        </div>
+      </div>
+    `;
+    this._render();
   }
 
   _showButtonMappingModal(remoteId) {

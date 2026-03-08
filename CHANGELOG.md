@@ -1,5 +1,32 @@
 # OmniRemote Changelog
 
+## [1.10.13] - 2026-03-07
+
+### Added
+- **Smart Discovery Modal** - Discover button now shows interactive modal instead of alert
+  - Direct "Add" button on each discovered device
+  - Auto-detects matching remote model based on device name patterns
+  - Shows confidence indicators (high/medium/low) for model matches
+  - Pre-fills device details (MAC/IEEE, model, manufacturer) when adding
+  - Back button to return to discovery results
+
+- **Bluetooth Model Auto-Detection** - New pattern matching system in `remote_models.py`
+  - Matches device names to known models (Fire TV, G20S, Apple TV, etc.)
+  - Detects HID service UUID for generic keyboard/remote devices
+  - Returns match confidence and reasoning
+  - Suggests best-fit model for unknown devices
+
+### Changed
+- Discovery flow is now modal-based with device cards
+- Adding discovered remotes pre-fills form with detected settings
+- Model selection auto-selects based on device detection
+
+### Technical
+- Added `get_model_for_bluetooth()` function in remote_models.py
+- Added `match_bluetooth_device()` for name pattern matching
+- Discovery now returns `suggested_model_id`, `match_confidence`, `match_reason`
+- New panel actions: `add-discovered-remote`, `back-to-discovery`
+
 ## [1.10.12] - 2026-03-07
 
 ### Added
