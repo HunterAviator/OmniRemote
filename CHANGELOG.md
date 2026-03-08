@@ -479,3 +479,21 @@ Your HA Yellow's Bluetooth adapter has limited connection slots (typically 3-7).
 2. In OmniRemote, click "Find USB" instead of "Find Bluetooth"
 3. USB connection is faster and more reliable anyway
 
+
+## [1.10.11] - 2024-02-28
+
+### Wiki Updates
+- **New: Flipper Zero Setup** - Complete guide for USB and Bluetooth connection
+- **New: Bluetooth Proxy Setup** - Step-by-step ESP32 Bluetooth Proxy instructions including:
+  - Driver installation (CP210x)
+  - ESPHome Dashboard configuration
+  - YAML template with bluetooth_proxy config
+  - Web flashing instructions (web.esphome.io)
+  - Troubleshooting common issues
+  - Pre-built device alternatives (Athom, GL-S10)
+
+### Flipper Bluetooth Notes
+- Clarified that "connection slot" errors are HA Bluetooth adapter limits
+- USB connection strongly recommended over Bluetooth
+- Bluetooth Proxy adds slots but USB is still more reliable
+

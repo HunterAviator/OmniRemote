@@ -3,7 +3,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.10";
+const OMNIREMOTE_VERSION = "1.10.11";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -1987,6 +1987,158 @@ data:
 logger:
   logs:
     custom_components.omniremote: debug</pre>
+        `
+      },
+      'flipper-zero': {
+        title: 'Flipper Zero Setup',
+        icon: 'mdi:dolphin',
+        content: `
+          <h3>Flipper Zero Integration</h3>
+          <p>OmniRemote supports Flipper Zero as an IR blaster via USB or Bluetooth.</p>
+          
+          <h4>USB Connection (Recommended)</h4>
+          <p><strong>USB is much more reliable than Bluetooth.</strong> Use USB if possible.</p>
+          <ol>
+            <li>Connect Flipper Zero to Home Assistant via USB cable</li>
+            <li>In OmniRemote, go to <em>Flipper Zero</em> section</li>
+            <li>Click <strong>Find USB</strong></li>
+            <li>Select your Flipper from the list</li>
+            <li>Click <strong>Add</strong></li>
+          </ol>
+          
+          <h4>Bluetooth Connection</h4>
+          <p>Bluetooth is possible but has limitations due to connection slot limits.</p>
+          <ol>
+            <li>On Flipper: <strong>Settings → Bluetooth → Turn ON</strong></li>
+            <li>Ensure Flipper is NOT connected to phone app or qFlipper</li>
+            <li>In OmniRemote, click <strong>Find Bluetooth</strong></li>
+            <li>Select your Flipper and click <strong>Add</strong></li>
+          </ol>
+          
+          <h4>Bluetooth Connection Slot Error</h4>
+          <p>If you see <em>"Bluetooth adapter out of connection slots"</em>:</p>
+          <p>Your Home Assistant's Bluetooth adapter can only maintain 3-7 simultaneous connections. If you have other Bluetooth devices (sensors, trackers, etc.), slots may be full.</p>
+          <p><strong>Solutions:</strong></p>
+          <ul>
+            <li><strong>Use USB instead</strong> - Most reliable option, no slot limits</li>
+            <li><strong>Add an ESPHome Bluetooth Proxy</strong> - Adds more connection slots (see below)</li>
+            <li><strong>Disconnect other BT devices</strong> - Free up slots temporarily</li>
+          </ul>
+        `
+      },
+      'bluetooth-proxy': {
+        title: 'Bluetooth Proxy Setup',
+        icon: 'mdi:bluetooth-transfer',
+        content: `
+          <h3>ESPHome Bluetooth Proxy</h3>
+          <p>A Bluetooth Proxy adds extra BLE connection slots and extends Bluetooth range. This helps when your HA's built-in Bluetooth adapter runs out of connection slots.</p>
+          
+          <h4>What You Need</h4>
+          <ul>
+            <li>ESP32 board (ESP32-WROOM, ESP32-C3, or ESP32-S3)</li>
+            <li>USB cable for initial flashing</li>
+            <li>5V USB power adapter</li>
+          </ul>
+          
+          <h4>Setup Instructions</h4>
+          <ol>
+            <li>
+              <strong>Install USB Driver</strong><br>
+              Download and install: <a href="https://www.silabs.com/documents/public/software/CP210x_Universal_Windows_Driver.zip" target="_blank" style="color:#64b5f6;">CP210x Driver (Windows)</a><br>
+              <span style="color:#888;">Extract the zip and run the installer</span>
+            </li>
+            <li>
+              <strong>Plug ESP32 into computer via USB</strong><br>
+              <span style="color:#888;">Red power LED should be solid</span>
+            </li>
+            <li>
+              <strong>Open ESPHome Dashboard</strong><br>
+              In HA: <em>Settings → Apps → ESPHome → Open Web UI</em>
+            </li>
+            <li>
+              <strong>Create New Device</strong><br>
+              Click <em>+ New Device</em>, name it (e.g., "bluetooth-proxy"), select ESP32, click <em>Skip</em>
+            </li>
+            <li>
+              <strong>Edit YAML Configuration</strong><br>
+              Click <em>Edit</em> on the new device and use this config:
+              <pre style="background:#1a1a2e;padding:12px;border-radius:8px;overflow-x:auto;font-size:11px;">
+esphome:
+  name: bluetooth-proxy
+  friendly_name: Bluetooth Proxy
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+logger:
+
+api:
+  encryption:
+    key: "COPY_THIS_KEY"
+
+ota:
+  platform: esphome
+
+wifi:
+  ssid: "YourWiFiName"
+  password: "YourWiFiPassword"
+
+esp32_ble_tracker:
+  scan_parameters:
+    active: true
+
+bluetooth_proxy:
+  active: true</pre>
+              <span style="color:#f44336;">⚠️ Copy the API encryption key - you'll need it later!</span>
+            </li>
+            <li>
+              <strong>Download Firmware</strong><br>
+              Click <em>Install</em> → <em>Manual Download</em> → <em>Modern Format</em><br>
+              <span style="color:#888;">Save the .bin file to your computer</span>
+            </li>
+            <li>
+              <strong>Flash the ESP32</strong><br>
+              Go to <a href="https://web.esphome.io" target="_blank" style="color:#64b5f6;">web.esphome.io</a><br>
+              Click <em>Connect</em> → Select your ESP32's serial port<br>
+              <strong>Hold the BOOT button</strong> on the ESP32<br>
+              Click <em>Install</em> → Choose the .bin file<br>
+              <span style="color:#888;">Release BOOT button after flashing starts (~2 min)</span>
+            </li>
+            <li>
+              <strong>Deploy the Proxy</strong><br>
+              Unplug ESP32 from computer<br>
+              Plug into any USB power source (phone charger works)<br>
+              <span style="color:#888;">Place it near your Flipper or between HA and Bluetooth devices</span>
+            </li>
+            <li>
+              <strong>Add to Home Assistant</strong><br>
+              Go to <em>Settings → Devices & Services</em><br>
+              The proxy should auto-discover under ESPHome<br>
+              Click <em>Configure</em> → Enter the <strong>API encryption key</strong> from step 5
+            </li>
+            <li>
+              <strong>Done!</strong><br>
+              The proxy now provides extra Bluetooth connection slots.<br>
+              Try connecting your Flipper again in OmniRemote.
+            </li>
+          </ol>
+          
+          <h4>Troubleshooting</h4>
+          <ul>
+            <li><strong>Serial port not showing:</strong> Install the CP210x or CH340 driver</li>
+            <li><strong>"Connection requires encryption":</strong> Enter the API key from your YAML</li>
+            <li><strong>Proxy not discovered:</strong> Check WiFi credentials, ensure ESP32 has power</li>
+            <li><strong>Still out of slots:</strong> You may need multiple proxies, or use USB for Flipper</li>
+          </ul>
+          
+          <h4>Alternative: Pre-Built Devices</h4>
+          <p>These come pre-flashed as Bluetooth Proxies:</p>
+          <ul>
+            <li><strong>Athom Bluetooth Proxy</strong> - ~$15, plug and play</li>
+            <li><strong>GL-S10</strong> - Bluetooth gateway with proxy support</li>
+          </ul>
         `
       },
       'api': {
