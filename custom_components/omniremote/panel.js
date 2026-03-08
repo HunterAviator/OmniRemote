@@ -3,7 +3,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.16";
+const OMNIREMOTE_VERSION = "1.10.17";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -2039,6 +2039,68 @@ logger:
             <li><strong>Use USB instead</strong> - Most reliable option, no slot limits</li>
             <li><strong>Add an ESPHome Bluetooth Proxy</strong> - Adds more connection slots (see below)</li>
             <li><strong>Disconnect other BT devices</strong> - Free up slots temporarily</li>
+          </ul>
+        `
+      },
+      'bluetooth-remotes': {
+        title: 'Bluetooth HID Remotes',
+        icon: 'mdi:bluetooth-connect',
+        content: `
+          <h3>Bluetooth HID Remotes (G20S, Fire TV, etc.)</h3>
+          <p>Bluetooth HID remotes like the G20S Pro Plus, Fire TV Stick remote, or air mice connect as standard Bluetooth keyboards. This requires special setup to receive button presses in Home Assistant.</p>
+          
+          <h4 style="color:#f44336;">⚠️ Important: Bluetooth HID Limitations</h4>
+          <p>Home Assistant's built-in Bluetooth integration is designed for <strong>BLE sensors</strong>, not HID devices (keyboards/remotes). To use a Bluetooth HID remote, you need one of these approaches:</p>
+          
+          <h4>Option 1: Pi Zero W Bridge (Recommended)</h4>
+          <p>Use a Raspberry Pi Zero W as a bridge. The Pi pairs with the remote and forwards button presses via MQTT.</p>
+          <p>See <strong>Pi Zero W Bridge</strong> section for setup instructions.</p>
+          
+          <h4>Option 2: keyboard_remote Integration</h4>
+          <p>If your HA runs on hardware with Bluetooth (not a VM), you can use the keyboard_remote integration.</p>
+          
+          <p><strong>Step 1: Pair the remote with your HA host</strong></p>
+          <pre style="background:#1a1a2e;padding:12px;border-radius:8px;font-size:11px;">
+# SSH into Home Assistant
+# For HAOS:
+ha jobs options --ignore-conditions=healthy-system
+bluetoothctl
+scan on
+# Wait for your remote to appear (e.g., "G20S Pro Plus")
+pair XX:XX:XX:XX:XX:XX
+trust XX:XX:XX:XX:XX:XX
+connect XX:XX:XX:XX:XX:XX
+exit</pre>
+          
+          <p><strong>Step 2: Find the device path</strong></p>
+          <pre style="background:#1a1a2e;padding:12px;border-radius:8px;font-size:11px;">
+ls -la /dev/input/by-id/
+# Look for your remote, e.g.:
+# usb-G20S_Pro_Plus-event-kbd</pre>
+          
+          <p><strong>Step 3: Add to configuration.yaml</strong></p>
+          <pre style="background:#1a1a2e;padding:12px;border-radius:8px;font-size:11px;">
+keyboard_remote:
+  - device_name: 'G20S Pro Plus'
+    type: key_down</pre>
+          
+          <p><strong>Step 4: Restart Home Assistant</strong></p>
+          <p>Button presses will now fire <code>keyboard_remote_command_received</code> events that OmniRemote will handle.</p>
+          
+          <h4>Option 3: Use 2.4GHz Mode Instead</h4>
+          <p>Many remotes like the G20S support both Bluetooth AND 2.4GHz RF via a USB dongle. The 2.4GHz mode is often more reliable:</p>
+          <ul>
+            <li>Plug the USB dongle into your Pi Zero W Bridge</li>
+            <li>Switch the remote to RF mode (usually a switch or button combo)</li>
+            <li>The Pi bridge will forward buttons via MQTT</li>
+          </ul>
+          
+          <h4>Troubleshooting</h4>
+          <ul>
+            <li><strong>Remote not pairing:</strong> Put remote in pairing mode (hold power for 5+ seconds)</li>
+            <li><strong>No events in HA:</strong> Check Developer Tools → Events → Listen to keyboard_remote_command_received</li>
+            <li><strong>Remote disconnects:</strong> Some remotes sleep aggressively - press a button to wake</li>
+            <li><strong>VM users:</strong> USB passthrough for BT adapter may not work well - use Pi Zero bridge instead</li>
           </ul>
         `
       },

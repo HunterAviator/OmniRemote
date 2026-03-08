@@ -1,5 +1,31 @@
 # OmniRemote Changelog
 
+## [1.10.17] - 2026-03-08
+
+### Added
+- **Bluetooth HID Remote Support** - Added event handlers for Bluetooth HID remotes (G20S, Fire TV, etc.)
+  - `keyboard_remote_command_received` event listener for HA's keyboard_remote integration
+  - State change listener for Bluetooth remote entities
+  - MQTT listener for `omniremote/physical_remote` topic (Pi Zero W bridge)
+  - Key code to button name mapping (power, volume, navigation, media, numbers, colors)
+  - Remote matching by BT MAC, device name, or model pattern
+
+- **Helper Functions**
+  - `_find_remote_by_bt_device()` - Find remote by Bluetooth device name or MAC
+  - `_find_remote_by_entity()` - Find remote by HA entity ID  
+  - `_key_code_to_button()` - Convert keyboard key codes to button names
+  - `_handle_pi_bridge_message()` - Handle Pi Zero W bridge MQTT messages
+
+- **Wiki: Bluetooth HID Remotes** - Complete guide for using Bluetooth remotes
+  - Explains why BLE integration doesn't handle HID devices
+  - Pi Zero W Bridge option (recommended)
+  - keyboard_remote integration option with pairing instructions
+  - 2.4GHz mode alternative
+  - Troubleshooting tips
+
+### Fixed
+- PhysicalRemoteManager now listens for all event types needed for Bluetooth remotes
+
 ## [1.10.16] - 2026-03-08
 
 ### Fixed

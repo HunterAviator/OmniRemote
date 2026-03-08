@@ -420,6 +420,20 @@ class PhysicalRemoteManager:
             self.hass.bus.async_listen("deconz_event", self._handle_deconz_event)
         )
         
+        # Listen to keyboard_remote events (for Bluetooth HID remotes)
+        self._listeners.append(
+            self.hass.bus.async_listen(
+                "keyboard_remote_command_received", 
+                self._handle_keyboard_remote_event
+            )
+        )
+        _LOGGER.info("Registered keyboard_remote event listener for BT HID remotes")
+        
+        # Listen to state changes for Bluetooth remote entities
+        self._listeners.append(
+            self.hass.bus.async_listen("state_changed", self._handle_state_changed)
+        )
+        
         # Listen to MQTT for Zigbee2MQTT, Tasmota, and bridges
         if mqtt.DOMAIN in self.hass.config.components:
             await self._setup_mqtt_listeners()
@@ -429,7 +443,7 @@ class PhysicalRemoteManager:
             self.hass.bus.async_listen("omniremote_bridge_event", self._handle_bridge_event)
         )
         
-        _LOGGER.info("PhysicalRemoteManager started")
+        _LOGGER.info("PhysicalRemoteManager started - listening for ZHA, deCONZ, keyboard_remote, MQTT, bridge events")
     
     async def async_stop(self) -> None:
         """Stop listening for remote events."""
@@ -440,6 +454,8 @@ class PhysicalRemoteManager:
     
     async def _setup_mqtt_listeners(self) -> None:
         """Setup MQTT subscriptions."""
+        _LOGGER.info("[OmniRemote] Setting up MQTT listeners for physical remotes")
+        
         # Zigbee2MQTT
         @callback
         def z2m_message(msg):
@@ -460,7 +476,7 @@ class PhysicalRemoteManager:
             self.hass, "tele/+/RESULT", tasmota_message
         )
         
-        # OmniRemote USB/BT Bridge
+        # OmniRemote USB/BT Bridge (structured topic)
         @callback
         def bridge_message(msg):
             """Handle OmniRemote bridge message."""
@@ -469,6 +485,17 @@ class PhysicalRemoteManager:
         await mqtt.async_subscribe(
             self.hass, "omniremote/bridge/+/event", bridge_message
         )
+        
+        # Pi Zero W Bridge (simple topic - omniremote/physical_remote)
+        @callback
+        def pi_bridge_message(msg):
+            """Handle Pi Zero W bridge message."""
+            asyncio.create_task(self._handle_pi_bridge_message(msg))
+        
+        await mqtt.async_subscribe(
+            self.hass, "omniremote/physical_remote", pi_bridge_message
+        )
+        _LOGGER.info("[OmniRemote] MQTT listeners registered for Z2M, Tasmota, Bridge, Pi Bridge")
     
     @callback
     async def _handle_zha_event(self, event: Event) -> None:
@@ -506,6 +533,65 @@ class PhysicalRemoteManager:
             return
         
         button_id = str(event_type)
+        await self._execute_button_action(remote, button_id)
+    
+    @callback
+    async def _handle_keyboard_remote_event(self, event: Event) -> None:
+        """Handle keyboard_remote button press event (Bluetooth HID remotes)."""
+        data = event.data
+        device_name = data.get("device_name", "")
+        key_code = data.get("key_code")
+        event_type = data.get("type", "key_down")  # key_up, key_down, key_hold
+        
+        # Only handle key_down events to avoid double-firing
+        if event_type != "key_down":
+            return
+        
+        _LOGGER.info("[OmniRemote] Keyboard remote event: device=%s, key=%s, type=%s", 
+                    device_name, key_code, event_type)
+        
+        # Find matching remote by device name or BT MAC
+        remote = self._find_remote_by_bt_device(device_name)
+        if not remote:
+            _LOGGER.debug("No remote configured for keyboard device: %s", device_name)
+            return
+        
+        # Map key code to button ID
+        button_id = self._key_code_to_button(key_code)
+        _LOGGER.info("[OmniRemote] Executing button %s on remote %s", button_id, remote.name)
+        
+        await self._execute_button_action(remote, button_id)
+    
+    @callback
+    async def _handle_state_changed(self, event: Event) -> None:
+        """Handle state changes for Bluetooth remote entities."""
+        data = event.data
+        entity_id = data.get("entity_id", "")
+        new_state = data.get("new_state")
+        old_state = data.get("old_state")
+        
+        # Only look at remote/sensor entities that might be Bluetooth remotes
+        if not entity_id.startswith(("sensor.", "remote.", "event.")):
+            return
+        
+        # Skip if no new state or same as old
+        if not new_state or (old_state and new_state.state == old_state.state):
+            return
+        
+        # Check if this looks like a button press event
+        state_value = new_state.state
+        if state_value in ("unknown", "unavailable", ""):
+            return
+        
+        # Try to find a matching remote by entity_id
+        remote = self._find_remote_by_entity(entity_id)
+        if not remote:
+            return
+        
+        _LOGGER.info("[OmniRemote] Bluetooth remote state change: %s -> %s", entity_id, state_value)
+        
+        # The state value is typically the button name
+        button_id = state_value.lower().replace(" ", "_")
         await self._execute_button_action(remote, button_id)
     
     async def _handle_z2m_message(self, msg) -> None:
@@ -589,6 +675,42 @@ class PhysicalRemoteManager:
         except Exception as ex:
             _LOGGER.error("Error handling bridge message: %s", ex)
     
+    async def _handle_pi_bridge_message(self, msg) -> None:
+        """Handle Pi Zero W bridge message."""
+        try:
+            # Topic: omniremote/physical_remote
+            # Payload: {"device": "G20S", "button": "power", "action": "press"}
+            payload = json.loads(msg.payload)
+            
+            device_name = payload.get("device", "")
+            button_id = payload.get("button") or payload.get("key", "")
+            action = payload.get("action", "press")
+            
+            _LOGGER.info("[OmniRemote] Pi bridge event: device=%s, button=%s, action=%s", 
+                        device_name, button_id, action)
+            
+            # Only handle press events (not release)
+            if action not in ("press", "key_down", "down"):
+                return
+            
+            # Find matching remote by device name
+            remote = self._find_remote_by_bt_device(device_name)
+            if not remote:
+                # Try to find any Bluetooth remote
+                for r in self.database.physical_remotes.values():
+                    if r.remote_type in (RemoteType.BLUETOOTH, RemoteType.BLUETOOTH_HA):
+                        _LOGGER.info("[OmniRemote] Using first Bluetooth remote: %s", r.name)
+                        remote = r
+                        break
+            
+            if not remote:
+                _LOGGER.warning("[OmniRemote] No remote found for Pi bridge device: %s", device_name)
+                return
+            
+            await self._execute_button_action(remote, button_id)
+        except Exception as ex:
+            _LOGGER.error("Error handling Pi bridge message: %s", ex)
+    
     @callback
     async def _handle_bridge_event(self, event: Event) -> None:
         """Handle direct bridge events (non-MQTT)."""
@@ -631,6 +753,140 @@ class PhysicalRemoteManager:
                 if device_name is None or remote.usb_device_name == device_name:
                     return remote
         return None
+    
+    def _find_remote_by_bt_device(self, device_name: str) -> PhysicalRemote | None:
+        """Find remote by Bluetooth device name or MAC address."""
+        device_name_lower = device_name.lower()
+        
+        for remote in self.database.physical_remotes.values():
+            # Check by BT MAC
+            if remote.bt_mac:
+                mac_clean = remote.bt_mac.lower().replace(":", "").replace("-", "")
+                device_clean = device_name_lower.replace(":", "").replace("-", "")
+                if mac_clean in device_clean or device_clean in mac_clean:
+                    _LOGGER.debug("Matched remote %s by BT MAC %s", remote.name, remote.bt_mac)
+                    return remote
+            
+            # Check by device name
+            if remote.usb_device_name and remote.usb_device_name.lower() in device_name_lower:
+                _LOGGER.debug("Matched remote %s by device name %s", remote.name, device_name)
+                return remote
+            
+            # Check by remote name
+            if remote.name.lower() in device_name_lower or device_name_lower in remote.name.lower():
+                _LOGGER.debug("Matched remote %s by name", remote.name)
+                return remote
+            
+            # Check remote type is Bluetooth
+            if remote.remote_type in (RemoteType.BLUETOOTH, RemoteType.BLUETOOTH_HA):
+                # Check model patterns
+                if remote.model_id:
+                    from .remote_models import REMOTE_MODELS
+                    model = REMOTE_MODELS.get(remote.model_id)
+                    if model and model.get("bluetooth_name_pattern"):
+                        import re
+                        pattern = model["bluetooth_name_pattern"]
+                        if re.search(pattern, device_name, re.IGNORECASE):
+                            _LOGGER.debug("Matched remote %s by model pattern %s", remote.name, pattern)
+                            return remote
+        
+        return None
+    
+    def _find_remote_by_entity(self, entity_id: str) -> PhysicalRemote | None:
+        """Find remote by Home Assistant entity ID."""
+        entity_id_lower = entity_id.lower()
+        
+        for remote in self.database.physical_remotes.values():
+            # Check if entity_id contains remote name or BT MAC
+            remote_name_clean = remote.name.lower().replace(" ", "_")
+            if remote_name_clean in entity_id_lower:
+                return remote
+            
+            if remote.bt_mac:
+                mac_clean = remote.bt_mac.lower().replace(":", "_")
+                if mac_clean in entity_id_lower:
+                    return remote
+        
+        return None
+    
+    def _key_code_to_button(self, key_code) -> str:
+        """Convert keyboard key code to button ID."""
+        # Map common key codes to button names
+        # Key codes can be integers or strings depending on the integration
+        key_map = {
+            # Power/System
+            116: "power", "KEY_POWER": "power",
+            142: "sleep", "KEY_SLEEP": "sleep",
+            
+            # Navigation
+            103: "up", "KEY_UP": "up",
+            108: "down", "KEY_DOWN": "down",
+            105: "left", "KEY_LEFT": "left",
+            106: "right", "KEY_RIGHT": "right",
+            28: "ok", "KEY_ENTER": "ok", "KEY_OK": "ok",
+            96: "ok",  # KP_ENTER
+            1: "back", "KEY_ESC": "back", "KEY_BACK": "back",
+            102: "home", "KEY_HOME": "home", "KEY_HOMEPAGE": "home",
+            139: "menu", "KEY_MENU": "menu",
+            
+            # Volume
+            115: "volume_up", "KEY_VOLUMEUP": "volume_up",
+            114: "volume_down", "KEY_VOLUMEDOWN": "volume_down",
+            113: "mute", "KEY_MUTE": "mute",
+            
+            # Media
+            164: "play_pause", "KEY_PLAYPAUSE": "play_pause",
+            207: "play", "KEY_PLAY": "play",
+            119: "pause", "KEY_PAUSE": "pause",
+            128: "stop", "KEY_STOP": "stop",
+            163: "next", "KEY_NEXTSONG": "next",
+            165: "previous", "KEY_PREVIOUSSONG": "previous",
+            168: "rewind", "KEY_REWIND": "rewind",
+            208: "fast_forward", "KEY_FASTFORWARD": "fast_forward",
+            
+            # Numbers
+            2: "num_1", "KEY_1": "num_1",
+            3: "num_2", "KEY_2": "num_2",
+            4: "num_3", "KEY_3": "num_3",
+            5: "num_4", "KEY_4": "num_4",
+            6: "num_5", "KEY_5": "num_5",
+            7: "num_6", "KEY_6": "num_6",
+            8: "num_7", "KEY_7": "num_7",
+            9: "num_8", "KEY_8": "num_8",
+            10: "num_9", "KEY_9": "num_9",
+            11: "num_0", "KEY_0": "num_0",
+            
+            # Channel
+            402: "channel_up", "KEY_CHANNELUP": "channel_up",
+            403: "channel_down", "KEY_CHANNELDOWN": "channel_down",
+            
+            # Colors (for remotes with colored buttons)
+            398: "red", "KEY_RED": "red",
+            399: "green", "KEY_GREEN": "green",
+            400: "yellow", "KEY_YELLOW": "yellow",
+            401: "blue", "KEY_BLUE": "blue",
+            
+            # Info/Guide
+            358: "info", "KEY_INFO": "info",
+            362: "guide", "KEY_PROGRAM": "guide",
+            
+            # Source/Input
+            175: "source", "KEY_SETUP": "source", "KEY_INPUT": "source",
+        }
+        
+        # Try to find in map
+        button = key_map.get(key_code)
+        if button:
+            return button
+        
+        # Try string conversion
+        if isinstance(key_code, str):
+            # Remove KEY_ prefix if present
+            clean_key = key_code.replace("KEY_", "").lower()
+            return clean_key
+        
+        # Default to key code as string
+        return f"key_{key_code}"
     
     def _zha_command_to_button(self, command: str, args: dict) -> str:
         """Convert ZHA command to button ID."""
