@@ -1,5 +1,23 @@
 # OmniRemote Changelog
 
+## [1.10.15] - 2026-03-07
+
+### Added
+- **Auto-Import Buttons on Add** - When adding a remote with a detected/selected model, buttons are automatically imported
+  - Discovery detects model → Add remote → Buttons pre-populated
+  - No need to manually import after adding
+  - Works for both discovered and manually added remotes
+
+### Changed
+- Remote add flow now passes model_id and initial button mappings to backend
+- Backend "add" action now accepts and applies button_mappings
+- Fixed BT MAC reading to check both ESP32 proxy and HA native fields
+
+### Flow
+1. **Discover** → Device detected with model (e.g., "G20S Pro Plus")
+2. **Add** → Model pre-selected, click "Add Remote"
+3. **Done** → Remote has all buttons ready to map to scenes/devices
+
 ## [1.10.14] - 2026-03-07
 
 ### Added

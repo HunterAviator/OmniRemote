@@ -3,7 +3,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.14";
+const OMNIREMOTE_VERSION = "1.10.15";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -5394,13 +5394,34 @@ data:
     const bridgeId = this.shadowRoot.getElementById('remote-bridge')?.value;
     const remoteType = this.shadowRoot.getElementById('remote-type')?.value;
     const profile = this.shadowRoot.getElementById('remote-profile')?.value;
+    const modelId = this.shadowRoot.getElementById('remote-model')?.value;
     const zigbeeIeee = this.shadowRoot.getElementById('remote-zigbee-ieee')?.value;
     const rfPrefix = this.shadowRoot.getElementById('remote-rf-prefix')?.value;
-    const btMac = this.shadowRoot.getElementById('remote-bt-mac')?.value;
+    // Check both BT MAC fields (ESP32 proxy vs HA native)
+    const btMac = this.shadowRoot.getElementById('remote-bt-mac')?.value || 
+                  this.shadowRoot.getElementById('remote-bt-mac-ha')?.value;
     
     if (!name) {
       alert('Please enter a name for the remote');
       return;
+    }
+    
+    // Build initial button mappings from model if selected
+    let initialMappings = {};
+    if (modelId && !this._editingRemote) {
+      const model = (this._remoteModels || []).find(m => m.id === modelId);
+      if (model?.buttons?.length > 0) {
+        model.buttons.forEach(b => {
+          const btnId = b.button_id || b.id || b.label;
+          if (btnId) {
+            initialMappings[btnId] = {
+              button_id: btnId,
+              action_type: b.suggested_action || 'scene',
+            };
+          }
+        });
+        console.log(`[OmniRemote] Auto-importing ${Object.keys(initialMappings).length} buttons from model ${modelId}`);
+      }
     }
     
     const data = {
@@ -5411,9 +5432,11 @@ data:
       bridge_id: bridgeId || null,
       remote_type: remoteType || this._editingRemote?.remote_type,
       profile: profile || null,
+      model_id: modelId || null,
       zigbee_ieee: zigbeeIeee || null,
       rf_code_prefix: rfPrefix || null,
       bt_mac: btMac || null,
+      button_mappings: Object.keys(initialMappings).length > 0 ? initialMappings : null,
     };
     
     const res = await this._api('/api/omniremote/physical_remotes', 'POST', data);
@@ -5423,6 +5446,12 @@ data:
       this._editingRemote = null;
       await this._loadData();
       this._render();
+      
+      // Show success with button count if we auto-imported
+      if (Object.keys(initialMappings).length > 0) {
+        const model = (this._remoteModels || []).find(m => m.id === modelId);
+        console.log(`[OmniRemote] Remote added with ${Object.keys(initialMappings).length} buttons from ${model?.name || modelId}`);
+      }
     } else {
       alert('Failed to save remote: ' + (res.error || 'Unknown error'));
     }

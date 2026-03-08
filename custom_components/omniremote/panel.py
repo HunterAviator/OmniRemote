@@ -2558,10 +2558,28 @@ class OmniApiPhysicalRemotes(HomeAssistantView):
                 bt_mac=data.get("bt_mac"),
                 usb_device_name=data.get("usb_device_name"),
                 profile=data.get("profile"),
+                model_id=data.get("model_id"),
             )
             
-            # Apply profile defaults if specified
-            if remote.profile:
+            # Apply button mappings if provided (from auto-import)
+            initial_mappings = data.get("button_mappings")
+            if initial_mappings and isinstance(initial_mappings, dict):
+                _debug("Applying %d initial button mappings from model", len(initial_mappings))
+                for btn_id, mapping_data in initial_mappings.items():
+                    action_type_str = mapping_data.get("action_type", "scene")
+                    try:
+                        action_type = ActionType(action_type_str)
+                    except ValueError:
+                        action_type = ActionType.SCENE
+                    
+                    remote.button_mappings[btn_id] = ButtonMapping(
+                        button_id=btn_id,
+                        action_type=action_type,
+                        action_target=mapping_data.get("action_target", ""),
+                        action_data=mapping_data.get("action_data", {}),
+                    )
+            # Fall back to profile defaults if no mappings provided
+            elif remote.profile:
                 from .physical_remotes import REMOTE_PROFILES
                 profile_data = REMOTE_PROFILES.get(remote.profile, {})
                 for btn_id, mapping_data in profile_data.get("default_mappings", {}).items():
@@ -2575,9 +2593,12 @@ class OmniApiPhysicalRemotes(HomeAssistantView):
             database.physical_remotes[remote.id] = remote
             await database.async_save()
             
+            _debug("Added remote %s with %d button mappings", remote.name, len(remote.button_mappings))
+            
             return web.json_response({
                 "success": True,
-                "remote": remote.to_dict()
+                "remote": remote.to_dict(),
+                "buttons_imported": len(remote.button_mappings)
             })
         
         elif action == "update":
