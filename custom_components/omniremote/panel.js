@@ -5,7 +5,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.31";
+const OMNIREMOTE_VERSION = "1.10.32";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -129,6 +129,7 @@ class OmniRemotePanel extends HTMLElement {
       const mqttStatus = results[11] || {};
       this._mqttAvailable = mqttStatus.available || false;
       this._mqttConfig = mqttStatus.config || {};
+      this._data.mqttStatus = mqttStatus;  // Store for settings view
       
       // Store Pi Hubs
       const piHubData = results[12] || {};
@@ -929,6 +930,12 @@ class OmniRemotePanel extends HTMLElement {
       case 'save-mqtt':
         await this._saveMqttConfig();
         break;
+      case 'test-mqtt-settings':
+        await this._testMqttSettings();
+        break;
+      case 'save-mqtt-settings':
+        await this._saveMqttSettings();
+        break;
       case 'discover-hubs':
         console.log('[OmniRemote] discover-hubs case matched!');
         await this._discoverPiHubs();
@@ -1029,6 +1036,58 @@ class OmniRemotePanel extends HTMLElement {
       }
     } catch (e) {
       result.innerHTML = `<span style="color:#ef9a9a;">❌ Error: ${e.message}</span>`;
+    }
+  }
+
+  // Settings page MQTT config (standalone mode)
+  async _testMqttSettings() {
+    const broker = this.shadowRoot.getElementById('mqtt-broker')?.value;
+    const port = this.shadowRoot.getElementById('mqtt-port')?.value || 1883;
+    const username = this.shadowRoot.getElementById('mqtt-user')?.value;
+    const password = this.shadowRoot.getElementById('mqtt-pass')?.value;
+    
+    if (!broker) {
+      alert('Please enter the MQTT broker address');
+      return;
+    }
+    
+    try {
+      const res = await this._api('/api/omniremote/mqtt/test', 'POST', { broker, port, username, password });
+      if (res.success) {
+        alert('✓ Connection successful!');
+      } else {
+        alert(`✗ Connection failed: ${res.error}`);
+      }
+    } catch (e) {
+      alert(`✗ Error: ${e.message}`);
+    }
+  }
+  
+  async _saveMqttSettings() {
+    const broker = this.shadowRoot.getElementById('mqtt-broker')?.value;
+    const port = this.shadowRoot.getElementById('mqtt-port')?.value || 1883;
+    const username = this.shadowRoot.getElementById('mqtt-user')?.value;
+    const password = this.shadowRoot.getElementById('mqtt-pass')?.value;
+    
+    if (!broker) {
+      alert('Please enter the MQTT broker address');
+      return;
+    }
+    
+    try {
+      const res = await this._api('/api/omniremote/mqtt/config', 'POST', { broker, port, username, password });
+      if (res.success) {
+        alert('✓ MQTT configuration saved!\n\nThe service will reconnect with the new settings.');
+        // Update local status
+        this._data.mqttStatus = { connected: false, broker, port, username };
+        this._render();
+        // Reload data after a moment to get new connection status
+        setTimeout(() => this._loadData(), 2000);
+      } else {
+        alert(`✗ Failed to save: ${res.error}`);
+      }
+    } catch (e) {
+      alert(`✗ Error: ${e.message}`);
     }
   }
 
@@ -1972,10 +2031,82 @@ class OmniRemotePanel extends HTMLElement {
     // MQTT status from HA - check if MQTT integration exists
     const hasMqtt = this._mqttAvailable || false;
     const mqttConfig = this._mqttConfig || {};
+    const mqttStatus = this._data.mqttStatus || {};
+    
+    // Standalone mode gets different MQTT UI
+    const standaloneMqttCard = `
+      <div class="card" style="margin-bottom:24px;">
+        <h3 style="margin:0 0 16px 0;display:flex;align-items:center;gap:10px;">
+          <ha-icon icon="mdi:lan-connect" style="color:#7C3AED;"></ha-icon>
+          MQTT Configuration
+          ${mqttStatus.connected ? 
+            '<span class="status online" style="margin-left:auto;">Connected</span>' : 
+            '<span class="status offline" style="margin-left:auto;">Disconnected</span>'}
+        </h3>
+        
+        ${mqttStatus.connected ? `
+          <div style="background:#1b3d1b;border:1px solid #4caf50;border-radius:8px;padding:12px;margin-bottom:16px;">
+            <div style="display:flex;align-items:center;gap:8px;color:#81c784;">
+              <ha-icon icon="mdi:check-circle"></ha-icon>
+              Connected to ${mqttStatus.broker}:${mqttStatus.port}
+            </div>
+          </div>
+        ` : `
+          <div style="background:#3d2a1a;border:1px solid #ff9800;border-radius:8px;padding:12px;margin-bottom:16px;">
+            <div style="display:flex;align-items:center;gap:8px;color:#ffcc80;">
+              <ha-icon icon="mdi:alert"></ha-icon>
+              Not connected - configure below to enable HA sync
+            </div>
+          </div>
+        `}
+        
+        <div style="display:grid;gap:12px;">
+          <div style="display:grid;grid-template-columns:120px 1fr;gap:8px;align-items:center;">
+            <label style="color:#888;">Broker:</label>
+            <input type="text" id="mqtt-broker" placeholder="homeassistant.local" 
+                   value="${mqttStatus.broker || ''}"
+                   style="padding:8px 12px;border-radius:6px;border:1px solid #333;background:#1a1a2e;color:#e8e8e8;">
+          </div>
+          <div style="display:grid;grid-template-columns:120px 1fr;gap:8px;align-items:center;">
+            <label style="color:#888;">Port:</label>
+            <input type="number" id="mqtt-port" placeholder="1883" 
+                   value="${mqttStatus.port || 1883}"
+                   style="padding:8px 12px;border-radius:6px;border:1px solid #333;background:#1a1a2e;color:#e8e8e8;width:100px;">
+          </div>
+          <div style="display:grid;grid-template-columns:120px 1fr;gap:8px;align-items:center;">
+            <label style="color:#888;">Username:</label>
+            <input type="text" id="mqtt-user" placeholder="optional" 
+                   value="${mqttStatus.username || ''}"
+                   style="padding:8px 12px;border-radius:6px;border:1px solid #333;background:#1a1a2e;color:#e8e8e8;">
+          </div>
+          <div style="display:grid;grid-template-columns:120px 1fr;gap:8px;align-items:center;">
+            <label style="color:#888;">Password:</label>
+            <input type="password" id="mqtt-pass" placeholder="optional"
+                   style="padding:8px 12px;border-radius:6px;border:1px solid #333;background:#1a1a2e;color:#e8e8e8;">
+          </div>
+        </div>
+        
+        <div style="margin-top:16px;display:flex;gap:12px;">
+          <button class="btn" data-action="test-mqtt-settings">
+            <ha-icon icon="mdi:connection"></ha-icon> Test Connection
+          </button>
+          <button class="btn btn-p" data-action="save-mqtt-settings">
+            <ha-icon icon="mdi:content-save"></ha-icon> Save & Apply
+          </button>
+        </div>
+        
+        <p style="margin:12px 0 0;font-size:12px;color:#666;">
+          <ha-icon icon="mdi:information-outline" style="font-size:14px;"></ha-icon>
+          MQTT credentials are from Home Assistant → Settings → People → Users (or Mosquitto add-on config)
+        </p>
+      </div>
+    `;
     
     return `
       <div style="max-width:800px;">
-        <!-- MQTT Status -->
+        <!-- MQTT Config - Show different UI based on standalone mode -->
+        ${this._standalone ? standaloneMqttCard : `
+        <!-- MQTT Status (HA mode) -->
         <div class="card" style="margin-bottom:24px;">
           <h3 style="margin:0 0 16px 0;display:flex;align-items:center;gap:10px;">
             <ha-icon icon="mdi:lan-connect" style="color:#7C3AED;"></ha-icon>
@@ -2041,6 +2172,7 @@ class OmniRemotePanel extends HTMLElement {
             </button>
           `}
         </div>
+        `}
         
         <!-- Pi Zero Hub Status -->
         <div class="card" style="margin-bottom:24px;">
