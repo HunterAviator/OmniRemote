@@ -1,5 +1,47 @@
 # OmniRemote Changelog
 
+## [1.10.19] - 2026-03-09
+
+### Added
+- **Pi Zero W Hub Package** - Complete standalone remote bridge solution
+  - One-liner install script: `curl -sSL https://omniremote.io/pi-setup.sh | sudo bash`
+  - USB HID remote bridge (2.4GHz dongles)
+  - Bluetooth HID remote support  
+  - GPIO IR blaster with NEC/Samsung/RC5 protocol encoding
+  - OmniRemote Lite standalone web UI (Flask-based)
+  - MQTT integration for Home Assistant
+  - Systemd services for auto-start
+  
+- **Wiki: Pi Zero W Hub** - Comprehensive setup guide in OmniRemote wiki
+  - Quick 5-minute install instructions
+  - Hardware shopping list with prices
+  - GPIO IR wiring diagram
+  - Troubleshooting table
+  - Links to GitHub repository
+
+### Changed
+- Renamed "Pi Zero W Bridge" wiki section to "Pi Zero W Hub"
+- Expanded hardware section with Pi Zero components
+
+## [1.10.18] - 2026-03-08
+
+### Added
+- **Wiki: Recommended Hardware** - Shopping guide with product tables
+  - IR Blasters (Broadlink, SwitchBot, DIY GPIO)
+  - Physical Remotes (G20S, MX3, IKEA TRADFRI)
+  - Pi Zero W Hub component list with prices
+  - Bluetooth Proxy options (ESP32, Athom, LilyGO)
+  - Links to GitHub hardware wiki
+
+### Documentation
+- Created comprehensive affiliate links reference document
+  - All hardware components with Amazon ASINs
+  - Pre-built shopping bundles (5 configurations)
+  - Non-Amazon sources (Home Assistant Yellow, Anavi, IKEA)
+  - Affiliate link templates
+  - Upsell suggestions
+  - Price history targets
+
 ## [1.10.17] - 2026-03-08
 
 ### Added

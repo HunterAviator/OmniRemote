@@ -1,9 +1,10 @@
 /**
- * OmniRemote Manager Panel v1.7.0
+ * OmniRemote™ Manager Panel v1.8.0
+ * © 2026 One Eye Enterprises LLC
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.17";
+const OMNIREMOTE_VERSION = "1.10.20";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -167,20 +168,23 @@ class OmniRemotePanel extends HTMLElement {
         
         /* Sidebar */
         .sidebar { width:220px; background:#1a1a2e; border-right:1px solid #2a2a4a; display:flex; flex-direction:column; }
-        .logo { padding:16px; font-weight:600; display:flex; align-items:center; gap:8px; border-bottom:1px solid #2a2a4a; }
-        .logo ha-icon { color:#03a9f4; }
+        .logo { padding:16px; font-weight:600; display:flex; align-items:center; gap:10px; border-bottom:1px solid #2a2a4a; background:linear-gradient(135deg, rgba(124,58,237,0.1), rgba(37,99,235,0.1)); }
+        .logo ha-icon { color:#7C3AED; }
         .logo-text { display:flex; flex-direction:column; }
-        .logo-title { font-size:14px; }
+        .logo-title { font-size:15px; }
+        .logo-title .omni { color:#7C3AED; }
+        .logo-title .remote { color:#2563EB; }
         .logo-version { font-size:10px; color:#888; font-weight:400; }
+        .logo-tm { font-size:8px; vertical-align:super; color:#888; }
         .nav { flex:1; padding:8px 0; overflow-y:auto; }
         .nav-item { display:flex; align-items:center; gap:10px; padding:10px 16px; cursor:pointer; border-left:3px solid transparent; }
         .nav-item:hover { background:#252545; }
-        .nav-item.active { background:#252545; border-left-color:#03a9f4; }
+        .nav-item.active { background:#252545; border-left-color:#7C3AED; }
         .nav-item ha-icon { color:#888; width:20px; }
-        .nav-item.active ha-icon { color:#03a9f4; }
-        .nav-item .badge { margin-left:auto; background:#03a9f4; color:#fff; padding:2px 8px; border-radius:10px; font-size:11px; }
+        .nav-item.active ha-icon { color:#7C3AED; }
+        .nav-item .badge { margin-left:auto; background:#7C3AED; color:#fff; padding:2px 8px; border-radius:10px; font-size:11px; }
         .nav-section { padding:8px 16px 4px; font-size:10px; text-transform:uppercase; color:#666; letter-spacing:1px; margin-top:8px; }
-        .nav-item.add-room { color:#03a9f4; }
+        .nav-item.add-room { color:#7C3AED; }
         
         /* Main */
         .main { flex:1; display:flex; flex-direction:column; overflow:hidden; }
@@ -191,18 +195,19 @@ class OmniRemotePanel extends HTMLElement {
         /* Buttons */
         .btn { display:inline-flex; align-items:center; gap:6px; padding:8px 16px; border:none; border-radius:8px; cursor:pointer; font-size:13px; font-weight:500; }
         .btn ha-icon { --mdc-icon-size:16px; }
-        .btn-p { background:#03a9f4; color:#fff; }
-        .btn-p:hover { background:#0288d1; }
+        .btn-p { background:linear-gradient(135deg, #7C3AED, #6D28D9); color:#fff; }
+        .btn-p:hover { background:linear-gradient(135deg, #6D28D9, #5B21B6); }
         .btn-s { background:#252545; color:#e8e8e8; }
         .btn-s:hover { background:#303060; }
         .btn-d { background:#c62828; color:#fff; }
+        .btn-accent { background:linear-gradient(135deg, #2563EB, #1D4ED8); color:#fff; }
         
         /* Cards */
         .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:16px; }
         .card { background:#1a1a2e; border:1px solid #2a2a4a; border-radius:12px; padding:16px; }
         .card-head { display:flex; align-items:center; gap:12px; }
         .card-icon { width:40px; height:40px; border-radius:10px; background:#252545; display:flex; align-items:center; justify-content:center; }
-        .card-icon ha-icon { color:#03a9f4; }
+        .card-icon ha-icon { color:#7C3AED; }
         .card-info { flex:1; }
         .card-title { font-weight:500; }
         .card-sub { font-size:12px; color:#888; margin-top:2px; }
@@ -295,7 +300,7 @@ class OmniRemotePanel extends HTMLElement {
           <div class="logo">
             <ha-icon icon="mdi:remote-tv"></ha-icon>
             <div class="logo-text">
-              <span class="logo-title">OmniRemote Manager</span>
+              <span class="logo-title"><span class="omni">Omni</span><span class="remote">Remote</span><span class="logo-tm">™</span></span>
               <span class="logo-version">v${this._version}</span>
             </div>
           </div>
@@ -327,6 +332,9 @@ class OmniRemotePanel extends HTMLElement {
             </div>
             <div class="nav-item ${this._view === 'debugger' ? 'active' : ''}" data-nav="debugger">
               <ha-icon icon="mdi:bug"></ha-icon>IR Debugger
+            </div>
+            <div class="nav-item ${this._view === 'settings' ? 'active' : ''}" data-nav="settings">
+              <ha-icon icon="mdi:cog"></ha-icon>Settings
             </div>
             <div class="nav-item ${this._view === 'wiki' ? 'active' : ''}" data-nav="wiki">
               <ha-icon icon="mdi:help-circle"></ha-icon>Help & Wiki
@@ -864,6 +872,78 @@ class OmniRemotePanel extends HTMLElement {
         console.log('[OmniRemote] debug-catalog-test data:', data);
         await this._debugCatalogTest(data.deviceId, data.cmd);
         break;
+      
+      // MQTT and Settings actions
+      case 'auto-config-mqtt':
+        await this._autoConfigureMqtt();
+        break;
+      case 'test-mqtt':
+        await this._testMqttConnection();
+        break;
+      case 'save-mqtt':
+        await this._saveMqttConfig();
+        break;
+    }
+  }
+
+  async _autoConfigureMqtt() {
+    // Try to auto-detect MQTT from Home Assistant's MQTT integration
+    const result = this.shadowRoot.getElementById('mqtt-test-result');
+    if (result) result.innerHTML = '<span style="color:#888;">Checking Home Assistant MQTT...</span>';
+    
+    try {
+      const res = await this._api('/api/omniremote/mqtt/auto-configure', 'POST');
+      if (res.success) {
+        this._mqttStatus = { connected: true, auto_configured: true, ...res.config };
+        this._render();
+      } else {
+        if (result) result.innerHTML = `<span style="color:#ef9a9a;">❌ ${res.error || 'MQTT integration not found. Configure manually.'}</span>`;
+      }
+    } catch (e) {
+      if (result) result.innerHTML = `<span style="color:#ef9a9a;">❌ Error: ${e.message}</span>`;
+    }
+  }
+  
+  async _testMqttConnection() {
+    const broker = this.shadowRoot.getElementById('mqtt-broker')?.value;
+    const port = this.shadowRoot.getElementById('mqtt-port')?.value || 1883;
+    const username = this.shadowRoot.getElementById('mqtt-username')?.value;
+    const password = this.shadowRoot.getElementById('mqtt-password')?.value;
+    
+    const result = this.shadowRoot.getElementById('mqtt-test-result');
+    if (result) result.innerHTML = '<span style="color:#888;">Testing connection...</span>';
+    
+    try {
+      const res = await this._api('/api/omniremote/mqtt/test', 'POST', { broker, port, username, password });
+      if (res.success) {
+        result.innerHTML = '<span style="color:#81c784;">✓ Connected successfully!</span>';
+      } else {
+        result.innerHTML = `<span style="color:#ef9a9a;">❌ ${res.error}</span>`;
+      }
+    } catch (e) {
+      result.innerHTML = `<span style="color:#ef9a9a;">❌ Error: ${e.message}</span>`;
+    }
+  }
+  
+  async _saveMqttConfig() {
+    const broker = this.shadowRoot.getElementById('mqtt-broker')?.value;
+    const port = this.shadowRoot.getElementById('mqtt-port')?.value || 1883;
+    const username = this.shadowRoot.getElementById('mqtt-username')?.value;
+    const password = this.shadowRoot.getElementById('mqtt-password')?.value;
+    
+    const result = this.shadowRoot.getElementById('mqtt-test-result');
+    if (result) result.innerHTML = '<span style="color:#888;">Saving...</span>';
+    
+    try {
+      const res = await this._api('/api/omniremote/mqtt/config', 'POST', { broker, port, username, password });
+      if (res.success) {
+        result.innerHTML = '<span style="color:#81c784;">✓ Configuration saved!</span>';
+        this._mqttStatus = { connected: true, broker, port, username };
+      } else {
+        result.innerHTML = `<span style="color:#ef9a9a;">❌ ${res.error}</span>`;
+      }
+    } catch (e) {
+      result.innerHTML = `<span style="color:#ef9a9a;">❌ Error: ${e.message}</span>`;
     }
   }
 
@@ -1057,6 +1137,7 @@ class OmniRemotePanel extends HTMLElement {
       case 'remotes': return this._remotesView();
       case 'builder': return this._builderView();
       case 'debugger': return this._debuggerView();
+      case 'settings': return this._settingsView();
       case 'wiki': return this._wikiView();
       case 'room': return this._roomView();
       case 'device': return this._deviceView();
@@ -1773,6 +1854,183 @@ class OmniRemotePanel extends HTMLElement {
     `;
   }
 
+  _settingsView() {
+    // Check MQTT status
+    const mqttStatus = this._mqttStatus || { connected: false, auto_configured: false };
+    const piHubStatus = this._piHubStatus || { connected: false };
+    
+    return `
+      <div style="max-width:800px;">
+        <!-- MQTT Configuration -->
+        <div class="card" style="margin-bottom:24px;">
+          <h3 style="margin:0 0 16px 0;display:flex;align-items:center;gap:10px;">
+            <ha-icon icon="mdi:lan-connect" style="color:#7C3AED;"></ha-icon>
+            MQTT Configuration
+            <span class="status ${mqttStatus.connected ? 'online' : 'offline'}">${mqttStatus.connected ? 'Connected' : 'Not Connected'}</span>
+          </h3>
+          
+          ${mqttStatus.auto_configured ? `
+            <div style="background:#1b3d1b;border:1px solid #4caf50;border-radius:8px;padding:12px;margin-bottom:16px;">
+              <div style="display:flex;align-items:center;gap:8px;color:#81c784;">
+                <ha-icon icon="mdi:check-circle"></ha-icon>
+                <strong>Auto-configured!</strong> Using Home Assistant's MQTT broker.
+              </div>
+            </div>
+          ` : `
+            <p style="color:#888;margin-bottom:16px;">
+              MQTT enables communication with Pi Zero Hubs and physical remotes.
+            </p>
+            
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+              <div>
+                <label style="display:block;margin-bottom:4px;font-size:13px;color:#888;">Broker Address</label>
+                <input type="text" id="mqtt-broker" class="fi" placeholder="homeassistant.local" value="${mqttStatus.broker || ''}">
+              </div>
+              <div>
+                <label style="display:block;margin-bottom:4px;font-size:13px;color:#888;">Port</label>
+                <input type="number" id="mqtt-port" class="fi" placeholder="1883" value="${mqttStatus.port || 1883}">
+              </div>
+              <div>
+                <label style="display:block;margin-bottom:4px;font-size:13px;color:#888;">Username</label>
+                <input type="text" id="mqtt-username" class="fi" placeholder="(optional)" value="${mqttStatus.username || ''}">
+              </div>
+              <div>
+                <label style="display:block;margin-bottom:4px;font-size:13px;color:#888;">Password</label>
+                <input type="password" id="mqtt-password" class="fi" placeholder="(optional)">
+              </div>
+            </div>
+            
+            <div style="display:flex;gap:12px;">
+              <button class="btn btn-p" data-action="auto-config-mqtt">
+                <ha-icon icon="mdi:auto-fix"></ha-icon> Auto-Configure
+              </button>
+              <button class="btn btn-s" data-action="test-mqtt">
+                <ha-icon icon="mdi:lan-check"></ha-icon> Test Connection
+              </button>
+              <button class="btn btn-s" data-action="save-mqtt">
+                <ha-icon icon="mdi:content-save"></ha-icon> Save
+              </button>
+            </div>
+            
+            <div id="mqtt-test-result" style="margin-top:12px;"></div>
+          `}
+        </div>
+        
+        <!-- Pi Zero Hub Status -->
+        <div class="card" style="margin-bottom:24px;">
+          <h3 style="margin:0 0 16px 0;display:flex;align-items:center;gap:10px;">
+            <ha-icon icon="mdi:raspberry-pi" style="color:#10B981;"></ha-icon>
+            Pi Zero Hub
+            ${piHubStatus.connected ? `<span class="status online">Connected</span>` : ''}
+          </h3>
+          
+          ${piHubStatus.connected ? `
+            <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:16px;">
+              <div style="background:#252545;border-radius:8px;padding:12px;text-align:center;">
+                <div style="font-size:24px;font-weight:bold;color:#10B981;">${piHubStatus.devices || 0}</div>
+                <div style="font-size:12px;color:#888;">Devices</div>
+              </div>
+              <div style="background:#252545;border-radius:8px;padding:12px;text-align:center;">
+                <div style="font-size:24px;font-weight:bold;color:#7C3AED;">${piHubStatus.buttons || 0}</div>
+                <div style="font-size:12px;color:#888;">Buttons Today</div>
+              </div>
+              <div style="background:#252545;border-radius:8px;padding:12px;text-align:center;">
+                <div style="font-size:18px;font-weight:bold;color:#2563EB;">v${piHubStatus.version || '?'}</div>
+                <div style="font-size:12px;color:#888;">Hub Version</div>
+              </div>
+            </div>
+          ` : `
+            <p style="color:#888;margin-bottom:16px;">
+              No Pi Zero Hub detected. Set up a Pi Zero W to receive physical remote button presses.
+            </p>
+            <a href="https://omniremote.com/pi-hub" target="_blank" class="btn btn-s">
+              <ha-icon icon="mdi:open-in-new"></ha-icon> Setup Guide
+            </a>
+          `}
+        </div>
+        
+        <!-- About -->
+        <div class="card" style="margin-bottom:24px;">
+          <h3 style="margin:0 0 16px 0;display:flex;align-items:center;gap:10px;">
+            <ha-icon icon="mdi:information" style="color:#2563EB;"></ha-icon>
+            About <span class="omni" style="color:#7C3AED;">Omni</span><span class="remote" style="color:#2563EB;">Remote</span><span style="font-size:10px;vertical-align:super;color:#888;">™</span>
+          </h3>
+          
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+            <div>
+              <p><strong>Version:</strong> ${this._version}</p>
+              <p><strong>Integration:</strong> Free (HACS)</p>
+              <p style="margin-top:16px;">
+                <a href="https://github.com/omniremote/omniremote" target="_blank" style="color:#7C3AED;">GitHub</a> •
+                <a href="https://omniremote.com/docs" target="_blank" style="color:#7C3AED;">Documentation</a> •
+                <a href="https://omniremote.com/discord" target="_blank" style="color:#7C3AED;">Discord</a>
+              </p>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:12px;color:#888;">
+                One Remote to Rule Them All™<br>
+                © 2026 One Eye Enterprises LLC
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Recommended Hardware -->
+        <div class="card" style="background:linear-gradient(135deg, rgba(124,58,237,0.1), rgba(37,99,235,0.1));border-color:#7C3AED;">
+          <h3 style="margin:0 0 16px 0;display:flex;align-items:center;gap:10px;">
+            <ha-icon icon="mdi:cart" style="color:#10B981;"></ha-icon>
+            Recommended Hardware
+          </h3>
+          <p style="color:#888;margin-bottom:16px;">
+            These are the products we recommend for the best OmniRemote experience.
+            <span style="font-size:11px;color:#666;">(Affiliate links support development)</span>
+          </p>
+          
+          <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(200px, 1fr));gap:12px;">
+            <a href="https://omniremote.com/go/pizero" target="_blank" 
+               style="display:flex;align-items:center;gap:12px;padding:12px;background:#252545;border-radius:8px;text-decoration:none;color:#e8e8e8;">
+              <ha-icon icon="mdi:raspberry-pi" style="color:#c51a4a;"></ha-icon>
+              <div>
+                <div style="font-weight:500;">Pi Zero 2 W</div>
+                <div style="font-size:12px;color:#888;">~$20</div>
+              </div>
+            </a>
+            <a href="https://omniremote.com/go/g20s" target="_blank"
+               style="display:flex;align-items:center;gap:12px;padding:12px;background:#252545;border-radius:8px;text-decoration:none;color:#e8e8e8;">
+              <ha-icon icon="mdi:remote" style="color:#7C3AED;"></ha-icon>
+              <div>
+                <div style="font-weight:500;">G20S Pro Remote</div>
+                <div style="font-size:12px;color:#888;">~$18</div>
+              </div>
+            </a>
+            <a href="https://omniremote.com/go/rm4" target="_blank"
+               style="display:flex;align-items:center;gap:12px;padding:12px;background:#252545;border-radius:8px;text-decoration:none;color:#e8e8e8;">
+              <ha-icon icon="mdi:access-point" style="color:#2563EB;"></ha-icon>
+              <div>
+                <div style="font-weight:500;">Broadlink RM4 Mini</div>
+                <div style="font-size:12px;color:#888;">~$25</div>
+              </div>
+            </a>
+            <a href="https://omniremote.com/go/flipper" target="_blank"
+               style="display:flex;align-items:center;gap:12px;padding:12px;background:#252545;border-radius:8px;text-decoration:none;color:#e8e8e8;">
+              <ha-icon icon="mdi:dolphin" style="color:#ff8c00;"></ha-icon>
+              <div>
+                <div style="font-weight:500;">Flipper Zero</div>
+                <div style="font-size:12px;color:#888;">~$170</div>
+              </div>
+            </a>
+          </div>
+          
+          <p style="margin-top:16px;text-align:center;">
+            <a href="https://omniremote.com/store" target="_blank" class="btn btn-p">
+              <ha-icon icon="mdi:store"></ha-icon> View All Hardware →
+            </a>
+          </p>
+        </div>
+      </div>
+    `;
+  }
+
 
   _wikiView() {
     // Wiki section tracker
@@ -2220,91 +2478,138 @@ bluetooth_proxy:
         `
       },
       'pi-zero-bridge': {
-        title: 'Pi Zero W Bridge',
+        title: 'Pi Zero W Hub',
         icon: 'mdi:raspberry-pi',
         content: `
-          <h3>Raspberry Pi Zero W Remote Bridge</h3>
-          <p>The Pi Zero W can act as both a <strong>Bluetooth proxy</strong> AND a <strong>2.4GHz USB dongle host</strong> simultaneously - perfect for remotes like the G20S that support both modes.</p>
+          <h3>🥧 OmniRemote Pi Zero W Hub</h3>
+          <p>Turn a ~$40 Pi Zero W into a powerful remote control bridge with <strong>2.4GHz USB</strong>, <strong>Bluetooth HID</strong>, and optional <strong>GPIO IR blaster</strong> support!</p>
           
-          <h4>Hardware Needed (~$25)</h4>
+          <div style="background:linear-gradient(135deg,#7c3aed22,#2563eb22);border:1px solid #7c3aed;border-radius:12px;padding:16px;margin:16px 0;">
+            <h4 style="margin-top:0;color:#a78bfa;">⚡ Quick Install (5 minutes)</h4>
+            <p>After flashing Raspberry Pi OS Lite, SSH in and run:</p>
+            <pre style="background:#0d1117;padding:12px;border-radius:8px;font-size:12px;margin:8px 0;">curl -sSL https://omniremote.io/pi-setup.sh | sudo bash</pre>
+            <p style="margin-bottom:0;font-size:12px;">This installs everything and guides you through MQTT setup.</p>
+          </div>
+          
+          <h4>📦 What's Included</h4>
           <ul>
-            <li><strong>Raspberry Pi Zero W</strong> - $10-15 (built-in BT + WiFi)</li>
-            <li><strong>Micro USB OTG adapter</strong> - $3</li>
-            <li><strong>MicroSD card</strong> - 8GB+ ($5)</li>
-            <li><strong>5V USB power supply</strong> - $5</li>
+            <li><strong>Remote Bridge</strong> - Monitors USB HID + Bluetooth remotes</li>
+            <li><strong>IR Blaster</strong> - GPIO-based IR transmission (optional)</li>
+            <li><strong>Web UI</strong> - Standalone remote control (optional, no HA required)</li>
+            <li><strong>MQTT Integration</strong> - Seamless Home Assistant connection</li>
           </ul>
           
-          <h4>Architecture</h4>
-          <pre style="background:#1a1a2e;padding:12px;border-radius:8px;font-size:10px;">
-┌─────────────────────────────────────────┐
-│           Raspberry Pi Zero W            │
-│                                          │
-│  Built-in BT        USB OTG Port         │
-│      │                   │               │
-│      ▼                   ▼               │
-│  BT Remotes       2.4GHz Dongle          │
-│                                          │
-│      └─────────┬─────────┘               │
-│                ▼                         │
-│         WiFi → MQTT → HA                 │
-└─────────────────────────────────────────┘</pre>
+          <h4>🛒 Hardware Needed (~$45)</h4>
+          <table style="width:100%;border-collapse:collapse;margin:12px 0;">
+            <tr style="background:#1a1a2e;">
+              <th style="padding:8px;text-align:left;">Component</th>
+              <th style="padding:8px;text-align:right;">Price</th>
+            </tr>
+            <tr><td style="padding:6px;">Raspberry Pi Zero 2 W</td><td style="padding:6px;text-align:right;">~$20</td></tr>
+            <tr><td style="padding:6px;">MicroSD Card 32GB</td><td style="padding:6px;text-align:right;">~$8</td></tr>
+            <tr><td style="padding:6px;">5V Micro USB Power Supply</td><td style="padding:6px;text-align:right;">~$10</td></tr>
+            <tr><td style="padding:6px;">Micro USB OTG Adapter</td><td style="padding:6px;text-align:right;">~$3</td></tr>
+            <tr><td style="padding:6px;">Case (optional)</td><td style="padding:6px;text-align:right;">~$6</td></tr>
+            <tr style="background:#1a2a1a;"><td style="padding:8px;font-weight:bold;">Total</td><td style="padding:8px;text-align:right;font-weight:bold;">~$47</td></tr>
+          </table>
           
-          <h4>Step 1: Flash Raspberry Pi OS Lite</h4>
-          <ol>
+          <h4>📋 Step-by-Step Setup</h4>
+          
+          <p><strong>1. Flash Raspberry Pi OS Lite</strong></p>
+          <ol style="margin-left:20px;">
             <li>Download <a href="https://www.raspberrypi.com/software/" target="_blank" style="color:#64b5f6;">Raspberry Pi Imager</a></li>
-            <li>Select <strong>Raspberry Pi OS Lite (64-bit)</strong></li>
-            <li>Click ⚙️ → Enable SSH, set WiFi, set hostname to <code>pi-remote-bridge</code></li>
-            <li>Write to SD card, boot the Pi</li>
+            <li>Choose <em>Raspberry Pi OS Lite (64-bit)</em></li>
+            <li>Click ⚙️ Settings:
+              <ul>
+                <li>✅ Enable SSH → Use password authentication</li>
+                <li>✅ Set username: <code>pi</code>, password: <em>your-password</em></li>
+                <li>✅ Configure WiFi → Your network SSID + password</li>
+              </ul>
+            </li>
+            <li>Click Write, wait for completion</li>
           </ol>
           
-          <h4>Step 2: Install Dependencies</h4>
-          <pre style="background:#1a1a2e;padding:12px;border-radius:8px;font-size:11px;">
-ssh pi@pi-remote-bridge.local
-sudo apt update && sudo apt install -y python3-pip python3-evdev mosquitto-clients
-pip3 install evdev paho-mqtt --break-system-packages</pre>
+          <p><strong>2. Boot & SSH</strong></p>
+          <pre style="background:#1a1a2e;padding:12px;border-radius:8px;font-size:11px;"># Insert SD card, power on Pi, wait 2-3 minutes
+ssh pi@raspberrypi.local
+
+# Or find IP from router and use:
+ssh pi@192.168.1.XXX</pre>
           
-          <h4>Step 3: Create Bridge Script</h4>
-          <pre style="background:#1a1a2e;padding:12px;border-radius:8px;font-size:11px;">
-sudo nano /home/pi/remote_bridge.py</pre>
-          <p>See full script in the OmniRemote GitHub wiki. Key features:</p>
+          <p><strong>3. Run Installer</strong></p>
+          <pre style="background:#1a1a2e;padding:12px;border-radius:8px;font-size:11px;">curl -sSL https://omniremote.io/pi-setup.sh | sudo bash</pre>
+          <p>The installer will prompt for:</p>
           <ul>
-            <li>Auto-detects USB HID devices (keyboards, remotes, air mice)</li>
-            <li>Maps evdev key codes to friendly button names</li>
-            <li>Publishes to MQTT topic: <code>omniremote/physical_remote</code></li>
+            <li>Home Assistant IP/hostname</li>
+            <li>MQTT credentials (if using authentication)</li>
+            <li>Enable GPIO IR blaster? (y/n)</li>
+            <li>Enable web server? (y/n)</li>
           </ul>
           
-          <h4>Step 4: Create Systemd Service</h4>
-          <pre style="background:#1a1a2e;padding:12px;border-radius:8px;font-size:11px;">
-sudo nano /etc/systemd/system/remote-bridge.service
-
-[Unit]
-Description=OmniRemote Pi Bridge
-After=network.target
-
-[Service]
-Type=simple
-User=root
-ExecStart=/usr/bin/python3 /home/pi/remote_bridge.py
-Restart=always
-
-[Install]
-WantedBy=multi-user.target</pre>
-          <pre style="background:#1a1a2e;padding:12px;border-radius:8px;font-size:11px;">
-sudo systemctl enable remote-bridge
-sudo systemctl start remote-bridge</pre>
+          <p><strong>4. Configure Home Assistant</strong></p>
+          <p>Add to <code>configuration.yaml</code>:</p>
+          <pre style="background:#1a1a2e;padding:12px;border-radius:8px;font-size:11px;">mqtt:
+  sensor:
+    - name: "OmniRemote Button"
+      state_topic: "omniremote/physical_remote"
+      value_template: "{{ value_json.button }}"
+      json_attributes_topic: "omniremote/physical_remote"</pre>
+          <p>Restart Home Assistant.</p>
           
-          <h4>Step 5: Add to OmniRemote</h4>
-          <ol>
-            <li>Go to <em>Physical Remotes</em> → <em>Bridges</em></li>
-            <li>Add Bridge → Type: <strong>USB Bridge (MQTT)</strong></li>
-            <li>MQTT Topic: <code>omniremote/physical_remote</code></li>
+          <p><strong>5. Add Remote in OmniRemote</strong></p>
+          <ol style="margin-left:20px;">
+            <li>Plug 2.4GHz dongle into Pi's USB OTG port</li>
+            <li>Go to <strong>Physical Remotes</strong> → <strong>Discover</strong></li>
+            <li>Your remote should appear - click <strong>Add</strong></li>
+            <li>Map buttons to IR commands or scenes</li>
           </ol>
           
-          <h4>Troubleshooting</h4>
+          <h4>🔧 Optional: GPIO IR Blaster (~$2)</h4>
+          <p>Add IR transmission without needing a Broadlink!</p>
+          
+          <p><strong>Wiring:</strong></p>
+          <pre style="background:#1a1a2e;padding:12px;border-radius:8px;font-size:10px;">
+GPIO 18 ──┬──[100Ω]──► 2N2222 Base
+          │               │
+          │          Collector ──► IR LED (+)
+          │               │
+GND ──────┴───────── Emitter ────► IR LED (-)</pre>
+          
+          <p><strong>Parts:</strong> IR LED 940nm + 2N2222 transistor + 100Ω resistor = ~$2</p>
+          
+          <h4>🌐 Optional: Standalone Web UI</h4>
+          <p>If you enabled the web server, access it at:</p>
+          <pre style="background:#1a1a2e;padding:8px;border-radius:8px;font-size:12px;">http://raspberrypi.local:8080</pre>
+          <p>This provides a mobile-friendly remote control interface that works <strong>without Home Assistant</strong>!</p>
+          
+          <h4>🔍 Troubleshooting</h4>
+          <table style="width:100%;border-collapse:collapse;margin:12px 0;font-size:12px;">
+            <tr style="background:#1a1a2e;">
+              <th style="padding:8px;text-align:left;">Issue</th>
+              <th style="padding:8px;text-align:left;">Solution</th>
+            </tr>
+            <tr>
+              <td style="padding:6px;border-bottom:1px solid #222;">Remote not detected</td>
+              <td style="padding:6px;border-bottom:1px solid #222;"><code>ls /dev/input/</code> - check for event* files</td>
+            </tr>
+            <tr>
+              <td style="padding:6px;border-bottom:1px solid #222;">MQTT not connecting</td>
+              <td style="padding:6px;border-bottom:1px solid #222;">Verify HA IP in <code>/etc/omniremote/config.yaml</code></td>
+            </tr>
+            <tr>
+              <td style="padding:6px;border-bottom:1px solid #222;">Service not running</td>
+              <td style="padding:6px;border-bottom:1px solid #222;"><code>sudo systemctl status omniremote-bridge</code></td>
+            </tr>
+            <tr>
+              <td style="padding:6px;">View live logs</td>
+              <td style="padding:6px;"><code>sudo journalctl -u omniremote-bridge -f</code></td>
+            </tr>
+          </table>
+          
+          <h4>📚 More Info</h4>
           <ul>
-            <li><strong>No devices:</strong> Run <code>ls /dev/input/</code> - dongle should create event* files</li>
-            <li><strong>Permission denied:</strong> Run as root or: <code>sudo usermod -a -G input pi</code></li>
-            <li><strong>Test keys:</strong> Use <code>evtest</code> to see raw events</li>
+            <li><a href="https://github.com/omniremote/pi-zero-hub" target="_blank" style="color:#64b5f6;">GitHub: Pi Zero Hub</a></li>
+            <li><a href="https://github.com/omniremote/omniremote/wiki/Pi-Zero-Setup" target="_blank" style="color:#64b5f6;">Full Setup Guide</a></li>
           </ul>
         `
       },
@@ -2347,6 +2652,133 @@ data:
             <li><code>GET /catalog</code> - Browse device catalog</li>
             <li><code>POST /test</code> - Test IR commands</li>
           </ul>
+        `
+      },
+      'hardware': {
+        title: 'Recommended Hardware',
+        icon: 'mdi:cart',
+        content: `
+          <h3>Recommended Hardware</h3>
+          <p>OmniRemote works with a variety of hardware. Here are our top recommendations:</p>
+          
+          <h4>🔴 IR Blasters</h4>
+          <table style="width:100%;border-collapse:collapse;margin:12px 0;">
+            <tr style="background:#1a1a2e;">
+              <th style="padding:8px;text-align:left;border-bottom:1px solid #333;">Product</th>
+              <th style="padding:8px;text-align:left;border-bottom:1px solid #333;">Price</th>
+              <th style="padding:8px;text-align:left;border-bottom:1px solid #333;">Best For</th>
+            </tr>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #222;"><strong>Broadlink RM4 Mini</strong></td>
+              <td style="padding:8px;border-bottom:1px solid #222;">~$25</td>
+              <td style="padding:8px;border-bottom:1px solid #222;">Most users, native OmniRemote support</td>
+            </tr>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #222;"><strong>Broadlink RM4 Pro</strong></td>
+              <td style="padding:8px;border-bottom:1px solid #222;">~$45</td>
+              <td style="padding:8px;border-bottom:1px solid #222;">IR + RF 433MHz devices</td>
+            </tr>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #222;"><strong>SwitchBot Hub Mini</strong></td>
+              <td style="padding:8px;border-bottom:1px solid #222;">~$30</td>
+              <td style="padding:8px;border-bottom:1px solid #222;">Already in SwitchBot ecosystem</td>
+            </tr>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #222;"><strong>DIY GPIO IR (Pi Zero)</strong></td>
+              <td style="padding:8px;border-bottom:1px solid #222;">~$2</td>
+              <td style="padding:8px;border-bottom:1px solid #222;">Budget, tinkerers</td>
+            </tr>
+          </table>
+          
+          <h4>🎮 Physical Remotes</h4>
+          <table style="width:100%;border-collapse:collapse;margin:12px 0;">
+            <tr style="background:#1a1a2e;">
+              <th style="padding:8px;text-align:left;border-bottom:1px solid #333;">Product</th>
+              <th style="padding:8px;text-align:left;border-bottom:1px solid #333;">Price</th>
+              <th style="padding:8px;text-align:left;border-bottom:1px solid #333;">Features</th>
+            </tr>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #222;"><strong>G20S Pro</strong></td>
+              <td style="padding:8px;border-bottom:1px solid #222;">~$18</td>
+              <td style="padding:8px;border-bottom:1px solid #222;">2.4GHz + BT + IR learning + gyro</td>
+            </tr>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #222;"><strong>G20S Pro Plus</strong></td>
+              <td style="padding:8px;border-bottom:1px solid #222;">~$22</td>
+              <td style="padding:8px;border-bottom:1px solid #222;">+ Backlit + voice search</td>
+            </tr>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #222;"><strong>MX3 Pro Air Mouse</strong></td>
+              <td style="padding:8px;border-bottom:1px solid #222;">~$14</td>
+              <td style="padding:8px;border-bottom:1px solid #222;">Full keyboard + gyro</td>
+            </tr>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #222;"><strong>IKEA TRADFRI Remote</strong></td>
+              <td style="padding:8px;border-bottom:1px solid #222;">~$15</td>
+              <td style="padding:8px;border-bottom:1px solid #222;">Zigbee, works with ZHA</td>
+            </tr>
+          </table>
+          
+          <h4>🥧 Pi Zero W Hub</h4>
+          <p>Build a standalone remote hub for ~$30-50:</p>
+          <table style="width:100%;border-collapse:collapse;margin:12px 0;">
+            <tr style="background:#1a1a2e;">
+              <th style="padding:8px;text-align:left;border-bottom:1px solid #333;">Component</th>
+              <th style="padding:8px;text-align:left;border-bottom:1px solid #333;">Price</th>
+            </tr>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #222;">Raspberry Pi Zero 2 W</td>
+              <td style="padding:8px;border-bottom:1px solid #222;">~$20</td>
+            </tr>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #222;">MicroSD Card 32GB</td>
+              <td style="padding:8px;border-bottom:1px solid #222;">~$8</td>
+            </tr>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #222;">Micro USB Power Supply</td>
+              <td style="padding:8px;border-bottom:1px solid #222;">~$10</td>
+            </tr>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #222;">Micro USB OTG Adapter</td>
+              <td style="padding:8px;border-bottom:1px solid #222;">~$3</td>
+            </tr>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #222;">Case with GPIO access</td>
+              <td style="padding:8px;border-bottom:1px solid #222;">~$8</td>
+            </tr>
+            <tr style="background:#1a2a1a;">
+              <td style="padding:8px;font-weight:bold;">Total</td>
+              <td style="padding:8px;font-weight:bold;">~$49</td>
+            </tr>
+          </table>
+          
+          <h4>📶 Bluetooth Proxy</h4>
+          <table style="width:100%;border-collapse:collapse;margin:12px 0;">
+            <tr style="background:#1a1a2e;">
+              <th style="padding:8px;text-align:left;border-bottom:1px solid #333;">Product</th>
+              <th style="padding:8px;text-align:left;border-bottom:1px solid #333;">Price</th>
+              <th style="padding:8px;text-align:left;border-bottom:1px solid #333;">Notes</th>
+            </tr>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #222;"><strong>ESP32-WROOM-32</strong></td>
+              <td style="padding:8px;border-bottom:1px solid #222;">~$10</td>
+              <td style="padding:8px;border-bottom:1px solid #222;">Flash with ESPHome</td>
+            </tr>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #222;"><strong>Athom BT Proxy</strong></td>
+              <td style="padding:8px;border-bottom:1px solid #222;">~$15</td>
+              <td style="padding:8px;border-bottom:1px solid #222;">Pre-flashed, plug and play</td>
+            </tr>
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #222;"><strong>LilyGO T-Dongle-S3</strong></td>
+              <td style="padding:8px;border-bottom:1px solid #222;">~$18</td>
+              <td style="padding:8px;border-bottom:1px solid #222;">USB-A form factor</td>
+            </tr>
+          </table>
+          
+          <h4>🔗 Shopping Links</h4>
+          <p>Visit our GitHub wiki for direct links to all recommended products with detailed comparisons and setup guides.</p>
+          <p><a href="https://github.com/omniremote/omniremote/wiki/Hardware" target="_blank" style="color:#64b5f6;">→ Hardware Shopping Guide</a></p>
         `
       },
       'about': {
