@@ -4,7 +4,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.24";
+const OMNIREMOTE_VERSION = "1.10.26";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -213,6 +213,7 @@ class OmniRemotePanel extends HTMLElement {
         .btn-s:hover { background:#303060; }
         .btn-d { background:#c62828; color:#fff; }
         .btn-accent { background:linear-gradient(135deg, #2563EB, #1D4ED8); color:#fff; }
+        .btn:disabled, .btn[disabled] { opacity:0.6; cursor:not-allowed; }
         
         /* Cards */
         .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:16px; }
@@ -411,15 +412,53 @@ class OmniRemotePanel extends HTMLElement {
       });
     });
     
-    // Actions - using event delegation on buttons
-    root.querySelectorAll('[data-action]').forEach(el => {
-      el.addEventListener('click', (e) => {
+    // Event delegation on content area for ALL action buttons
+    const contentEl = root.querySelector('.content');
+    if (contentEl) {
+      contentEl.addEventListener('click', async (e) => {
+        const actionBtn = e.target.closest('[data-action]');
+        if (actionBtn) {
+          console.log('[OmniRemote] Content click delegation - action:', actionBtn.dataset.action);
+          e.preventDefault();
+          e.stopPropagation();
+          await this._handleAction(actionBtn.dataset.action, actionBtn.dataset);
+        }
+      });
+    }
+    
+    // Actions - direct attachment for header/sidebar buttons
+    const actionElements = root.querySelectorAll('.sidebar [data-action], .header [data-action]');
+    console.log('[OmniRemote] Attaching direct events to', actionElements.length, 'header/sidebar action elements');
+    
+    actionElements.forEach(el => {
+      el.addEventListener('click', async (e) => {
+        console.log('[OmniRemote] Direct click on action:', el.dataset.action);
         // Don't close modal if clicking inside it
         if (el.dataset.action === 'close-modal' && e.target !== el) return;
         
-        this._handleAction(el.dataset.action, el.dataset);
+        await this._handleAction(el.dataset.action, el.dataset);
       });
     });
+    
+    // Event delegation for modals (close, actions inside modal)
+    const modalBg = root.querySelector('.modal-bg');
+    if (modalBg) {
+      modalBg.addEventListener('click', async (e) => {
+        // Close modal when clicking background
+        if (e.target === modalBg) {
+          await this._handleAction('close-modal', {});
+          return;
+        }
+        
+        // Handle action buttons inside modal
+        const actionBtn = e.target.closest('[data-action]');
+        if (actionBtn) {
+          console.log('[OmniRemote] Modal click delegation - action:', actionBtn.dataset.action);
+          e.stopPropagation();
+          await this._handleAction(actionBtn.dataset.action, actionBtn.dataset);
+        }
+      });
+    }
     
     // Event delegation for dynamically created content in modals
     const modalEl = root.querySelector('.modal');
@@ -896,24 +935,45 @@ class OmniRemotePanel extends HTMLElement {
         await this._saveMqttConfig();
         break;
       case 'discover-hubs':
+        console.log('[OmniRemote] discover-hubs case matched!');
         await this._discoverPiHubs();
         break;
+      default:
+        console.log('[OmniRemote] Unhandled action:', action);
     }
   }
 
   async _discoverPiHubs() {
-    // Request Pi Hubs to announce themselves
+    console.log('[OmniRemote] _discoverPiHubs() called');
+    
+    // Show scanning state
+    this._piHubScanning = true;
+    console.log('[OmniRemote] Setting scanning state, re-rendering...');
+    this._render();
+    
     try {
-      await this._api('/api/omniremote/pi_hubs/discover', 'POST');
-      // Wait a moment for hubs to respond, then reload
-      setTimeout(async () => {
-        const res = await this._api('/api/omniremote/pi_hubs');
-        this._piHubs = res.hubs || [];
-        this._render();
-      }, 2000);
+      // Request Pi Hubs to announce themselves
+      console.log('[OmniRemote] Calling /api/omniremote/pi_hubs/discover...');
+      const discoverRes = await this._api('/api/omniremote/pi_hubs/discover', 'POST');
+      console.log('[OmniRemote] Discovery response:', discoverRes);
+      
+      // Wait for hubs to respond
+      console.log('[OmniRemote] Waiting 2 seconds for responses...');
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Reload hub list
+      console.log('[OmniRemote] Fetching hub list...');
+      const res = await this._api('/api/omniremote/pi_hubs');
+      console.log('[OmniRemote] Pi Hubs result:', res);
+      this._piHubs = res.hubs || [];
+      
     } catch (e) {
-      console.error('Hub discovery error:', e);
+      console.error('[OmniRemote] Hub discovery error:', e);
     }
+    
+    this._piHubScanning = false;
+    console.log('[OmniRemote] Discovery complete, re-rendering...');
+    this._render();
   }
 
   async _autoConfigureMqtt() {
@@ -1989,14 +2049,14 @@ class OmniRemotePanel extends HTMLElement {
         
         <!-- Pi Zero Hub Status -->
         <div class="card" style="margin-bottom:24px;">
-          <h3 style="margin:0 0 16px 0;display:flex;align-items:center;gap:10px;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
             <ha-icon icon="mdi:raspberry-pi" style="color:#10B981;"></ha-icon>
-            Pi Zero Hubs
+            <h3 style="margin:0;">Pi Zero Hubs</h3>
             ${this._piHubs?.length > 0 ? `<span class="status online">${this._piHubs.filter(h => h.online).length} Online</span>` : ''}
-            <button class="btn btn-s" style="margin-left:auto;padding:4px 12px;" data-action="discover-hubs">
-              <ha-icon icon="mdi:refresh"></ha-icon> Scan
+            <button class="btn btn-s" style="margin-left:auto;padding:4px 12px;" data-action="discover-hubs" ${this._piHubScanning ? 'disabled' : ''}>
+              <ha-icon icon="mdi:${this._piHubScanning ? 'refresh' : 'magnify'}" ${this._piHubScanning ? 'class="spin"' : ''}></ha-icon> ${this._piHubScanning ? 'Scanning...' : 'Scan'}
             </button>
-          </h3>
+          </div>
           
           ${this._piHubs?.length > 0 ? `
             <div style="display:flex;flex-direction:column;gap:12px;">
