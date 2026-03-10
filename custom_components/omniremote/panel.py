@@ -2707,14 +2707,40 @@ class OmniApiMqttStatus(HomeAssistantView):
         self.hass = hass
     
     async def get(self, request: web.Request) -> web.Response:
-        """Get current MQTT status."""
-        return web.json_response({
-            "connected": False,
-            "broker": "",
-            "port": 1883,
-            "username": "",
-            "auto_configured": False
-        })
+        """Get current MQTT status by checking HA's MQTT integration."""
+        import logging
+        _LOGGER = logging.getLogger(__name__)
+        
+        try:
+            # Check if MQTT integration is configured in HA
+            mqtt_entry = None
+            for entry in self.hass.config_entries.async_entries():
+                if entry.domain == "mqtt":
+                    mqtt_entry = entry
+                    break
+            
+            if mqtt_entry:
+                mqtt_data = mqtt_entry.data or {}
+                return web.json_response({
+                    "available": True,
+                    "config": {
+                        "broker": mqtt_data.get("broker", "localhost"),
+                        "port": mqtt_data.get("port", 1883),
+                        "username": mqtt_data.get("username", ""),
+                    }
+                })
+            else:
+                return web.json_response({
+                    "available": False,
+                    "config": {}
+                })
+        except Exception as e:
+            _LOGGER.exception("MQTT status check error: %s", e)
+            return web.json_response({
+                "available": False,
+                "config": {},
+                "error": str(e)
+            })
 
 
 # =============================================================================

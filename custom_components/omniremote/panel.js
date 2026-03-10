@@ -4,7 +4,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.21";
+const OMNIREMOTE_VERSION = "1.10.22";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -82,6 +82,7 @@ class OmniRemotePanel extends HTMLElement {
         this._api('/api/omniremote/debug'),
         this._api('/api/omniremote/flipper'),
         this._api('/api/omniremote/remote_models'),
+        this._api('/api/omniremote/mqtt/status'),
       ]);
       
       this._data = {
@@ -107,6 +108,11 @@ class OmniRemotePanel extends HTMLElement {
       
       // Store remote models
       this._remoteModels = results[10]?.models || [];
+      
+      // Store MQTT status
+      const mqttStatus = results[11] || {};
+      this._mqttAvailable = mqttStatus.available || false;
+      this._mqttConfig = mqttStatus.config || {};
       
       console.log('[OmniRemote] Data loaded:', this._data);
       this._render();
@@ -1855,64 +1861,77 @@ class OmniRemotePanel extends HTMLElement {
   }
 
   _settingsView() {
-    // Check MQTT status
-    const mqttStatus = this._mqttStatus || { connected: false, auto_configured: false };
+    // MQTT status from HA - check if MQTT integration exists
+    const hasMqtt = this._mqttAvailable || false;
+    const mqttConfig = this._mqttConfig || {};
     const piHubStatus = this._piHubStatus || { connected: false };
     
     return `
       <div style="max-width:800px;">
-        <!-- MQTT Configuration -->
+        <!-- MQTT Status -->
         <div class="card" style="margin-bottom:24px;">
           <h3 style="margin:0 0 16px 0;display:flex;align-items:center;gap:10px;">
             <ha-icon icon="mdi:lan-connect" style="color:#7C3AED;"></ha-icon>
-            MQTT Configuration
-            <span class="status ${mqttStatus.connected ? 'online' : 'offline'}">${mqttStatus.connected ? 'Connected' : 'Not Connected'}</span>
+            MQTT Status
           </h3>
           
-          ${mqttStatus.auto_configured ? `
-            <div style="background:#1b3d1b;border:1px solid #4caf50;border-radius:8px;padding:12px;margin-bottom:16px;">
-              <div style="display:flex;align-items:center;gap:8px;color:#81c784;">
-                <ha-icon icon="mdi:check-circle"></ha-icon>
-                <strong>Auto-configured!</strong> Using Home Assistant's MQTT broker.
+          ${hasMqtt ? `
+            <div style="background:#1b3d1b;border:1px solid #4caf50;border-radius:8px;padding:16px;margin-bottom:16px;">
+              <div style="display:flex;align-items:center;gap:10px;color:#81c784;">
+                <ha-icon icon="mdi:check-circle" style="font-size:24px;"></ha-icon>
+                <div>
+                  <strong style="font-size:16px;">MQTT Available</strong>
+                  <div style="font-size:13px;opacity:0.8;margin-top:2px;">
+                    OmniRemote automatically uses Home Assistant's MQTT integration.
+                  </div>
+                </div>
               </div>
+            </div>
+            
+            <div style="background:#252545;border-radius:8px;padding:16px;">
+              <h4 style="margin:0 0 12px 0;color:#888;font-size:13px;text-transform:uppercase;">Pi Hub Connection Info</h4>
+              <p style="color:#aaa;margin:0 0 12px 0;font-size:13px;">
+                Use these settings when configuring your Pi Zero Hub:
+              </p>
+              <div style="display:grid;grid-template-columns:120px 1fr;gap:8px;font-size:14px;">
+                <span style="color:#888;">Broker:</span>
+                <code style="color:#81c784;">${mqttConfig.broker || 'your-ha-ip'}</code>
+                <span style="color:#888;">Port:</span>
+                <code style="color:#81c784;">${mqttConfig.port || '1883'}</code>
+                <span style="color:#888;">Username:</span>
+                <code style="color:#81c784;">${mqttConfig.username || '(from Mosquitto config)'}</code>
+              </div>
+              <p style="color:#666;font-size:12px;margin:12px 0 0 0;">
+                <ha-icon icon="mdi:information-outline" style="font-size:14px;"></ha-icon>
+                Password is in your Mosquitto add-on configuration.
+              </p>
             </div>
           ` : `
-            <p style="color:#888;margin-bottom:16px;">
-              MQTT enables communication with Pi Zero Hubs and physical remotes.
-            </p>
-            
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
-              <div>
-                <label style="display:block;margin-bottom:4px;font-size:13px;color:#888;">Broker Address</label>
-                <input type="text" id="mqtt-broker" class="fi" placeholder="homeassistant.local" value="${mqttStatus.broker || ''}">
-              </div>
-              <div>
-                <label style="display:block;margin-bottom:4px;font-size:13px;color:#888;">Port</label>
-                <input type="number" id="mqtt-port" class="fi" placeholder="1883" value="${mqttStatus.port || 1883}">
-              </div>
-              <div>
-                <label style="display:block;margin-bottom:4px;font-size:13px;color:#888;">Username</label>
-                <input type="text" id="mqtt-username" class="fi" placeholder="(optional)" value="${mqttStatus.username || ''}">
-              </div>
-              <div>
-                <label style="display:block;margin-bottom:4px;font-size:13px;color:#888;">Password</label>
-                <input type="password" id="mqtt-password" class="fi" placeholder="(optional)">
+            <div style="background:#3d2a1a;border:1px solid #ff9800;border-radius:8px;padding:16px;margin-bottom:16px;">
+              <div style="display:flex;align-items:center;gap:10px;color:#ffcc80;">
+                <ha-icon icon="mdi:alert" style="font-size:24px;"></ha-icon>
+                <div>
+                  <strong style="font-size:16px;">MQTT Not Configured</strong>
+                  <div style="font-size:13px;opacity:0.8;margin-top:2px;">
+                    Install the Mosquitto broker add-on to enable Pi Hub connectivity.
+                  </div>
+                </div>
               </div>
             </div>
             
-            <div style="display:flex;gap:12px;">
-              <button class="btn btn-p" data-action="auto-config-mqtt">
-                <ha-icon icon="mdi:auto-fix"></ha-icon> Auto-Configure
-              </button>
-              <button class="btn btn-s" data-action="test-mqtt">
-                <ha-icon icon="mdi:lan-check"></ha-icon> Test Connection
-              </button>
-              <button class="btn btn-s" data-action="save-mqtt">
-                <ha-icon icon="mdi:content-save"></ha-icon> Save
-              </button>
-            </div>
+            <h4 style="margin:0 0 12px 0;">Setup Instructions</h4>
+            <ol style="margin:0;padding-left:20px;color:#aaa;line-height:1.8;">
+              <li>Go to <strong>Settings → Add-ons → Add-on Store</strong></li>
+              <li>Search for <strong>"Mosquitto broker"</strong> and install it</li>
+              <li>Go to the add-on's <strong>Configuration</strong> tab</li>
+              <li>Add a login: <code>- username: omniremote</code> and <code>  password: your-password</code></li>
+              <li>Start the add-on and enable "Start on boot"</li>
+              <li>Refresh this page - MQTT will be detected automatically</li>
+            </ol>
             
-            <div id="mqtt-test-result" style="margin-top:12px;"></div>
+            <button class="btn btn-s" style="margin-top:16px;" onclick="location.reload()">
+              <ha-icon icon="mdi:refresh"></ha-icon> Check Again
+            </button>
           `}
         </div>
         
@@ -1941,11 +1960,18 @@ class OmniRemotePanel extends HTMLElement {
             </div>
           ` : `
             <p style="color:#888;margin-bottom:16px;">
-              No Pi Zero Hub detected. Set up a Pi Zero W to receive physical remote button presses.
+              No Pi Zero Hub detected. The Pi Hub enables USB/Bluetooth remote support.
             </p>
-            <a href="https://omniremote.com/pi-hub" target="_blank" class="btn btn-s">
-              <ha-icon icon="mdi:open-in-new"></ha-icon> Setup Guide
-            </a>
+            <div style="background:#252545;border-radius:8px;padding:16px;">
+              <h4 style="margin:0 0 12px 0;color:#fff;">Quick Setup</h4>
+              <ol style="margin:0;padding-left:20px;color:#aaa;line-height:1.8;font-size:13px;">
+                <li>Get a Raspberry Pi Zero 2 W (~$20)</li>
+                <li>Flash Raspberry Pi OS Lite to SD card</li>
+                <li>SSH in and run: <code style="color:#81c784;">curl -sL https://omniremote.com/pi | sudo bash</code></li>
+                <li>Enter your MQTT credentials when prompted</li>
+                <li>Plug in your USB remote receiver</li>
+              </ol>
+            </div>
           `}
         </div>
         
@@ -1958,8 +1984,8 @@ class OmniRemotePanel extends HTMLElement {
           
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
             <div>
-              <p><strong>Version:</strong> ${this._version}</p>
-              <p><strong>Integration:</strong> Free (HACS)</p>
+              <p style="margin:0;"><strong>Version:</strong> ${this._version}</p>
+              <p style="margin:8px 0;"><strong>Integration:</strong> Free (HACS)</p>
               <p style="margin-top:16px;">
                 <a href="https://github.com/omniremote/omniremote" target="_blank" style="color:#7C3AED;">GitHub</a> •
                 <a href="https://omniremote.com/docs" target="_blank" style="color:#7C3AED;">Documentation</a> •
@@ -1982,7 +2008,7 @@ class OmniRemotePanel extends HTMLElement {
             Recommended Hardware
           </h3>
           <p style="color:#888;margin-bottom:16px;">
-            These are the products we recommend for the best OmniRemote experience.
+            Tested and verified compatible with OmniRemote.
             <span style="font-size:11px;color:#666;">(Affiliate links support development)</span>
           </p>
           
@@ -2779,6 +2805,235 @@ data:
           <h4>🔗 Shopping Links</h4>
           <p>Visit our GitHub wiki for direct links to all recommended products with detailed comparisons and setup guides.</p>
           <p><a href="https://github.com/omniremote/omniremote/wiki/Hardware" target="_blank" style="color:#64b5f6;">→ Hardware Shopping Guide</a></p>
+        `
+      },
+      'mqtt': {
+        title: 'MQTT Setup',
+        icon: 'mdi:lan-connect',
+        content: `
+          <h3>MQTT Configuration</h3>
+          <p>MQTT enables communication between OmniRemote, Pi Zero Hubs, and physical remotes.</p>
+          
+          <h4>⚠️ Important: HA Users vs MQTT Users</h4>
+          <div style="background:#3d2e00;border:1px solid #ff9800;border-radius:8px;padding:12px;margin:12px 0;">
+            <p style="margin:0;"><strong>Home Assistant users are NOT the same as Mosquitto MQTT users!</strong></p>
+            <p style="margin:8px 0 0 0;">Creating a user in HA Settings → People does NOT create an MQTT user. You must configure users separately in the Mosquitto add-on.</p>
+          </div>
+          
+          <h4>Step 1: Install Mosquitto Add-on</h4>
+          <ol>
+            <li>Go to <strong>Settings → Add-ons → Add-on Store</strong></li>
+            <li>Search for <strong>"Mosquitto broker"</strong></li>
+            <li>Click <strong>Install</strong></li>
+            <li>Wait for installation to complete</li>
+          </ol>
+          
+          <h4>Step 2: Create MQTT Users</h4>
+          <ol>
+            <li>Go to <strong>Settings → Add-ons → Mosquitto broker</strong></li>
+            <li>Click the <strong>Configuration</strong> tab</li>
+            <li>Under <strong>logins</strong>, add your users:</li>
+          </ol>
+          <pre style="background:#1a1a2e;padding:12px;border-radius:8px;overflow-x:auto;font-size:12px;">logins:
+  - username: omniremote
+    password: your_secure_password
+  - username: pizero
+    password: another_password</pre>
+          <ol start="4">
+            <li>Click <strong>Save</strong></li>
+            <li>Go to <strong>Info</strong> tab → Click <strong>Restart</strong></li>
+          </ol>
+          
+          <h4>Step 3: Start & Enable</h4>
+          <ol>
+            <li>Click <strong>Start</strong> if not already running</li>
+            <li>Enable <strong>Start on boot</strong></li>
+            <li>Enable <strong>Watchdog</strong> (auto-restart on crash)</li>
+          </ol>
+          
+          <h4>Step 4: Configure OmniRemote</h4>
+          <ol>
+            <li>Go to <strong>OmniRemote → Settings</strong></li>
+            <li>Enter your Home Assistant IP (e.g., 192.168.1.100)</li>
+            <li>Port: <strong>1883</strong> (default)</li>
+            <li>Username: <strong>omniremote</strong> (from step 2)</li>
+            <li>Password: <strong>your_secure_password</strong></li>
+            <li>Click <strong>Test Connection</strong></li>
+            <li>If successful, click <strong>Save</strong></li>
+          </ol>
+          
+          <h4>MQTT Topics Used by OmniRemote</h4>
+          <table style="width:100%;border-collapse:collapse;margin:12px 0;font-size:12px;">
+            <tr style="background:#1a1a2e;">
+              <th style="padding:8px;text-align:left;border-bottom:1px solid #333;">Topic</th>
+              <th style="padding:8px;text-align:left;border-bottom:1px solid #333;">Purpose</th>
+            </tr>
+            <tr>
+              <td style="padding:6px;border-bottom:1px solid #222;font-family:monospace;">omniremote/physical_remote</td>
+              <td style="padding:6px;border-bottom:1px solid #222;">Button presses from Pi Hub</td>
+            </tr>
+            <tr>
+              <td style="padding:6px;border-bottom:1px solid #222;font-family:monospace;">omniremote/bridge/status</td>
+              <td style="padding:6px;border-bottom:1px solid #222;">Pi Hub online/offline</td>
+            </tr>
+            <tr>
+              <td style="padding:6px;border-bottom:1px solid #222;font-family:monospace;">omniremote/ir/send</td>
+              <td style="padding:6px;border-bottom:1px solid #222;">Send IR commands to Pi Hub</td>
+            </tr>
+            <tr>
+              <td style="padding:6px;font-family:monospace;">omniremote/command</td>
+              <td style="padding:6px;">General commands</td>
+            </tr>
+          </table>
+          
+          <h4>Troubleshooting MQTT</h4>
+          <table style="width:100%;border-collapse:collapse;margin:12px 0;font-size:12px;">
+            <tr style="background:#1a1a2e;">
+              <th style="padding:8px;text-align:left;border-bottom:1px solid #333;">Error</th>
+              <th style="padding:8px;text-align:left;border-bottom:1px solid #333;">Solution</th>
+            </tr>
+            <tr>
+              <td style="padding:6px;border-bottom:1px solid #222;color:#ef9a9a;"><strong>Not authorized</strong></td>
+              <td style="padding:6px;border-bottom:1px solid #222;">Create MQTT user in Mosquitto Configuration tab, NOT in HA Users</td>
+            </tr>
+            <tr>
+              <td style="padding:6px;border-bottom:1px solid #222;color:#ef9a9a;"><strong>Connection refused</strong></td>
+              <td style="padding:6px;border-bottom:1px solid #222;">Mosquitto not running - restart add-on</td>
+            </tr>
+            <tr>
+              <td style="padding:6px;border-bottom:1px solid #222;color:#ef9a9a;"><strong>Cannot reach broker</strong></td>
+              <td style="padding:6px;border-bottom:1px solid #222;">Check IP address, ensure same network</td>
+            </tr>
+            <tr>
+              <td style="padding:6px;color:#ef9a9a;"><strong>Timeout</strong></td>
+              <td style="padding:6px;">Firewall blocking port 1883, or wrong IP</td>
+            </tr>
+          </table>
+          
+          <h4>Test MQTT from Command Line</h4>
+          <pre style="background:#1a1a2e;padding:12px;border-radius:8px;overflow-x:auto;font-size:11px;"># Subscribe to all OmniRemote topics
+mosquitto_sub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/#" -v
+
+# Publish a test message
+mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" -m "hello"</pre>
+        `
+      },
+      'faq': {
+        title: 'FAQ',
+        icon: 'mdi:frequently-asked-questions',
+        content: `
+          <h3>Frequently Asked Questions</h3>
+          
+          <div style="margin-bottom:24px;">
+            <h4 style="color:#7c3aed;margin-bottom:8px;">Q: MQTT says "Not Authorized" but I created a user in Home Assistant?</h4>
+            <p><strong>A:</strong> Home Assistant users and Mosquitto MQTT users are completely separate. You need to create MQTT users in the Mosquitto add-on Configuration tab, not in HA's Settings → People. See the <strong>MQTT Setup</strong> section for step-by-step instructions.</p>
+          </div>
+          
+          <div style="margin-bottom:24px;">
+            <h4 style="color:#7c3aed;margin-bottom:8px;">Q: My IR commands work sometimes but not always?</h4>
+            <p><strong>A:</strong> Try these fixes:</p>
+            <ul>
+              <li>Move the IR blaster closer to devices or adjust angle</li>
+              <li>Increase the <strong>repeat count</strong> in command settings (some devices need 2-3 repeats)</li>
+              <li>Check for IR interference (sunlight, other IR sources)</li>
+              <li>Some devices need a delay between commands - add 200-500ms delays</li>
+            </ul>
+          </div>
+          
+          <div style="margin-bottom:24px;">
+            <h4 style="color:#7c3aed;margin-bottom:8px;">Q: Broadlink device not discovered?</h4>
+            <p><strong>A:</strong> Discovery uses UDP broadcast which can be blocked. Try:</p>
+            <ul>
+              <li>Add device by IP address manually (find IP in your router)</li>
+              <li>Ensure device is on same VLAN as Home Assistant</li>
+              <li>Check that your router allows UDP broadcast traffic</li>
+              <li>Assign a static IP to prevent discovery issues</li>
+            </ul>
+          </div>
+          
+          <div style="margin-bottom:24px;">
+            <h4 style="color:#7c3aed;margin-bottom:8px;">Q: Flipper Zero says "Bluetooth adapter out of connection slots"?</h4>
+            <p><strong>A:</strong> Your HA Bluetooth adapter can only maintain 3-7 connections. Options:</p>
+            <ul>
+              <li><strong>Use USB instead</strong> (most reliable, no slot limits)</li>
+              <li>Add an ESP32 Bluetooth Proxy for more slots</li>
+              <li>Disconnect other Bluetooth devices temporarily</li>
+            </ul>
+          </div>
+          
+          <div style="margin-bottom:24px;">
+            <h4 style="color:#7c3aed;margin-bottom:8px;">Q: How do I use a physical remote (G20S, MX3, etc.) with Home Assistant?</h4>
+            <p><strong>A:</strong> These remotes are USB HID devices (like keyboards). Options:</p>
+            <ul>
+              <li><strong>Pi Zero Hub</strong> (recommended) - Pi receives buttons and forwards via MQTT</li>
+              <li><strong>keyboard_remote</strong> integration - Works if HA runs on physical hardware with USB</li>
+              <li><strong>2.4GHz mode</strong> - Plug USB dongle into Pi Zero Hub</li>
+            </ul>
+            <p>See <strong>Pi Zero W Hub</strong> section for setup.</p>
+          </div>
+          
+          <div style="margin-bottom:24px;">
+            <h4 style="color:#7c3aed;margin-bottom:8px;">Q: Catalog codes don't work with my TV/device?</h4>
+            <p><strong>A:</strong> IR codes vary by region and model year. Try:</p>
+            <ul>
+              <li>Check for alternate profiles (some brands have multiple)</li>
+              <li>Use <strong>IR Learner</strong> to capture codes from your original remote</li>
+              <li>Try codes from <a href="http://www.hifi-remote.com/wiki/" target="_blank" style="color:#64b5f6;">IRDB Wiki</a></li>
+              <li>Report incorrect codes on GitHub so we can update</li>
+            </ul>
+          </div>
+          
+          <div style="margin-bottom:24px;">
+            <h4 style="color:#7c3aed;margin-bottom:8px;">Q: Can I control RF devices (433MHz)?</h4>
+            <p><strong>A:</strong> Yes! Options:</p>
+            <ul>
+              <li><strong>Broadlink RM4 Pro</strong> - Supports both IR and RF 433MHz</li>
+              <li><strong>Flipper Zero</strong> - Can transmit and learn RF codes</li>
+              <li><strong>RF Bridge</strong> - Sonoff RF Bridge with Tasmota</li>
+            </ul>
+          </div>
+          
+          <div style="margin-bottom:24px;">
+            <h4 style="color:#7c3aed;margin-bottom:8px;">Q: How do I update OmniRemote?</h4>
+            <p><strong>A:</strong> If installed via HACS:</p>
+            <ol>
+              <li>Go to <strong>HACS → Integrations</strong></li>
+              <li>Find OmniRemote → Click <strong>Update</strong></li>
+              <li>Restart Home Assistant</li>
+              <li>Hard refresh browser (Ctrl+Shift+R)</li>
+            </ol>
+          </div>
+          
+          <div style="margin-bottom:24px;">
+            <h4 style="color:#7c3aed;margin-bottom:8px;">Q: Panel shows old version after update?</h4>
+            <p><strong>A:</strong> Browser caching. Try:</p>
+            <ul>
+              <li>Hard refresh: <strong>Ctrl+Shift+R</strong> (Windows) or <strong>Cmd+Shift+R</strong> (Mac)</li>
+              <li>Clear browser cache completely</li>
+              <li>Try incognito/private window</li>
+              <li>If still stuck, restart Home Assistant</li>
+            </ul>
+          </div>
+          
+          <div style="margin-bottom:24px;">
+            <h4 style="color:#7c3aed;margin-bottom:8px;">Q: How do I enable debug logging?</h4>
+            <p><strong>A:</strong> Add to configuration.yaml:</p>
+            <pre style="background:#1a1a2e;padding:12px;border-radius:8px;overflow-x:auto;font-size:12px;">logger:
+  logs:
+    custom_components.omniremote: debug</pre>
+            <p>Then check logs at <strong>Settings → System → Logs</strong></p>
+          </div>
+          
+          <div style="margin-bottom:24px;">
+            <h4 style="color:#7c3aed;margin-bottom:8px;">Q: Can I contribute IR codes for my devices?</h4>
+            <p><strong>A:</strong> Yes! We welcome contributions:</p>
+            <ul>
+              <li>Submit codes via GitHub Pull Request</li>
+              <li>Or create an Issue with your device make/model and codes</li>
+              <li>Include protocol, address, and command values</li>
+            </ul>
+            <p><a href="https://github.com/omniremote/omniremote/issues/new" target="_blank" style="color:#64b5f6;">→ Submit IR codes on GitHub</a></p>
+          </div>
         `
       },
       'about': {
