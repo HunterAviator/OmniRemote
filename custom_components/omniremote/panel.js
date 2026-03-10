@@ -1,16 +1,18 @@
 /**
- * OmniRemote™ Manager Panel v1.8.0
+ * OmniRemote™ Manager Panel v1.10.28
  * © 2026 One Eye Enterprises LLC
+ * Works in both Home Assistant and Standalone mode
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.27";
+const OMNIREMOTE_VERSION = "1.10.28";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
     this._hass = null;
+    this._standalone = false;
     this._data = { rooms: [], devices: [], scenes: [], blasters: [], haBlasters: [], catalog: [], remoteProfiles: [], remoteTemplates: [] };
     this._view = 'dashboard';
     this._modal = null;
@@ -29,10 +31,20 @@ class OmniRemotePanel extends HTMLElement {
     console.log(`[OmniRemote] Script URL: ${document.currentScript?.src || 'inline/unknown'}`);
   }
 
+  // Initialize in standalone mode (called from standalone HTML)
+  initStandalone() {
+    this._standalone = true;
+    console.log('[OmniRemote] Initializing in standalone mode');
+    this._render();
+    this._loadData();
+    this._checkVersion();
+  }
+
   set hass(hass) {
     const firstTime = !this._hass;
     this._hass = hass;
     if (firstTime) {
+      this._standalone = false;
       this._render();
       this._loadData();
       this._checkVersion();
@@ -410,91 +422,56 @@ class OmniRemotePanel extends HTMLElement {
   _attachEvents() {
     const root = this.shadowRoot;
     
-    // Navigation
-    root.querySelectorAll('[data-nav]').forEach(el => {
-      el.addEventListener('click', () => {
-        this._view = el.dataset.nav;
-        if (el.dataset.room) this._roomId = el.dataset.room;
-        if (el.dataset.device) this._deviceId = el.dataset.device;
-        this._render();
-      });
-    });
-    
-    // Event delegation on content area for ALL action buttons
-    const contentEl = root.querySelector('.content');
-    if (contentEl) {
-      contentEl.addEventListener('click', async (e) => {
-        const actionBtn = e.target.closest('[data-action]');
-        if (actionBtn) {
-          console.log('[OmniRemote] Content click delegation - action:', actionBtn.dataset.action);
-          e.preventDefault();
-          e.stopPropagation();
-          await this._handleAction(actionBtn.dataset.action, actionBtn.dataset);
-        }
-      });
-    }
-    
-    // Actions - direct attachment for header/sidebar buttons
-    const actionElements = root.querySelectorAll('.sidebar [data-action], .header [data-action]');
-    console.log('[OmniRemote] Attaching direct events to', actionElements.length, 'header/sidebar action elements');
-    
-    actionElements.forEach(el => {
-      el.addEventListener('click', async (e) => {
-        console.log('[OmniRemote] Direct click on action:', el.dataset.action);
-        // Don't close modal if clicking inside it
-        if (el.dataset.action === 'close-modal' && e.target !== el) return;
-        
-        await this._handleAction(el.dataset.action, el.dataset);
-      });
-    });
-    
-    // Event delegation for modals (close, actions inside modal)
-    const modalBg = root.querySelector('.modal-bg');
-    if (modalBg) {
-      modalBg.addEventListener('click', async (e) => {
-        // Close modal when clicking background
-        if (e.target === modalBg) {
-          await this._handleAction('close-modal', {});
+    // Use event delegation on the entire app for better reliability
+    const appEl = root.querySelector('.app');
+    if (appEl) {
+      appEl.addEventListener('click', async (e) => {
+        // Handle navigation clicks
+        const navEl = e.target.closest('[data-nav]');
+        if (navEl) {
+          console.log('[OmniRemote] Nav click:', navEl.dataset.nav);
+          this._view = navEl.dataset.nav;
+          if (navEl.dataset.room) this._roomId = navEl.dataset.room;
+          if (navEl.dataset.device) this._deviceId = navEl.dataset.device;
+          this._render();
           return;
         }
         
-        // Handle action buttons inside modal
+        // Handle action button clicks
         const actionBtn = e.target.closest('[data-action]');
         if (actionBtn) {
-          console.log('[OmniRemote] Modal click delegation - action:', actionBtn.dataset.action);
+          console.log('[OmniRemote] Action click:', actionBtn.dataset.action);
+          e.preventDefault();
           e.stopPropagation();
           await this._handleAction(actionBtn.dataset.action, actionBtn.dataset);
+          return;
         }
       });
     }
     
-    // Event delegation for dynamically created content in modals
-    const modalEl = root.querySelector('.modal');
-    if (modalEl) {
-      modalEl.addEventListener('click', async (e) => {
-        const btn = e.target.closest('[data-action="import-ha-entity"]');
-        if (btn) {
-          e.stopPropagation();
-          const entityId = btn.dataset.entityId;
-          console.log('[OmniRemote] Import button clicked via delegation:', entityId);
-          if (entityId) {
-            await this._importHaEntity(entityId);
-          }
-        }
-        
-        // Handle Bluetooth device selection
-        const btBtn = e.target.closest('[data-action="bt-select-device"]');
-        if (btBtn) {
-          e.stopPropagation();
-          // Handler is already attached in _showAddRemoteModal
+    // Modal background click to close
+    const modalBg = root.querySelector('.modal-bg');
+    if (modalBg) {
+      modalBg.addEventListener('click', async (e) => {
+        // Only close if clicking directly on background (not on modal content)
+        if (e.target === modalBg) {
+          console.log('[OmniRemote] Modal background click - closing');
+          await this._handleAction('close-modal', {});
         }
       });
     }
     
-    // Stop modal propagation
-    const modal = root.querySelector('[data-stop-propagation]');
+    // Stop modal content clicks from bubbling to background
+    const modal = root.querySelector('.modal');
     if (modal) {
-      modal.addEventListener('click', (e) => e.stopPropagation());
+      modal.addEventListener('click', (e) => {
+        // Let action buttons inside modal work via the app delegation
+        // but stop the click from reaching modal-bg
+        const actionBtn = e.target.closest('[data-action]');
+        if (!actionBtn) {
+          e.stopPropagation();
+        }
+      });
     }
     
     // Dynamic dropdown handlers for action editor
@@ -3863,6 +3840,28 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
   }
 
   async _showImportHaEntityModal() {
+    // Check for standalone mode - HA import not available
+    if (this._standalone || !this._hass) {
+      this._modal = `
+        <div class="modal-bg" data-action="close-modal">
+          <div class="modal" data-stop-propagation>
+            <h3><ha-icon icon="mdi:information"></ha-icon> Home Assistant Integration Required</h3>
+            <p style="margin:16px 0;color:#9CA3AF;">
+              Importing entities from Home Assistant is only available when OmniRemote is running as a Home Assistant integration.
+            </p>
+            <p style="margin:16px 0;color:#9CA3AF;">
+              In standalone mode, you can manually add devices using the "Add Device" button.
+            </p>
+            <div class="modal-actions">
+              <button class="btn" data-action="close-modal">Close</button>
+            </div>
+          </div>
+        </div>
+      `;
+      this._render();
+      return;
+    }
+    
     // Get HA entities with integration info
     const domains = ['media_player', 'light', 'switch', 'fan', 'climate', 'cover', 'remote', 'sensor', 'binary_sensor', 'button', 'scene'];
     const entities = [];
@@ -5047,6 +5046,13 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
   }
 
   async _callHAService(entityId, service) {
+    // Check for standalone mode - HA services not available
+    if (this._standalone || !this._hass) {
+      console.log('[OmniRemote] HA service call not available in standalone mode');
+      alert('Home Assistant services are not available in standalone mode.\n\nUse IR/MQTT commands instead.');
+      return;
+    }
+    
     try {
       const [domain, serviceName] = service.split('.');
       
