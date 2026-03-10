@@ -1,5 +1,58 @@
 # OmniRemote Changelog
 
+## [1.10.22] - 2026-03-10
+
+### Added
+- **Wiki: MQTT Setup** - Complete MQTT configuration guide
+  - Step-by-step Mosquitto add-on setup
+  - Creating MQTT users (separate from HA users)
+  - MQTT topics reference table
+  - Troubleshooting table for common errors
+  - Command-line testing examples
+
+- **Wiki: FAQ** - Frequently Asked Questions
+  - MQTT "Not Authorized" explanation
+  - IR command reliability tips
+  - Broadlink discovery issues
+  - Flipper Zero Bluetooth slot errors
+  - Physical remote setup options
+  - Catalog codes troubleshooting
+  - RF device support
+  - Update instructions
+  - Debug logging guide
+  - Contributing IR codes
+
+### Fixed
+- MQTT API endpoints now use separate routes instead of URL parameters
+- Better error handling for MQTT configuration
+
+## [1.10.21] - 2026-03-10
+
+### Fixed
+- Fixed HTTP 500 error on MQTT configuration API
+- Split MQTT API into separate endpoints for reliability
+
+## [1.10.20] - 2026-03-10
+
+### Added
+- **Settings Panel** - New Settings tab in sidebar with:
+  - MQTT Configuration UI (broker, port, username, password)
+  - Auto-Configure button (detects HA's MQTT integration)
+  - Test Connection button
+  - Pi Zero Hub status display
+  - Recommended Hardware links section
+  - About section with version and credits
+
+- **Branded UI** - OmniRemote™ trademark branding
+  - Purple (#7C3AED) and Blue (#2563EB) gradient theme
+  - "OmniRemote™" wordmark in sidebar
+  - Updated button and accent colors
+  - © 2026 One Eye Enterprises LLC footer
+
+### Changed
+- Navigation now includes Settings between IR Debugger and Help & Wiki
+- Primary buttons use purple gradient instead of blue
+
 ## [1.10.19] - 2026-03-09
 
 ### Added

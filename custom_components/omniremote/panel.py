@@ -88,6 +88,9 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     hass.http.register_view(OmniApiMqttTest(hass))
     hass.http.register_view(OmniApiMqttConfig(hass))
     hass.http.register_view(OmniApiMqttStatus(hass))
+    hass.http.register_view(OmniApiPiHubs(hass))
+    hass.http.register_view(OmniApiPiHubCommand(hass))
+    hass.http.register_view(OmniApiPiHubDiscover(hass))
     hass.http.register_view(OmniIconView(hass))
     hass.http.register_view(OmniLogoView(hass))
     
@@ -673,7 +676,7 @@ class OmniApiBlasters(HomeAssistantView):
         self.hass = hass
     
     async def get(self, request: web.Request) -> web.Response:
-        """Get all blasters including HA Broadlink entities."""
+        """Get all blasters including HA Broadlink entities and Pi Hub bridges."""
         database = _get_database(self.hass)
         
         blasters = []
@@ -700,9 +703,19 @@ class OmniApiBlasters(HomeAssistantView):
         except Exception as ex:
             _LOGGER.warning("Error scanning for HA Broadlink entities: %s", ex)
         
+        # Get Pi Hub bridges (auto-discovered via MQTT)
+        pi_hub_bridges = []
+        try:
+            pi_hub_manager = _get_pi_hub_manager(self.hass)
+            if pi_hub_manager:
+                pi_hub_bridges = pi_hub_manager.get_bridges()
+        except Exception as ex:
+            _LOGGER.debug("Error getting Pi Hub bridges: %s", ex)
+        
         return web.json_response({
             "blasters": blasters,
             "ha_blasters": ha_blasters,
+            "pi_hub_bridges": pi_hub_bridges,
             "database_available": database is not None
         })
     
@@ -2741,6 +2754,104 @@ class OmniApiMqttStatus(HomeAssistantView):
                 "config": {},
                 "error": str(e)
             })
+
+
+# =============================================================================
+# Pi Hub API
+# =============================================================================
+
+def _get_pi_hub_manager(hass: HomeAssistant):
+    """Get the Pi Hub manager from hass.data."""
+    from .const import DOMAIN
+    if DOMAIN not in hass.data:
+        return None
+    for entry_data in hass.data[DOMAIN].values():
+        if isinstance(entry_data, dict) and "pi_hub_manager" in entry_data:
+            return entry_data.get("pi_hub_manager")
+    return None
+
+
+class OmniApiPiHubs(HomeAssistantView):
+    """API for Pi Hub discovery and management."""
+    
+    url = "/api/omniremote/pi_hubs"
+    name = "api:omniremote:pi_hubs"
+    requires_auth = False
+    
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+    
+    async def get(self, request: web.Request) -> web.Response:
+        """Get all discovered Pi Hubs."""
+        manager = _get_pi_hub_manager(self.hass)
+        
+        if not manager:
+            return web.json_response({
+                "hubs": [],
+                "mqtt_available": False,
+                "message": "Pi Hub manager not initialized"
+            })
+        
+        return web.json_response({
+            "hubs": manager.get_hubs(),
+            "mqtt_available": True,
+        })
+
+
+class OmniApiPiHubCommand(HomeAssistantView):
+    """API for sending commands to Pi Hubs."""
+    
+    url = "/api/omniremote/pi_hubs/{hub_id}/command"
+    name = "api:omniremote:pi_hubs:command"
+    requires_auth = False
+    
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+    
+    async def post(self, request: web.Request) -> web.Response:
+        """Send a command to a Pi Hub."""
+        hub_id = request.match_info.get("hub_id", "")
+        manager = _get_pi_hub_manager(self.hass)
+        
+        if not manager:
+            return web.json_response({"success": False, "error": "Manager not available"})
+        
+        try:
+            data = await request.json()
+            command = data.get("command", "")
+            
+            if not command:
+                return web.json_response({"success": False, "error": "No command specified"})
+            
+            success = await manager.async_send_command(hub_id, command)
+            return web.json_response({"success": success})
+            
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)})
+
+
+class OmniApiPiHubDiscover(HomeAssistantView):
+    """API to trigger Pi Hub discovery."""
+    
+    url = "/api/omniremote/pi_hubs/discover"
+    name = "api:omniremote:pi_hubs:discover"
+    requires_auth = False
+    
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+    
+    async def post(self, request: web.Request) -> web.Response:
+        """Request all Pi Hubs to announce themselves."""
+        manager = _get_pi_hub_manager(self.hass)
+        
+        if not manager:
+            return web.json_response({"success": False, "error": "Manager not available"})
+        
+        try:
+            await manager._request_discovery()
+            return web.json_response({"success": True, "message": "Discovery request sent"})
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)})
 
 
 # =============================================================================

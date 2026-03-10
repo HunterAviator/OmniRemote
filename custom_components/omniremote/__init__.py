@@ -27,6 +27,7 @@ from .const import (
 )
 from .database import RemoteDatabase
 from .panel import async_register_panel
+from .pi_hub import PiHubManager
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -173,6 +174,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.bus.async_listen("omniremote_run_scene", handle_run_scene)
     _LOGGER.info("[OmniRemote] Event listeners registered for IR send and scene execution")
     
+    # Set up Pi Hub discovery via MQTT
+    pi_hub_manager = None
+    try:
+        pi_hub_manager = PiHubManager(hass, database)
+        await pi_hub_manager.async_start()
+        _LOGGER.info("Pi Hub manager started - listening for hubs via MQTT")
+    except Exception as e:
+        _LOGGER.warning("Pi Hub manager not available: %s", e)
+    
     # Store in hass.data
     hass.data[DOMAIN][entry.entry_id] = {
         "database": database,
@@ -180,6 +190,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "bluetooth_manager": bluetooth_manager,
         "area_manager": area_manager,
         "physical_remote_manager": physical_remote_manager,
+        "pi_hub_manager": pi_hub_manager,
     }
     
     # Register services

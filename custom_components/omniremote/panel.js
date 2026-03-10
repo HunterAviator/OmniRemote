@@ -4,7 +4,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.22";
+const OMNIREMOTE_VERSION = "1.10.24";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -83,6 +83,7 @@ class OmniRemotePanel extends HTMLElement {
         this._api('/api/omniremote/flipper'),
         this._api('/api/omniremote/remote_models'),
         this._api('/api/omniremote/mqtt/status'),
+        this._api('/api/omniremote/pi_hubs'),
       ]);
       
       this._data = {
@@ -92,6 +93,7 @@ class OmniRemotePanel extends HTMLElement {
         haEntities: results[2]?.ha_entities || [],
         blasters: results[3]?.blasters || [],
         haBlasters: results[3]?.ha_blasters || [],
+        piHubBridges: results[3]?.pi_hub_bridges || [],
         catalog: results[4]?.devices || [],
         physicalRemotes: results[5]?.remotes || [],
         remoteBridges: results[6]?.bridges || [],
@@ -113,6 +115,10 @@ class OmniRemotePanel extends HTMLElement {
       const mqttStatus = results[11] || {};
       this._mqttAvailable = mqttStatus.available || false;
       this._mqttConfig = mqttStatus.config || {};
+      
+      // Store Pi Hubs
+      const piHubData = results[12] || {};
+      this._piHubs = piHubData.hubs || [];
       
       console.log('[OmniRemote] Data loaded:', this._data);
       this._render();
@@ -889,6 +895,24 @@ class OmniRemotePanel extends HTMLElement {
       case 'save-mqtt':
         await this._saveMqttConfig();
         break;
+      case 'discover-hubs':
+        await this._discoverPiHubs();
+        break;
+    }
+  }
+
+  async _discoverPiHubs() {
+    // Request Pi Hubs to announce themselves
+    try {
+      await this._api('/api/omniremote/pi_hubs/discover', 'POST');
+      // Wait a moment for hubs to respond, then reload
+      setTimeout(async () => {
+        const res = await this._api('/api/omniremote/pi_hubs');
+        this._piHubs = res.hubs || [];
+        this._render();
+      }, 2000);
+    } catch (e) {
+      console.error('Hub discovery error:', e);
     }
   }
 
@@ -1315,15 +1339,44 @@ class OmniRemotePanel extends HTMLElement {
   _blastersView() {
     const all = [...this._data.blasters, ...this._data.haBlasters];
     const flippers = this._data.flippers || [];
+    const piHubBridges = this._data.piHubBridges || [];
     
     return `
       <div class="page-header">
-        <h2><ha-icon icon="mdi:access-point"></ha-icon> IR Blasters</h2>
+        <h2><ha-icon icon="mdi:access-point"></ha-icon> IR Blasters & Bridges</h2>
         <div style="display:flex;gap:8px;">
           <button class="btn btn-p" data-action="discover"><ha-icon icon="mdi:magnify"></ha-icon> Discover</button>
           <button class="btn btn-s" data-action="show-add-blaster"><ha-icon icon="mdi:plus"></ha-icon> Add by IP</button>
         </div>
       </div>
+      
+      <!-- Pi Hub Bridges (Auto-discovered via MQTT) -->
+      ${piHubBridges.length > 0 ? `
+        <div class="section-header">
+          <h3><ha-icon icon="mdi:raspberry-pi"></ha-icon> Pi Hub Bridges</h3>
+          <span class="badge" style="background:#10B981;">Auto-Discovered</span>
+        </div>
+        <div class="grid" style="margin-bottom:24px;">
+          ${piHubBridges.map(b => `
+            <div class="card" style="border-color:${b.online ? '#10B981' : '#666'};">
+              <div class="card-head">
+                <div class="card-icon" style="background:${b.online ? '#1b3d2a' : '#333'};"><ha-icon icon="mdi:raspberry-pi" style="color:${b.online ? '#10B981' : '#666'};"></ha-icon></div>
+                <div class="card-info">
+                  <div class="card-title">${b.name}</div>
+                  <div class="card-sub">${b.ip} • v${b.version}</div>
+                </div>
+                <span class="status ${b.online ? 'online' : 'offline'}">${b.online ? 'Online' : 'Offline'}</span>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;">
+                ${b.has_usb ? `<span class="badge" style="background:#7C3AED;"><ha-icon icon="mdi:usb" style="font-size:12px;"></ha-icon> USB</span>` : ''}
+                ${b.has_bluetooth ? `<span class="badge" style="background:#2563EB;"><ha-icon icon="mdi:bluetooth" style="font-size:12px;"></ha-icon> Bluetooth</span>` : ''}
+                ${b.has_ir ? `<span class="badge" style="background:#ef5350;"><ha-icon icon="mdi:remote" style="font-size:12px;"></ha-icon> IR</span>` : ''}
+              </div>
+              <div class="ha-badge" style="margin-top:8px;background:#1b3d2a;color:#81c784;">Via MQTT</div>
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
       
       <!-- Broadlink Blasters -->
       <div class="section-header">
@@ -1864,7 +1917,6 @@ class OmniRemotePanel extends HTMLElement {
     // MQTT status from HA - check if MQTT integration exists
     const hasMqtt = this._mqttAvailable || false;
     const mqttConfig = this._mqttConfig || {};
-    const piHubStatus = this._piHubStatus || { connected: false };
     
     return `
       <div style="max-width:800px;">
@@ -1939,28 +1991,68 @@ class OmniRemotePanel extends HTMLElement {
         <div class="card" style="margin-bottom:24px;">
           <h3 style="margin:0 0 16px 0;display:flex;align-items:center;gap:10px;">
             <ha-icon icon="mdi:raspberry-pi" style="color:#10B981;"></ha-icon>
-            Pi Zero Hub
-            ${piHubStatus.connected ? `<span class="status online">Connected</span>` : ''}
+            Pi Zero Hubs
+            ${this._piHubs?.length > 0 ? `<span class="status online">${this._piHubs.filter(h => h.online).length} Online</span>` : ''}
+            <button class="btn btn-s" style="margin-left:auto;padding:4px 12px;" data-action="discover-hubs">
+              <ha-icon icon="mdi:refresh"></ha-icon> Scan
+            </button>
           </h3>
           
-          ${piHubStatus.connected ? `
-            <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:16px;">
-              <div style="background:#252545;border-radius:8px;padding:12px;text-align:center;">
-                <div style="font-size:24px;font-weight:bold;color:#10B981;">${piHubStatus.devices || 0}</div>
-                <div style="font-size:12px;color:#888;">Devices</div>
-              </div>
-              <div style="background:#252545;border-radius:8px;padding:12px;text-align:center;">
-                <div style="font-size:24px;font-weight:bold;color:#7C3AED;">${piHubStatus.buttons || 0}</div>
-                <div style="font-size:12px;color:#888;">Buttons Today</div>
-              </div>
-              <div style="background:#252545;border-radius:8px;padding:12px;text-align:center;">
-                <div style="font-size:18px;font-weight:bold;color:#2563EB;">v${piHubStatus.version || '?'}</div>
-                <div style="font-size:12px;color:#888;">Hub Version</div>
-              </div>
+          ${this._piHubs?.length > 0 ? `
+            <div style="display:flex;flex-direction:column;gap:12px;">
+              ${this._piHubs.map(hub => `
+                <div style="background:#252545;border-radius:8px;padding:16px;border-left:4px solid ${hub.online ? '#10B981' : '#666'};">
+                  <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:12px;">
+                    <div>
+                      <div style="display:flex;align-items:center;gap:8px;">
+                        <strong style="font-size:16px;">${hub.name}</strong>
+                        <span class="status ${hub.online ? 'online' : 'offline'}">${hub.online ? 'Online' : 'Offline'}</span>
+                      </div>
+                      <div style="font-size:12px;color:#888;margin-top:4px;">
+                        ${hub.ip} • v${hub.version}
+                      </div>
+                    </div>
+                    ${hub.web_ui ? `
+                      <a href="${hub.web_ui}" target="_blank" class="btn btn-s" style="padding:4px 10px;">
+                        <ha-icon icon="mdi:open-in-new"></ha-icon>
+                      </a>
+                    ` : ''}
+                  </div>
+                  
+                  <div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:12px;margin-bottom:12px;">
+                    <div style="text-align:center;background:#1a1a2e;border-radius:6px;padding:8px;">
+                      <div style="font-size:18px;font-weight:bold;color:#10B981;">${hub.devices?.length || 0}</div>
+                      <div style="font-size:11px;color:#888;">Devices</div>
+                    </div>
+                    <div style="text-align:center;background:#1a1a2e;border-radius:6px;padding:8px;">
+                      <div style="font-size:18px;font-weight:bold;color:#7C3AED;">${hub.button_count || 0}</div>
+                      <div style="font-size:11px;color:#888;">Buttons</div>
+                    </div>
+                    <div style="text-align:center;background:#1a1a2e;border-radius:6px;padding:8px;">
+                      <div style="font-size:18px;font-weight:bold;color:${hub.has_usb ? '#10B981' : '#666'};">
+                        <ha-icon icon="mdi:usb" style="font-size:18px;"></ha-icon>
+                      </div>
+                      <div style="font-size:11px;color:#888;">USB</div>
+                    </div>
+                    <div style="text-align:center;background:#1a1a2e;border-radius:6px;padding:8px;">
+                      <div style="font-size:18px;font-weight:bold;color:${hub.has_bluetooth ? (hub.bluetooth_status === 'up' ? '#2563EB' : '#ff9800') : '#666'};">
+                        <ha-icon icon="mdi:bluetooth" style="font-size:18px;"></ha-icon>
+                      </div>
+                      <div style="font-size:11px;color:#888;">${hub.has_bluetooth ? (hub.bluetooth_status === 'up' ? 'On' : 'Off') : 'N/A'}</div>
+                    </div>
+                  </div>
+                  
+                  ${hub.devices?.length > 0 ? `
+                    <div style="font-size:12px;color:#888;">
+                      <strong>Connected:</strong> ${hub.devices.map(d => d.name).join(', ')}
+                    </div>
+                  ` : ''}
+                </div>
+              `).join('')}
             </div>
           ` : `
             <p style="color:#888;margin-bottom:16px;">
-              No Pi Zero Hub detected. The Pi Hub enables USB/Bluetooth remote support.
+              No Pi Zero Hubs detected. Hubs are discovered automatically via MQTT when they come online.
             </p>
             <div style="background:#252545;border-radius:8px;padding:16px;">
               <h4 style="margin:0 0 12px 0;color:#fff;">Quick Setup</h4>
@@ -1970,6 +2062,7 @@ class OmniRemotePanel extends HTMLElement {
                 <li>SSH in and run: <code style="color:#81c784;">curl -sL https://omniremote.com/pi | sudo bash</code></li>
                 <li>Enter your MQTT credentials when prompted</li>
                 <li>Plug in your USB remote receiver</li>
+                <li>Hub will appear here automatically!</li>
               </ol>
             </div>
           `}
