@@ -5,7 +5,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.28";
+const OMNIREMOTE_VERSION = "1.10.31";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -34,8 +34,10 @@ class OmniRemotePanel extends HTMLElement {
   // Initialize in standalone mode (called from standalone HTML)
   initStandalone() {
     this._standalone = true;
-    console.log('[OmniRemote] Initializing in standalone mode');
+    console.log('[OmniRemote] initStandalone called');
+    console.log('[OmniRemote] shadowRoot exists:', !!this.shadowRoot);
     this._render();
+    console.log('[OmniRemote] _render completed');
     this._loadData();
     this._checkVersion();
   }
@@ -334,7 +336,7 @@ class OmniRemotePanel extends HTMLElement {
             </div>
             <div class="logo-text">
               <span class="logo-wordmark">OmniRemote<span class="logo-tm">™</span></span>
-              <span class="logo-tagline">Control everything. Learn anything.</span>
+              <span class="logo-tagline">v${this._version}${this._standalone ? ' • Standalone' : ''}</span>
             </div>
           </div>
           <nav class="nav">
@@ -422,10 +424,16 @@ class OmniRemotePanel extends HTMLElement {
   _attachEvents() {
     const root = this.shadowRoot;
     
+    console.log('[OmniRemote] _attachEvents called, standalone:', this._standalone);
+    
     // Use event delegation on the entire app for better reliability
     const appEl = root.querySelector('.app');
+    console.log('[OmniRemote] App element found:', !!appEl);
+    
     if (appEl) {
       appEl.addEventListener('click', async (e) => {
+        console.log('[OmniRemote] Click detected on:', e.target.tagName, e.target.className);
+        
         // Handle navigation clicks
         const navEl = e.target.closest('[data-nav]');
         if (navEl) {
@@ -447,6 +455,8 @@ class OmniRemotePanel extends HTMLElement {
           return;
         }
       });
+    } else {
+      console.error('[OmniRemote] .app element not found in shadow root!');
     }
     
     // Modal background click to close
