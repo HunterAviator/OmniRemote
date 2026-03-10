@@ -4,7 +4,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.26";
+const OMNIREMOTE_VERSION = "1.10.27";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -176,18 +176,23 @@ class OmniRemotePanel extends HTMLElement {
       <style>
         :host { display:block; height:100%; font-family:system-ui,-apple-system,sans-serif; }
         * { box-sizing:border-box; }
-        .app { display:flex; height:100vh; background:#0f0f1a; color:#e8e8e8; }
+        .app { display:flex; height:100vh; background:#0f172a; color:#e8e8e8; }
+        
+        /* Brand Colors - OmniRemote™ */
+        /* Primary: #7C3AED (Purple) | Accent: #2DD4BF (Cyan) | Background: #0f172a (Navy) */
         
         /* Sidebar */
         .sidebar { width:220px; background:#1a1a2e; border-right:1px solid #2a2a4a; display:flex; flex-direction:column; }
-        .logo { padding:16px; font-weight:600; display:flex; align-items:center; gap:10px; border-bottom:1px solid #2a2a4a; background:linear-gradient(135deg, rgba(124,58,237,0.1), rgba(37,99,235,0.1)); }
-        .logo ha-icon { color:#7C3AED; }
+        .logo { padding:16px; font-weight:700; display:flex; align-items:center; gap:12px; border-bottom:1px solid #2a2a4a; background:linear-gradient(135deg, rgba(124,58,237,0.15), rgba(45,212,191,0.08)); }
+        .logo-icon { width:36px; height:36px; background:linear-gradient(135deg, #7C3AED, #8B5CF6); border-radius:10px; display:flex; align-items:center; justify-content:center; position:relative; }
+        .logo-icon::before { content:''; position:absolute; left:-6px; top:50%; transform:translateY(-50%); width:4px; height:16px; border-radius:2px; background:#2DD4BF; opacity:0.8; }
+        .logo-icon::after { content:''; position:absolute; right:-6px; top:50%; transform:translateY(-50%); width:4px; height:16px; border-radius:2px; background:#2DD4BF; opacity:0.8; }
+        .logo-icon ha-icon { color:#2DD4BF; }
         .logo-text { display:flex; flex-direction:column; }
-        .logo-title { font-size:15px; }
-        .logo-title .omni { color:#7C3AED; }
-        .logo-title .remote { color:#2563EB; }
-        .logo-version { font-size:10px; color:#888; font-weight:400; }
-        .logo-tm { font-size:8px; vertical-align:super; color:#888; }
+        .logo-wordmark { font-size:16px; font-weight:700; color:#fff; letter-spacing:-0.3px; position:relative; display:inline-block; }
+        .logo-wordmark::after { content:''; position:absolute; bottom:-3px; left:0; right:0; height:2px; background:#2DD4BF; border-radius:1px; }
+        .logo-tm { font-size:8px; vertical-align:super; color:#888; font-weight:400; }
+        .logo-tagline { font-size:9px; color:#888; font-weight:400; margin-top:6px; letter-spacing:0.2px; }
         .nav { flex:1; padding:8px 0; overflow-y:auto; }
         .nav-item { display:flex; align-items:center; gap:10px; padding:10px 16px; cursor:pointer; border-left:3px solid transparent; }
         .nav-item:hover { background:#252545; }
@@ -212,7 +217,8 @@ class OmniRemotePanel extends HTMLElement {
         .btn-s { background:#252545; color:#e8e8e8; }
         .btn-s:hover { background:#303060; }
         .btn-d { background:#c62828; color:#fff; }
-        .btn-accent { background:linear-gradient(135deg, #2563EB, #1D4ED8); color:#fff; }
+        .btn-accent { background:linear-gradient(135deg, #2DD4BF, #14B8A6); color:#0f172a; }
+        .btn-accent:hover { background:linear-gradient(135deg, #14B8A6, #0D9488); }
         .btn:disabled, .btn[disabled] { opacity:0.6; cursor:not-allowed; }
         
         /* Cards */
@@ -311,10 +317,12 @@ class OmniRemotePanel extends HTMLElement {
       <div class="app">
         <aside class="sidebar">
           <div class="logo">
-            <ha-icon icon="mdi:remote-tv"></ha-icon>
+            <div class="logo-icon">
+              <ha-icon icon="mdi:remote-tv"></ha-icon>
+            </div>
             <div class="logo-text">
-              <span class="logo-title"><span class="omni">Omni</span><span class="remote">Remote</span><span class="logo-tm">™</span></span>
-              <span class="logo-version">v${this._version}</span>
+              <span class="logo-wordmark">OmniRemote<span class="logo-tm">™</span></span>
+              <span class="logo-tagline">Control everything. Learn anything.</span>
             </div>
           </div>
           <nav class="nav">
@@ -2131,14 +2139,15 @@ class OmniRemotePanel extends HTMLElement {
         <!-- About -->
         <div class="card" style="margin-bottom:24px;">
           <h3 style="margin:0 0 16px 0;display:flex;align-items:center;gap:10px;">
-            <ha-icon icon="mdi:information" style="color:#2563EB;"></ha-icon>
-            About <span class="omni" style="color:#7C3AED;">Omni</span><span class="remote" style="color:#2563EB;">Remote</span><span style="font-size:10px;vertical-align:super;color:#888;">™</span>
+            <ha-icon icon="mdi:information" style="color:#2DD4BF;"></ha-icon>
+            About <span style="color:#fff;font-weight:700;position:relative;display:inline-block;">OmniRemote<span style="position:absolute;bottom:-2px;left:0;right:0;height:2px;background:#2DD4BF;border-radius:1px;"></span></span><span style="font-size:10px;vertical-align:super;color:#888;">™</span>
           </h3>
           
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
             <div>
               <p style="margin:0;"><strong>Version:</strong> ${this._version}</p>
               <p style="margin:8px 0;"><strong>Integration:</strong> Free (HACS)</p>
+              <p style="margin:8px 0;font-style:italic;color:#2DD4BF;">Control everything. Learn anything. Use any remote.</p>
               <p style="margin-top:16px;">
                 <a href="https://github.com/omniremote/omniremote" target="_blank" style="color:#7C3AED;">GitHub</a> •
                 <a href="https://omniremote.com/docs" target="_blank" style="color:#7C3AED;">Documentation</a> •
@@ -2155,7 +2164,7 @@ class OmniRemotePanel extends HTMLElement {
         </div>
         
         <!-- Recommended Hardware -->
-        <div class="card" style="background:linear-gradient(135deg, rgba(124,58,237,0.1), rgba(37,99,235,0.1));border-color:#7C3AED;">
+        <div class="card" style="background:linear-gradient(135deg, rgba(124,58,237,0.1), rgba(45,212,191,0.08));border-color:#7C3AED;">
           <h3 style="margin:0 0 16px 0;display:flex;align-items:center;gap:10px;">
             <ha-icon icon="mdi:cart" style="color:#10B981;"></ha-icon>
             Recommended Hardware
