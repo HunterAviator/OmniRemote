@@ -1,11 +1,16 @@
 /**
- * OmniRemote™ Manager Panel v1.10.28
+ * OmniRemote™ Manager Panel
  * © 2026 One Eye Enterprises LLC
+ * All Rights Reserved
+ * 
+ * OmniRemote™ is a trademark of One Eye Enterprises LLC
+ * Brand Colors: Purple #7C3AED | Blue #2563EB | Green #10B981
+ * 
  * Works in both Home Assistant and Standalone mode
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.35";
+const OMNIREMOTE_VERSION = "1.10.36";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -411,8 +416,8 @@ class OmniRemotePanel extends HTMLElement {
       </div>
       
       ${this._modal ? `
-        <div class="modal-bg" data-action="close-modal">
-          <div class="modal" data-stop-propagation>
+        <div class="modal-bg">
+          <div class="modal">
             ${this._modal}
           </div>
         </div>
@@ -460,39 +465,42 @@ class OmniRemotePanel extends HTMLElement {
       console.error('[OmniRemote] .app element not found in shadow root!');
     }
     
-    // Modal click handling - modal is outside .app so needs separate handler
+    // Modal click handling - use capturing to handle events before they bubble
     const modalBg = root.querySelector('.modal-bg');
-    if (modalBg) {
-      // Handle clicks anywhere in modal-bg
-      modalBg.addEventListener('click', async (e) => {
-        // Check for action buttons first
+    const modalContent = root.querySelector('.modal');
+    
+    if (modalContent) {
+      // Stop ALL events from escaping modal content
+      modalContent.addEventListener('click', (e) => {
+        // Only let action buttons through
         const actionBtn = e.target.closest('[data-action]');
         if (actionBtn) {
           const action = actionBtn.dataset.action;
-          console.log('[OmniRemote] Modal action click:', action, actionBtn.dataset);
-          e.preventDefault();
-          e.stopPropagation();
+          console.log('[OmniRemote] Modal action:', action);
           
           if (action === 'close-modal') {
+            e.stopPropagation();
             this._modal = null;
             this._render();
           } else {
-            try {
-              await this._handleAction(action, {...actionBtn.dataset});
-            } catch (err) {
-              console.error('[OmniRemote] Modal action error:', err);
-            }
+            e.stopPropagation();
+            this._handleAction(action, {...actionBtn.dataset});
           }
-          return;
         }
-        
-        // Close modal if clicking directly on background
+        // For all other clicks inside modal (selects, inputs, labels, etc.), stop propagation
+        e.stopPropagation();
+      }, false);
+    }
+    
+    if (modalBg) {
+      // Only close when clicking directly on the dark background
+      modalBg.addEventListener('click', (e) => {
         if (e.target === modalBg) {
           console.log('[OmniRemote] Modal background click - closing');
           this._modal = null;
           this._render();
         }
-      });
+      }, false);
     }
     
     // Dynamic dropdown handlers for action editor
@@ -4049,18 +4057,16 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
     // Check for standalone mode - HA import not available
     if (this._standalone || !this._hass) {
       this._modal = `
-        <div class="modal-bg" data-action="close-modal">
-          <div class="modal" data-stop-propagation>
-            <h3><ha-icon icon="mdi:information"></ha-icon> Home Assistant Integration Required</h3>
-            <p style="margin:16px 0;color:#9CA3AF;">
-              Importing entities from Home Assistant is only available when OmniRemote is running as a Home Assistant integration.
-            </p>
-            <p style="margin:16px 0;color:#9CA3AF;">
-              In standalone mode, you can manually add devices using the "Add Device" button.
-            </p>
-            <div class="modal-actions">
-              <button class="btn" data-action="close-modal">Close</button>
-            </div>
+        <div class="modal-content" style="max-width:400px;">
+          <h3><ha-icon icon="mdi:information"></ha-icon> Home Assistant Required</h3>
+          <p style="margin:16px 0;color:#9CA3AF;">
+            Importing entities from Home Assistant is only available when OmniRemote is running as a Home Assistant integration.
+          </p>
+          <p style="margin:16px 0;color:#9CA3AF;">
+            In standalone mode, you can manually add devices using the "Add Device" button.
+          </p>
+          <div style="margin-top:20px;text-align:right;">
+            <button class="btn" data-action="close-modal">Close</button>
           </div>
         </div>
       `;

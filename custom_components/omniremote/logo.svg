@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="brand-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7C3AED"/>
+      <stop offset="100%" stop-color="#2563EB"/>
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <rect width="512" height="512" rx="96" fill="url(#brand-gradient)"/>
+  <!-- Remote body -->
+  <path d="M256 80c-55 0-100 45-100 100v152c0 55 45 100 100 100s100-45 100-100V180c0-55-45-100-100-100z" fill="#10B981"/>
+  <!-- Top button -->
+  <circle cx="256" cy="160" r="32" fill="#0D9668"/>
+  <!-- Middle buttons row -->
+  <circle cx="220" cy="256" r="20" fill="#0D9668"/>
+  <circle cx="292" cy="256" r="20" fill="#0D9668"/>
+  <!-- Navigation circle -->
+  <circle cx="256" cy="256" r="12" fill="#fff"/>
+  <!-- Bottom button -->
+  <circle cx="256" cy="352" r="28" fill="#0D9668"/>
+  <!-- IR signal waves (left) -->
+  <path d="M100 200 Q70 256 100 312" stroke="#2DD4BF" stroke-width="12" fill="none" stroke-linecap="round" opacity="0.8"/>
+  <path d="M70 180 Q30 256 70 332" stroke="#2DD4BF" stroke-width="10" fill="none" stroke-linecap="round" opacity="0.5"/>
+  <!-- IR signal waves (right) -->
+  <path d="M412 200 Q442 256 412 312" stroke="#2DD4BF" stroke-width="12" fill="none" stroke-linecap="round" opacity="0.8"/>
+  <path d="M442 180 Q482 256 442 332" stroke="#2DD4BF" stroke-width="10" fill="none" stroke-linecap="round" opacity="0.5"/>
+</svg>

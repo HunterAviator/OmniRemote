@@ -1,4 +1,6 @@
 {
-  "name": "OmniRemote",
-  "render_readme": true
+  "name": "OmniRemote™",
+  "render_readme": true,
+  "filename": "icon.png",
+  "logo": "logo.svg"
 }
