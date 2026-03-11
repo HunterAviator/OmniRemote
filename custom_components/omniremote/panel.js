@@ -10,7 +10,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.36";
+const OMNIREMOTE_VERSION = "1.10.37";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -6361,9 +6361,26 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
           <div class="fg">
             <label class="fl">Bluetooth Adapter</label>
             <select class="fi" id="remote-bt-adapter">
-              <option value="hci0">hci0 (Built-in / HA Yellow)</option>
-              <option value="hci1">hci1 (USB Dongle)</option>
+              <optgroup label="Home Assistant">
+                <option value="ha:hci0">HA Built-in (hci0)</option>
+                <option value="ha:hci1">HA USB Dongle (hci1)</option>
+              </optgroup>
+              ${this._piHubs?.filter(h => h.online && h.has_bluetooth).length ? `
+                <optgroup label="Pi Zero Hubs">
+                  ${this._piHubs.filter(h => h.online && h.has_bluetooth).map(h => `
+                    <option value="pi_hub:${h.id}">${h.name} (${h.ip})</option>
+                  `).join('')}
+                </optgroup>
+              ` : ''}
+              ${this._piHubs?.filter(h => h.online && !h.has_bluetooth).length ? `
+                <optgroup label="Pi Zero Hubs (BT not detected)">
+                  ${this._piHubs.filter(h => h.online && !h.has_bluetooth).map(h => `
+                    <option value="pi_hub:${h.id}">${h.name} - try anyway</option>
+                  `).join('')}
+                </optgroup>
+              ` : ''}
             </select>
+            <small style="color:#888;">Choose where to pair: HA host or Pi Hub</small>
           </div>
           <div style="margin:12px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
             <button class="btn btn-p" data-action="bt-scan-start" id="bt-scan-btn">
@@ -6376,7 +6393,7 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
             <div style="padding:20px;text-align:center;color:#666;">
               <ha-icon icon="mdi:bluetooth" style="font-size:32px;"></ha-icon>
               <p style="margin:8px 0 0;">Click "Scan" to find nearby Bluetooth devices</p>
-              <p style="margin:4px 0 0;font-size:11px;">Paired devices show with a green icon ✓</p>
+              <p style="margin:4px 0 0;font-size:11px;">Pi Hub scans use their local Bluetooth adapter</p>
             </div>
           </div>
           <div class="fg">
@@ -6441,20 +6458,61 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
     const statusEl = this.shadowRoot.getElementById('bt-scan-status');
     const listEl = this.shadowRoot.getElementById('bt-discovered-list');
     const adapterEl = this.shadowRoot.getElementById('remote-bt-adapter');
-    const adapter = adapterEl?.value || 'hci0';
+    const adapterValue = adapterEl?.value || 'ha:hci0';
     
-    if (statusEl) statusEl.innerHTML = '<ha-icon icon="mdi:loading" class="spin"></ha-icon> Scanning...';
+    // Parse adapter value: "ha:hci0", "pi_hub:hub_id"
+    const [adapterType, adapterId] = adapterValue.split(':');
+    const isPiHub = adapterType === 'pi_hub';
+    
+    if (statusEl) statusEl.innerHTML = `<ha-icon icon="mdi:loading" class="spin"></ha-icon> Scanning ${isPiHub ? 'via Pi Hub' : 'locally'}...`;
     if (listEl) listEl.innerHTML = '<div style="padding:20px;text-align:center;color:#888;">Scanning for Bluetooth devices...</div>';
     
     try {
-      const res = await this._api('/api/omniremote/bluetooth', 'POST', {
-        action: 'scan',
-        adapter: adapter,
-        duration: 10,
-      });
+      let res;
       
-      // Store devices for filtering
+      if (isPiHub) {
+        // Find the Pi Hub and query its Bluetooth API
+        const hub = this._piHubs?.find(h => h.id === adapterId || h.hub_id === adapterId);
+        if (!hub) {
+          throw new Error('Pi Hub not found');
+        }
+        
+        // Extract base URL from web_ui or construct from IP
+        let hubUrl;
+        if (hub.web_ui) {
+          // web_ui is like "http://192.168.1.100:8080" - add API path
+          hubUrl = `${hub.web_ui}/api/omniremote/bluetooth`;
+        } else {
+          hubUrl = `http://${hub.ip}:8080/api/omniremote/bluetooth`;
+        }
+        
+        const response = await fetch(hubUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'scan' }),
+        });
+        res = await response.json();
+        
+        // Tag devices with hub info
+        if (res.devices) {
+          res.devices.forEach(d => {
+            d.hub_id = hub.id;
+            d.hub_name = hub.name;
+            d.adapter = adapterValue;
+          });
+        }
+      } else {
+        // Local HA Bluetooth scan
+        res = await this._api('/api/omniremote/bluetooth', 'POST', {
+          action: 'scan',
+          adapter: adapterId,
+          duration: 10,
+        });
+      }
+      
+      // Store devices for filtering (include adapter info)
       this._btDiscoveredDevices = res.devices || [];
+      this._btCurrentAdapter = adapterValue;
       
       if (res.success && res.devices && res.devices.length > 0) {
         if (statusEl) statusEl.textContent = `Found ${res.devices.length} devices`;
@@ -6492,8 +6550,9 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
   _renderBluetoothDeviceList(devices) {
     const listEl = this.shadowRoot.getElementById('bt-discovered-list');
     const statusEl = this.shadowRoot.getElementById('bt-scan-status');
-    const adapterEl = this.shadowRoot.getElementById('remote-bt-adapter');
-    const adapter = adapterEl?.value || 'hci0';
+    const currentAdapter = this._btCurrentAdapter || 'ha:hci0';
+    const [adapterType, adapterId] = currentAdapter.split(':');
+    const isPiHub = adapterType === 'pi_hub';
     
     if (!listEl) return;
     
@@ -6512,7 +6571,7 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
                  style="color:${d.paired ? '#4caf50' : '#2196f3'};font-size:20px;"></ha-icon>
         <div style="flex:1;min-width:0;">
           <div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${d.name || 'Unknown Device'}</div>
-          <div style="font-size:11px;color:#888;font-family:monospace;">${d.mac}${d.rssi ? ' • ' + d.rssi + ' dBm' : ''}</div>
+          <div style="font-size:11px;color:#888;font-family:monospace;">${d.mac}${d.rssi ? ' • ' + d.rssi + ' dBm' : ''}${d.hub_name ? ' • via ' + d.hub_name : ''}</div>
         </div>
         <button class="btn btn-sm btn-p bt-select-btn" id="bt-select-${i}" data-index="${i}">
           ${d.paired ? 'Select' : 'Pair'}
@@ -6535,14 +6594,39 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
             if (!d.paired) {
               btn.disabled = true;
               btn.innerHTML = '<ha-icon icon="mdi:loading" class="spin"></ha-icon>';
-              if (statusEl) statusEl.innerHTML = '<ha-icon icon="mdi:loading" class="spin"></ha-icon> Pairing...';
+              if (statusEl) statusEl.innerHTML = `<ha-icon icon="mdi:loading" class="spin"></ha-icon> Pairing${isPiHub ? ' via Pi Hub' : ''}...`;
               
               try {
-                const pairRes = await this._api('/api/omniremote/bluetooth', 'POST', {
-                  action: 'pair',
-                  adapter: adapter,
-                  mac: d.mac,
-                });
+                let pairRes;
+                
+                if (isPiHub || d.hub_id) {
+                  // Pair via Pi Hub
+                  const hubId = d.hub_id || adapterId;
+                  const hub = this._piHubs?.find(h => h.id === hubId || h.hub_id === hubId);
+                  if (!hub) throw new Error('Pi Hub not found');
+                  
+                  let hubUrl;
+                  if (hub.web_ui) {
+                    hubUrl = `${hub.web_ui}/api/omniremote/bluetooth`;
+                  } else {
+                    hubUrl = `http://${hub.ip}:8080/api/omniremote/bluetooth`;
+                  }
+                  
+                  const response = await fetch(hubUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'pair', mac: d.mac }),
+                  });
+                  pairRes = await response.json();
+                } else {
+                  // Pair via HA
+                  pairRes = await this._api('/api/omniremote/bluetooth', 'POST', {
+                    action: 'pair',
+                    adapter: adapterId,
+                    mac: d.mac,
+                  });
+                }
+                
                 if (pairRes.success) {
                   btn.innerHTML = '✓ Paired';
                   btn.style.background = '#4caf50';

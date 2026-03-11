@@ -7,7 +7,7 @@ from typing import Any
 import uuid
 
 DOMAIN = "omniremote"
-VERSION = "1.10.36"
+VERSION = "1.10.37"
 
 # Debug flag - set to True for verbose logging
 DEBUG = True
