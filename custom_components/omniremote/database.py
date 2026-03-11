@@ -75,15 +75,21 @@ class RemoteDatabase:
             
             # Load physical remotes
             for remote_data in data.get("physical_remotes", {}).values():
-                from .physical_remotes import PhysicalRemote
-                remote = PhysicalRemote.from_dict(remote_data)
-                self.physical_remotes[remote.id] = remote
+                try:
+                    from .physical_remotes import PhysicalRemote
+                    remote = PhysicalRemote.from_dict(remote_data)
+                    self.physical_remotes[remote.id] = remote
+                except Exception as e:
+                    _LOGGER.warning("Failed to load remote %s: %s", remote_data.get("id", "unknown"), e)
             
             # Load remote bridges
             for bridge_data in data.get("remote_bridges", {}).values():
-                from .physical_remotes import RemoteBridge
-                bridge = RemoteBridge.from_dict(bridge_data)
-                self.remote_bridges[bridge.id] = bridge
+                try:
+                    from .physical_remotes import RemoteBridge
+                    bridge = RemoteBridge.from_dict(bridge_data)
+                    self.remote_bridges[bridge.id] = bridge
+                except Exception as e:
+                    _LOGGER.warning("Failed to load bridge %s: %s", bridge_data.get("id", "unknown"), e)
             
             # Load remote profiles (custom remote layouts)
             for profile_data in data.get("remote_profiles", {}).values():

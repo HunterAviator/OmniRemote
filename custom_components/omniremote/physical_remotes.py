@@ -35,6 +35,7 @@ class BridgeType(Enum):
     RF_ESPHOME = "rf_esphome"          # ESPHome RF receiver
     BLUETOOTH_PROXY = "bluetooth_proxy" # ESP32 BT Proxy
     USB_BRIDGE = "usb_bridge"          # Pi Zero W USB bridge
+    PI_HUB = "pi_hub"                  # OmniRemote Pi Hub (auto-discovered)
     NETWORK = "network"                 # Direct network (WebSocket/REST)
 
 
@@ -152,10 +153,17 @@ class RemoteBridge:
     
     @classmethod
     def from_dict(cls, data: dict) -> "RemoteBridge":
+        # Handle bridge_type with fallback for unknown types
+        try:
+            bridge_type = BridgeType(data["bridge_type"])
+        except ValueError:
+            # Unknown bridge type - default to network
+            bridge_type = BridgeType.NETWORK
+        
         return cls(
             id=data["id"],
             name=data["name"],
-            bridge_type=BridgeType(data["bridge_type"]),
+            bridge_type=bridge_type,
             room_id=data.get("room_id"),
             host=data.get("host"),
             port=data.get("port"),

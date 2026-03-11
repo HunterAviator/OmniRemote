@@ -5,7 +5,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.34";
+const OMNIREMOTE_VERSION = "1.10.35";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
