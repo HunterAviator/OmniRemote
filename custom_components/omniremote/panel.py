@@ -91,6 +91,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     hass.http.register_view(OmniApiPiHubs(hass))
     hass.http.register_view(OmniApiPiHubCommand(hass))
     hass.http.register_view(OmniApiPiHubDiscover(hass))
+    hass.http.register_view(OmniApiPiHubDevices(hass))
     hass.http.register_view(OmniIconView(hass))
     hass.http.register_view(OmniLogoView(hass))
     
@@ -2850,6 +2851,58 @@ class OmniApiPiHubDiscover(HomeAssistantView):
         try:
             await manager._request_discovery()
             return web.json_response({"success": True, "message": "Discovery request sent"})
+        except Exception as e:
+            return web.json_response({"success": False, "error": str(e)})
+
+
+class OmniApiPiHubDevices(HomeAssistantView):
+    """API to query Pi Hub for connected USB devices."""
+    
+    url = "/api/omniremote/pi_hubs/devices"
+    name = "api:omniremote:pi_hubs:devices"
+    requires_auth = False
+    
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+    
+    async def post(self, request: web.Request) -> web.Response:
+        """Query a Pi Hub for its connected USB devices."""
+        manager = _get_pi_hub_manager(self.hass)
+        
+        if not manager:
+            return web.json_response({"success": False, "error": "Manager not available"})
+        
+        try:
+            data = await request.json()
+            hub_id = data.get("hub_id", "")
+            
+            if not hub_id:
+                # Query all online hubs
+                all_devices = []
+                for hub in manager.get_hubs():
+                    if hub.get("online"):
+                        devices = hub.get("devices", [])
+                        for dev in devices:
+                            all_devices.append({
+                                **dev,
+                                "hub_id": hub.get("id"),
+                                "hub_name": hub.get("name"),
+                            })
+                return web.json_response({"success": True, "devices": all_devices})
+            
+            # Query specific hub
+            hub = manager.get_hub(hub_id)
+            if not hub:
+                return web.json_response({"success": False, "error": f"Hub {hub_id} not found"})
+            
+            devices = hub.get("devices", [])
+            return web.json_response({
+                "success": True, 
+                "devices": devices,
+                "hub_id": hub_id,
+                "hub_name": hub.get("name"),
+            })
+            
         except Exception as e:
             return web.json_response({"success": False, "error": str(e)})
 

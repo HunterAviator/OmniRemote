@@ -5,7 +5,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.32";
+const OMNIREMOTE_VERSION = "1.10.34";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -460,27 +460,37 @@ class OmniRemotePanel extends HTMLElement {
       console.error('[OmniRemote] .app element not found in shadow root!');
     }
     
-    // Modal background click to close
+    // Modal click handling - modal is outside .app so needs separate handler
     const modalBg = root.querySelector('.modal-bg');
     if (modalBg) {
+      // Handle clicks anywhere in modal-bg
       modalBg.addEventListener('click', async (e) => {
-        // Only close if clicking directly on background (not on modal content)
+        // Check for action buttons first
+        const actionBtn = e.target.closest('[data-action]');
+        if (actionBtn) {
+          const action = actionBtn.dataset.action;
+          console.log('[OmniRemote] Modal action click:', action, actionBtn.dataset);
+          e.preventDefault();
+          e.stopPropagation();
+          
+          if (action === 'close-modal') {
+            this._modal = null;
+            this._render();
+          } else {
+            try {
+              await this._handleAction(action, {...actionBtn.dataset});
+            } catch (err) {
+              console.error('[OmniRemote] Modal action error:', err);
+            }
+          }
+          return;
+        }
+        
+        // Close modal if clicking directly on background
         if (e.target === modalBg) {
           console.log('[OmniRemote] Modal background click - closing');
-          await this._handleAction('close-modal', {});
-        }
-      });
-    }
-    
-    // Stop modal content clicks from bubbling to background
-    const modal = root.querySelector('.modal');
-    if (modal) {
-      modal.addEventListener('click', (e) => {
-        // Let action buttons inside modal work via the app delegation
-        // but stop the click from reaching modal-bg
-        const actionBtn = e.target.closest('[data-action]');
-        if (!actionBtn) {
-          e.stopPropagation();
+          this._modal = null;
+          this._render();
         }
       });
     }
@@ -841,21 +851,29 @@ class OmniRemotePanel extends HTMLElement {
       case 'discover-remotes':
         await this._discoverRemotes();
         break;
+      case 'discover-usb-remotes':
+        await this._discoverUsbRemotes();
+        break;
       case 'add-discovered-remote':
         this._addDiscoveredRemote(
           data.protocol,
           data.deviceId,
           data.deviceName,
           data.modelId,
-          data.manufacturer
+          data.manufacturer,
+          data.hubId
         );
         break;
       case 'back-to-discovery':
         // Go back to discovery modal with cached results
-        const zigbee = this._discoveredDevices?.zigbee || [];
-        const bluetooth = this._discoveredDevices?.bluetooth || [];
-        const total = zigbee.length + bluetooth.length;
-        this._showDiscoveryModal(zigbee, bluetooth, total);
+        {
+          const zigbee = this._discoveredDevices?.zigbee || [];
+          const bluetooth = this._discoveredDevices?.bluetooth || [];
+          const usb = this._discoveredDevices?.usb || [];
+          const piHub = this._discoveredDevices?.piHub || [];
+          const total = zigbee.length + bluetooth.length + usb.length + piHub.length;
+          this._showDiscoveryModal(zigbee, bluetooth, usb, piHub, total);
+        }
         break;
       case 'save-remote':
         await this._saveRemote();
@@ -3410,8 +3428,11 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
     return `
       <div class="page-header">
         <h2><ha-icon icon="mdi:remote"></ha-icon> Physical Remotes</h2>
-        <div style="display:flex;gap:8px;">
-          <button class="btn btn-s" data-action="discover-remotes"><ha-icon icon="mdi:refresh"></ha-icon> Discover</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-s" data-action="discover-remotes"><ha-icon icon="mdi:magnify"></ha-icon> Discover All</button>
+          ${this._piHubs?.some(h => h.online) ? `
+            <button class="btn btn-s" data-action="discover-usb-remotes"><ha-icon icon="mdi:usb"></ha-icon> USB Remotes</button>
+          ` : ''}
           <button class="btn btn-p" data-action="add-remote"><ha-icon icon="mdi:plus"></ha-icon> Add Remote</button>
         </div>
       </div>
@@ -3423,38 +3444,81 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
       </div>
       <p style="color:#888;margin-bottom:16px;">Bridges receive signals from physical remotes and forward them to Home Assistant.</p>
       
-      ${bridges.length === 0 ? `
+      <!-- Pi Zero Hubs (Auto-discovered via MQTT) -->
+      ${this._piHubs?.length > 0 ? `
+        <div style="margin-bottom:16px;">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+            <ha-icon icon="mdi:raspberry-pi" style="color:#10B981;"></ha-icon>
+            <span style="font-weight:600;color:#10B981;">Pi Zero Hubs (Auto-Discovered)</span>
+          </div>
+          <div class="grid">
+            ${this._piHubs.map(hub => `
+              <div class="card" style="border-color:${hub.online ? '#10B981' : '#666'};">
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+                  <ha-icon icon="mdi:raspberry-pi" style="color:${hub.online ? '#10B981' : '#888'};font-size:24px;"></ha-icon>
+                  <div style="flex:1;">
+                    <div style="font-weight:600;">${hub.name}</div>
+                    <div style="color:#888;font-size:12px;">${hub.ip} • v${hub.version}</div>
+                  </div>
+                  <span class="status ${hub.online ? 'online' : 'offline'}">${hub.online ? 'Online' : 'Offline'}</span>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                  ${hub.has_usb ? `<span class="badge" style="background:#7C3AED;"><ha-icon icon="mdi:usb" style="font-size:12px;"></ha-icon> USB</span>` : ''}
+                  ${hub.has_bluetooth ? `<span class="badge" style="background:#2563EB;"><ha-icon icon="mdi:bluetooth" style="font-size:12px;"></ha-icon> Bluetooth</span>` : ''}
+                  ${hub.has_ir ? `<span class="badge" style="background:#ef5350;"><ha-icon icon="mdi:remote" style="font-size:12px;"></ha-icon> IR</span>` : ''}
+                </div>
+                ${hub.web_ui ? `
+                  <div class="card-actions" style="margin-top:8px;">
+                    <a href="${hub.web_ui}" target="_blank" class="btn btn-sm"><ha-icon icon="mdi:open-in-new"></ha-icon> Web UI</a>
+                  </div>
+                ` : ''}
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
+      
+      <!-- Manual Bridges -->
+      ${bridges.length === 0 && !this._piHubs?.length ? `
         <div class="empty" style="padding:20px;">
           <ha-icon icon="mdi:router-wireless"></ha-icon>
           <h4>No Bridges Configured</h4>
           <p>Add a Pi Zero W USB bridge, ESP32 Bluetooth proxy, or Sonoff RF bridge.</p>
           <button class="btn btn-p" data-action="add-bridge" style="margin-top:12px;"><ha-icon icon="mdi:plus"></ha-icon> Add Bridge</button>
         </div>
-      ` : `
-        <div class="grid">
-          ${bridges.map(b => `
-            <div class="card ${b.online ? '' : 'offline'}">
-              <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
-                <ha-icon icon="${bridgeTypeIcons[b.bridge_type] || 'mdi:router-wireless'}" style="color:${b.online ? '#4caf50' : '#888'};font-size:24px;"></ha-icon>
-                <div style="flex:1;">
-                  <div style="font-weight:600;">${b.name}</div>
-                  <div style="color:#888;font-size:12px;">${b.bridge_type.replace(/_/g, ' ').toUpperCase()}</div>
-                </div>
-                <span class="status ${b.online ? 'online' : 'offline'}">${b.online ? 'Online' : 'Offline'}</span>
-              </div>
-              <div style="color:#888;font-size:13px;margin-bottom:8px;">
-                ${b.room_name ? `<ha-icon icon="mdi:door" style="margin-right:4px;"></ha-icon>${b.room_name}` : '<span style="color:#666;">No room assigned</span>'}
-              </div>
-              ${b.host ? `<div style="color:#666;font-size:12px;">Host: ${b.host}${b.port ? ':' + b.port : ''}</div>` : ''}
-              ${b.mqtt_topic ? `<div style="color:#666;font-size:12px;">MQTT: ${b.mqtt_topic}</div>` : ''}
-              <div class="card-actions">
-                <button class="btn btn-sm" data-action="edit-bridge" data-bridge-id="${b.id}">Edit</button>
-                <button class="btn btn-sm btn-danger" data-action="delete-bridge" data-bridge-id="${b.id}">Delete</button>
-              </div>
+      ` : bridges.length > 0 ? `
+        <div style="margin-bottom:16px;">
+          ${this._piHubs?.length ? `
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+              <ha-icon icon="mdi:router-wireless" style="color:#7C3AED;"></ha-icon>
+              <span style="font-weight:600;color:#aaa;">Manual Bridges</span>
             </div>
-          `).join('')}
+          ` : ''}
+          <div class="grid">
+            ${bridges.map(b => `
+              <div class="card ${b.online ? '' : 'offline'}">
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+                  <ha-icon icon="${bridgeTypeIcons[b.bridge_type] || 'mdi:router-wireless'}" style="color:${b.online ? '#4caf50' : '#888'};font-size:24px;"></ha-icon>
+                  <div style="flex:1;">
+                    <div style="font-weight:600;">${b.name}</div>
+                    <div style="color:#888;font-size:12px;">${b.bridge_type.replace(/_/g, ' ').toUpperCase()}</div>
+                  </div>
+                  <span class="status ${b.online ? 'online' : 'offline'}">${b.online ? 'Online' : 'Offline'}</span>
+                </div>
+                <div style="color:#888;font-size:13px;margin-bottom:8px;">
+                  ${b.room_name ? `<ha-icon icon="mdi:door" style="margin-right:4px;"></ha-icon>${b.room_name}` : '<span style="color:#666;">No room assigned</span>'}
+                </div>
+                ${b.host ? `<div style="color:#666;font-size:12px;">Host: ${b.host}${b.port ? ':' + b.port : ''}</div>` : ''}
+                ${b.mqtt_topic ? `<div style="color:#666;font-size:12px;">MQTT: ${b.mqtt_topic}</div>` : ''}
+                <div class="card-actions">
+                  <button class="btn btn-sm" data-action="edit-bridge" data-bridge-id="${b.id}">Edit</button>
+                  <button class="btn btn-sm btn-danger" data-action="delete-bridge" data-bridge-id="${b.id}">Delete</button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
         </div>
-      `}
+      ` : ''}
       
       <!-- Remotes Section -->
       <div class="section-header" style="margin-top:32px;">
@@ -6248,11 +6312,23 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
         </div>
         
         <div class="fg" id="bridge-select-group" style="display:${['usb_keyboard', 'bluetooth'].includes(remoteType) ? 'block' : 'none'};">
-          <label class="fl">Bridge/Proxy</label>
+          <label class="fl">Bridge/Hub</label>
           <select class="fi" id="remote-bridge">
             <option value="">-- Select Bridge --</option>
-            ${bridges.map(b => `<option value="${b.id}">${b.name} (${b.bridge_type})</option>`).join('')}
+            ${this._piHubs?.filter(h => h.online).length ? `
+              <optgroup label="Pi Zero Hubs (Auto-Discovered)">
+                ${this._piHubs.filter(h => h.online).map(h => `
+                  <option value="pi_hub:${h.id}" data-type="pi_hub">${h.name} (${h.ip})</option>
+                `).join('')}
+              </optgroup>
+            ` : ''}
+            ${bridges.length ? `
+              <optgroup label="Manual Bridges">
+                ${bridges.map(b => `<option value="${b.id}">${b.name} (${b.bridge_type})</option>`).join('')}
+              </optgroup>
+            ` : ''}
           </select>
+          <small style="color:#888;">Required for USB remotes; optional for Bluetooth</small>
         </div>
         
         <div class="fg" id="zigbee-ieee-group" style="display:${remoteType === 'zigbee' ? 'block' : 'none'};">
@@ -6629,20 +6705,60 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
       action: 'discover_remotes'
     });
     
-    if (btn) btn.innerHTML = '<ha-icon icon="mdi:refresh"></ha-icon> Discover';
+    if (btn) btn.innerHTML = '<ha-icon icon="mdi:magnify"></ha-icon> Discover All';
     
     const zigbee = res.zigbee || [];
     const bluetooth = res.bluetooth || [];
+    const usb = res.usb || [];
+    const piHub = res.pi_hub || [];
     const total = res.total || 0;
     
     // Store discovered devices for the add flow
-    this._discoveredDevices = { zigbee, bluetooth };
+    this._discoveredDevices = { zigbee, bluetooth, usb, piHub };
     
     // Show discovery modal
-    this._showDiscoveryModal(zigbee, bluetooth, total);
+    this._showDiscoveryModal(zigbee, bluetooth, usb, piHub, total);
   }
   
-  _showDiscoveryModal(zigbee, bluetooth, total) {
+  async _discoverUsbRemotes() {
+    const btn = this.shadowRoot.querySelector('[data-action="discover-usb-remotes"]');
+    if (btn) btn.innerHTML = '<ha-icon icon="mdi:loading" class="spin"></ha-icon> Scanning...';
+    
+    // Query each online Pi Hub for connected USB devices
+    const piHubs = this._piHubs?.filter(h => h.online) || [];
+    const usbDevices = [];
+    
+    for (const hub of piHubs) {
+      try {
+        // Query the Pi Hub directly or via MQTT
+        const res = await this._api('/api/omniremote/pi_hubs/devices', 'POST', {
+          hub_id: hub.id
+        });
+        
+        if (res.devices) {
+          res.devices.forEach(dev => {
+            usbDevices.push({
+              ...dev,
+              hub_id: hub.id,
+              hub_name: hub.name,
+              hub_ip: hub.ip,
+              protocol: 'usb'
+            });
+          });
+        }
+      } catch (e) {
+        console.error(`[OmniRemote] Failed to query hub ${hub.name}:`, e);
+      }
+    }
+    
+    if (btn) btn.innerHTML = '<ha-icon icon="mdi:usb"></ha-icon> USB Remotes';
+    
+    // Store and show
+    this._discoveredDevices = { zigbee: [], bluetooth: [], usb: usbDevices, piHub: [] };
+    this._showDiscoveryModal([], [], usbDevices, [], usbDevices.length);
+  }
+  
+  _showDiscoveryModal(zigbee, bluetooth, usb = [], piHub = [], total) {
     const rooms = this._data.rooms || [];
     
     const confidenceIcon = (conf) => {
@@ -6650,6 +6766,8 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
       if (conf === 'medium') return '<span style="color:#ff9800;" title="Medium confidence">✓</span>';
       return '<span style="color:#888;" title="Low confidence - verify">?</span>';
     };
+    
+    const escapeAttr = (str) => String(str || '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     
     const renderDevice = (device, protocol) => {
       const hasModel = device.suggested_model_id;
@@ -6660,7 +6778,18 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
       const isPaired = device.paired || device.type === 'bluetooth_paired';
       const hasHid = device.has_hid;
       
-      const deviceId = protocol === 'zigbee' ? device.ieee : device.mac;
+      let deviceId, idDisplay;
+      if (protocol === 'zigbee') {
+        deviceId = device.ieee;
+        idDisplay = `IEEE: ${device.ieee}`;
+      } else if (protocol === 'usb' || protocol === 'pi_hub') {
+        deviceId = device.path;
+        idDisplay = device.hub_name ? `Via: ${device.hub_name}` : `Path: ${device.path}`;
+      } else {
+        deviceId = device.mac;
+        idDisplay = `MAC: ${device.mac}`;
+      }
+      
       const rssiDisplay = device.rssi ? `<span style="color:#888;font-size:11px;">RSSI: ${device.rssi}dBm</span>` : '';
       
       return `
@@ -6668,20 +6797,20 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">
             <div style="flex:1;">
               <div style="font-weight:600;color:#fff;display:flex;align-items:center;gap:8px;">
-                ${device.name}
+                ${escapeAttr(device.name)}
                 ${isPaired ? '<span style="color:#4caf50;font-size:11px;">● Paired</span>' : ''}
                 ${hasHid ? '<span style="color:#2196f3;font-size:10px;background:#1a2744;padding:2px 6px;border-radius:4px;">HID</span>' : ''}
               </div>
               <div style="color:#888;font-size:12px;margin-top:4px;">
-                ${protocol === 'zigbee' ? `IEEE: ${device.ieee}` : `MAC: ${device.mac}`}
+                ${idDisplay}
                 ${rssiDisplay ? ` | ${rssiDisplay}` : ''}
               </div>
               ${hasModel ? `
                 <div style="margin-top:8px;background:#0d1117;padding:8px;border-radius:6px;">
                   <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
                     ${confidenceIcon(confidence)}
-                    <span style="color:#4caf50;font-weight:500;">${modelName}</span>
-                    <span style="color:#666;">by ${modelMfr}</span>
+                    <span style="color:#4caf50;font-weight:500;">${escapeAttr(modelName)}</span>
+                    <span style="color:#666;">by ${escapeAttr(modelMfr)}</span>
                   </div>
                   <div style="color:#888;font-size:11px;">${matchReason}</div>
                   <div style="color:#666;font-size:11px;margin-top:4px;">
@@ -6699,10 +6828,11 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
               <button class="btn btn-p" style="white-space:nowrap;" 
                 data-action="add-discovered-remote"
                 data-protocol="${protocol}"
-                data-device-id="${deviceId}"
-                data-device-name="${device.name}"
-                data-model-id="${device.suggested_model_id || ''}"
-                data-manufacturer="${modelMfr}">
+                data-device-id="${escapeAttr(deviceId)}"
+                data-device-name="${escapeAttr(device.name)}"
+                data-hub-id="${escapeAttr(device.hub_id || '')}"
+                data-model-id="${escapeAttr(device.suggested_model_id || '')}"
+                data-manufacturer="${escapeAttr(modelMfr)}">
                 <ha-icon icon="mdi:plus"></ha-icon> Add
               </button>
             </div>
@@ -6720,8 +6850,9 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
             <ha-icon icon="mdi:remote-off" style="font-size:48px;color:#666;"></ha-icon>
             <p style="color:#888;margin:16px 0 8px;">No remotes found</p>
             <div style="color:#666;font-size:13px;text-align:left;max-width:400px;margin:0 auto;">
+              <p><strong>🔌 USB:</strong> Plug in your USB remote receiver (e.g., G20S dongle)</p>
               <p><strong>📡 Zigbee:</strong> Remotes must be paired with ZHA/deCONZ/Z2M first</p>
-              <p><strong>🔵 Bluetooth:</strong> Put remote in pairing mode (LED blinking) and ensure Bluetooth is enabled in HA</p>
+              <p><strong>🔵 Bluetooth:</strong> Put remote in pairing mode and ensure Bluetooth is enabled</p>
             </div>
             <button class="btn btn-s" style="margin-top:20px;" data-action="discover-remotes">
               <ha-icon icon="mdi:refresh"></ha-icon> Scan Again
@@ -6732,6 +6863,24 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
             Found <strong>${total}</strong> remote${total !== 1 ? 's' : ''}. 
             Click <strong>Add</strong> to configure with auto-detected settings.
           </p>
+          
+          ${piHub.length > 0 ? `
+            <div style="margin-bottom:16px;">
+              <div style="color:#10B981;font-weight:500;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
+                <ha-icon icon="mdi:raspberry-pi"></ha-icon> Pi Hub USB Remotes (${piHub.length})
+              </div>
+              ${piHub.map(d => renderDevice(d, 'pi_hub')).join('')}
+            </div>
+          ` : ''}
+          
+          ${usb.length > 0 ? `
+            <div style="margin-bottom:16px;">
+              <div style="color:#7C3AED;font-weight:500;margin-bottom:8px;display:flex;align-items:center;gap:6px;">
+                <ha-icon icon="mdi:usb"></ha-icon> Local USB Remotes (${usb.length})
+              </div>
+              ${usb.map(d => renderDevice(d, 'usb')).join('')}
+            </div>
+          ` : ''}
           
           ${zigbee.length > 0 ? `
             <div style="margin-bottom:16px;">
@@ -6768,18 +6917,29 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
     this._render();
   }
   
-  _addDiscoveredRemote(protocol, deviceId, deviceName, modelId, manufacturer) {
-    // Find the full device data
-    const devices = protocol === 'zigbee' 
-      ? (this._discoveredDevices?.zigbee || [])
-      : (this._discoveredDevices?.bluetooth || []);
+  _addDiscoveredRemote(protocol, deviceId, deviceName, modelId, manufacturer, hubId = '') {
+    // Find the full device data based on protocol
+    let devices = [];
+    if (protocol === 'zigbee') {
+      devices = this._discoveredDevices?.zigbee || [];
+    } else if (protocol === 'bluetooth') {
+      devices = this._discoveredDevices?.bluetooth || [];
+    } else if (protocol === 'usb') {
+      devices = this._discoveredDevices?.usb || [];
+    } else if (protocol === 'pi_hub') {
+      devices = this._discoveredDevices?.piHub || [];
+    }
     
-    const device = devices.find(d => 
-      (protocol === 'zigbee' ? d.ieee : d.mac) === deviceId
-    );
+    const device = devices.find(d => {
+      if (protocol === 'zigbee') return d.ieee === deviceId;
+      if (protocol === 'bluetooth') return d.mac === deviceId;
+      return d.path === deviceId;
+    });
     
     const rooms = this._data.rooms || [];
     const remoteModels = this._remoteModels || [];
+    const piHubs = this._piHubs || [];
+    const bridges = this._data.remoteBridges || [];
     
     // Group remote models by manufacturer
     const modelsByManufacturer = {};
@@ -6791,18 +6951,43 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
     });
     
     // Determine remote type
-    let remoteType = protocol === 'zigbee' ? 'zigbee' : 'bluetooth_ha';
-    if (device?.type === 'bluetooth' && !device?.paired) {
-      remoteType = 'bluetooth_ha'; // Use HA native bluetooth for new devices
-    }
+    let remoteType = 'usb_keyboard';
+    if (protocol === 'zigbee') remoteType = 'zigbee';
+    else if (protocol === 'bluetooth') remoteType = 'bluetooth_ha';
+    else if (protocol === 'usb' || protocol === 'pi_hub') remoteType = 'usb_keyboard';
     
     // Pre-fill values
     const preFillName = deviceName || device?.name || '';
     const preFillModel = modelId || device?.suggested_model_id || '';
-    const preFillMac = protocol === 'bluetooth' ? deviceId : '';
-    const preFillIeee = protocol === 'zigbee' ? deviceId : '';
+    const preFillHubId = hubId || device?.hub_id || '';
+    const preFillHubName = device?.hub_name || '';
     
     this._editingRemote = null;
+    
+    // Build bridge selector options
+    const bridgeOptions = [
+      `<option value="">-- Select Bridge --</option>`,
+      ...piHubs.filter(h => h.online).map(h => 
+        `<option value="pi_hub:${h.id}" ${h.id === preFillHubId ? 'selected' : ''}>
+          🍓 ${h.name} (Pi Hub)
+        </option>`
+      ),
+      ...bridges.map(b => 
+        `<option value="bridge:${b.id}">
+          ${b.bridge_type === 'usb_bridge' ? '🔌' : '📡'} ${b.name}
+        </option>`
+      ),
+    ];
+    
+    // Show auto-detected info
+    let autoDetectedInfo = '';
+    if (protocol === 'zigbee') {
+      autoDetectedInfo = `IEEE: ${deviceId}`;
+    } else if (protocol === 'bluetooth') {
+      autoDetectedInfo = `MAC: ${deviceId}`;
+    } else if (protocol === 'usb' || protocol === 'pi_hub') {
+      autoDetectedInfo = preFillHubName ? `Via: ${preFillHubName}` : `Path: ${deviceId}`;
+    }
     
     // Create a simplified add form with pre-filled values
     this._modal = `
@@ -6814,15 +6999,25 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
             <ha-icon icon="mdi:check-circle"></ha-icon> Auto-detected Settings
           </div>
           <div style="color:#90caf9;font-size:13px;">
-            ${protocol === 'zigbee' ? `IEEE: ${preFillIeee}` : `MAC: ${preFillMac}`}
+            ${autoDetectedInfo}
             ${preFillModel ? ` • Model: ${device?.suggested_model?.name || preFillModel}` : ''}
           </div>
         </div>
         
         <div class="fg">
           <label class="fl">Name</label>
-          <input type="text" class="fi" id="remote-name" value="${preFillName}" placeholder="Living Room Remote">
+          <input type="text" class="fi" id="remote-name" value="${preFillName.replace(/"/g, '&quot;')}" placeholder="Living Room Remote">
         </div>
+        
+        ${(protocol === 'usb' || protocol === 'pi_hub') ? `
+          <div class="fg">
+            <label class="fl">Bridge / Hub</label>
+            <select class="fi" id="remote-hub">
+              ${bridgeOptions.join('')}
+            </select>
+            <small style="color:#888;">Which Pi Hub or bridge receives this remote's signals</small>
+          </div>
+        ` : ''}
         
         <div class="fg">
           <label class="fl">Remote Model</label>
@@ -6847,10 +7042,12 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
         
         <!-- Hidden fields for the actual identifiers -->
         <input type="hidden" id="remote-type" value="${remoteType}">
-        <input type="hidden" id="remote-zigbee-ieee" value="${preFillIeee}">
-        <input type="hidden" id="remote-bt-mac-ha" value="${preFillMac}">
-        <input type="hidden" id="remote-bt-mac" value="${preFillMac}">
-        <input type="hidden" id="remote-bridge" value="">
+        <input type="hidden" id="remote-protocol" value="${protocol}">
+        <input type="hidden" id="remote-device-id" value="${deviceId}">
+        <input type="hidden" id="remote-zigbee-ieee" value="${protocol === 'zigbee' ? deviceId : ''}">
+        <input type="hidden" id="remote-bt-mac-ha" value="${protocol === 'bluetooth' ? deviceId : ''}">
+        <input type="hidden" id="remote-bt-mac" value="${protocol === 'bluetooth' ? deviceId : ''}">
+        <input type="hidden" id="remote-bridge" value="${preFillHubId ? 'pi_hub:' + preFillHubId : ''}">
         <input type="hidden" id="remote-profile" value="">
         <input type="hidden" id="remote-rf-prefix" value="">
         
