@@ -10,7 +10,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.37";
+const OMNIREMOTE_VERSION = "1.10.38";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -845,7 +845,7 @@ class OmniRemotePanel extends HTMLElement {
       
       // Physical Remotes actions
       case 'add-remote':
-        this._showAddRemoteModal(data.type);
+        await this._showAddRemoteModal(data.type);
         break;
       case 'edit-remote':
         this._showEditRemoteModal(data.remoteId);
@@ -6254,11 +6254,24 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
   // Physical Remotes Management
   // ==========================================================================
 
-  _showAddRemoteModal(remoteType = null) {
+  async _showAddRemoteModal(remoteType = null) {
+    // Refresh Pi Hubs list first
+    try {
+      const res = await this._api('/api/omniremote/pi_hubs');
+      this._piHubs = res.hubs || [];
+      console.log('[OmniRemote] Refreshed piHubs:', this._piHubs);
+    } catch (e) {
+      console.warn('[OmniRemote] Failed to refresh piHubs:', e);
+    }
+    
     const rooms = this._data.rooms || [];
     const bridges = this._data.remoteBridges || [];
     const profiles = this._data.remoteProfiles || [];
     const remoteModels = this._remoteModels || [];
+    
+    console.log('[OmniRemote] _showAddRemoteModal - piHubs:', this._piHubs);
+    console.log('[OmniRemote] _showAddRemoteModal - online hubs:', this._piHubs?.filter(h => h.online));
+    console.log('[OmniRemote] _showAddRemoteModal - bt hubs:', this._piHubs?.filter(h => h.has_bluetooth));
     
     // Filter profiles by type if specified
     const filteredProfiles = remoteType 
