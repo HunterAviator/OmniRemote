@@ -10,7 +10,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.48";
+const OMNIREMOTE_VERSION = "1.10.49";
 const PIHUB_VERSION = "1.5.18";  // Bundled Pi Hub version
 
 class OmniRemotePanel extends HTMLElement {

@@ -16,6 +16,7 @@ from .const import (
     Blaster,
     Device,
     DeviceCategory,
+    DOMAIN,
     RemoteCode,
     RemoteProfile,
     Room,

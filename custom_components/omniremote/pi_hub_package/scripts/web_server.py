@@ -34,8 +34,8 @@ import paho.mqtt.client as mqtt
 # Configuration
 #-------------------------------------------------------------------------------
 
-VERSION = "1.5.18"
-PANEL_VERSION = "1.10.48"
+VERSION = "1.5.19"
+PANEL_VERSION = "1.10.49"
 BRAND = {
     "name": "OmniRemote",
     "tagline": "One Remote to Rule Them All",
@@ -63,7 +63,7 @@ def setup_logging(config: dict) -> logging.Logger:
     logger.setLevel(log_level)
     logger.handlers.clear()
     
-    fh = RotatingFileHandler(log_file.replace("bridge", "web"), maxBytes=max_size, backupCount=3)
+    fh = RotatingFileHandler(log_file, maxBytes=max_size, backupCount=3)
     fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
     
     ch = logging.StreamHandler()
@@ -1258,6 +1258,91 @@ def api_physical_remotes():
             "zigbee": [],  # Not available in standalone
             "bluetooth": bluetooth_devices,
         })
+    
+    elif action == "add":
+        # Add a new physical remote
+        import uuid
+        remote_id = data.get("id") or str(uuid.uuid4())[:8]
+        new_remote = {
+            "id": remote_id,
+            "name": data.get("name", "New Remote"),
+            "type": data.get("type", "usb_keyboard"),
+            "protocol": data.get("protocol", "usb"),
+            "mac": data.get("mac", ""),
+            "path": data.get("path", ""),
+            "room_id": data.get("room_id", ""),
+            "model_id": data.get("model_id", ""),
+            "hub_id": data.get("hub_id", ""),
+            "button_mappings": data.get("button_mappings", {}),
+            "enabled": True,
+        }
+        
+        # Get existing remotes or initialize
+        if "physical_remotes" not in db.data:
+            db.data["physical_remotes"] = []
+        
+        # Check if it's a list (old format) or dict (new format)
+        if isinstance(db.data["physical_remotes"], dict):
+            db.data["physical_remotes"][remote_id] = new_remote
+        else:
+            # Remove any existing remote with same ID
+            db.data["physical_remotes"] = [r for r in db.data["physical_remotes"] if r.get("id") != remote_id]
+            db.data["physical_remotes"].append(new_remote)
+        
+        db.save()
+        log.info(f"Added physical remote: {new_remote['name']} ({remote_id})")
+        
+        # Publish to MQTT if connected
+        if mqtt_client and mqtt_client.connected:
+            mqtt_client.publish(f"{mqtt_client.prefix}/config/physical_remotes", json.dumps({remote_id: new_remote}), retain=True)
+        
+        return jsonify({"success": True, "remote": new_remote})
+    
+    elif action == "update":
+        remote_id = data.get("id")
+        if not remote_id:
+            return jsonify({"success": False, "error": "Missing remote ID"}), 400
+        
+        remotes = db.data.get("physical_remotes", [])
+        
+        if isinstance(remotes, dict):
+            if remote_id in remotes:
+                remotes[remote_id].update({k: v for k, v in data.items() if k != "action"})
+                db.save()
+                return jsonify({"success": True, "remote": remotes[remote_id]})
+        else:
+            for i, r in enumerate(remotes):
+                if r.get("id") == remote_id:
+                    for k, v in data.items():
+                        if k != "action":
+                            remotes[i][k] = v
+                    db.save()
+                    return jsonify({"success": True, "remote": remotes[i]})
+        
+        return jsonify({"success": False, "error": "Remote not found"}), 404
+    
+    elif action == "delete":
+        remote_id = data.get("id")
+        if not remote_id:
+            return jsonify({"success": False, "error": "Missing remote ID"}), 400
+        
+        remotes = db.data.get("physical_remotes", [])
+        
+        if isinstance(remotes, dict):
+            if remote_id in remotes:
+                del remotes[remote_id]
+                db.save()
+                return jsonify({"success": True})
+        else:
+            original_len = len(remotes)
+            db.data["physical_remotes"] = [r for r in remotes if r.get("id") != remote_id]
+            if len(db.data["physical_remotes"]) < original_len:
+                db.save()
+                return jsonify({"success": True})
+        
+        return jsonify({"success": False, "error": "Remote not found"}), 404
+    
+    return jsonify({"error": f"Unknown action: {action}"}), 400
 
 def discover_bluetooth_devices_cached():
     """Return cached Bluetooth devices from BlueZ (no new scan)."""
@@ -2058,8 +2143,31 @@ def api_update():
 
 @app.route("/api/omniremote/remote_models", methods=["GET"])
 def api_remote_models():
-    # Remote model database placeholder
-    return jsonify([])
+    """Return available remote models for auto button mapping."""
+    models = [
+        # WeChip / Generic Air Mouse
+        {"id": "wechip_g20", "name": "G20/G20S Air Mouse", "manufacturer": "WeChip", "buttons": ["power", "mute", "home", "back", "menu", "up", "down", "left", "right", "ok", "vol_up", "vol_down", "ch_up", "ch_down"]},
+        {"id": "wechip_g30", "name": "G30/G30S Air Mouse", "manufacturer": "WeChip", "buttons": ["power", "mute", "home", "back", "menu", "up", "down", "left", "right", "ok", "vol_up", "vol_down", "mic"]},
+        {"id": "wechip_w1", "name": "W1 Air Mouse", "manufacturer": "WeChip", "buttons": ["power", "home", "back", "up", "down", "left", "right", "ok", "vol_up", "vol_down"]},
+        # MX3 / Rii
+        {"id": "mx3_air", "name": "MX3 Air Mouse", "manufacturer": "MX3", "buttons": ["power", "mute", "home", "back", "menu", "up", "down", "left", "right", "ok", "vol_up", "vol_down", "play", "pause"]},
+        {"id": "rii_i8", "name": "Rii i8+ Mini Keyboard", "manufacturer": "Rii", "buttons": ["power", "home", "back", "up", "down", "left", "right", "ok", "vol_up", "vol_down", "mute"]},
+        {"id": "rii_mx6", "name": "Rii MX6 Air Mouse", "manufacturer": "Rii", "buttons": ["power", "home", "back", "up", "down", "left", "right", "ok", "vol_up", "vol_down", "mic"]},
+        # Fire TV
+        {"id": "firetv_remote", "name": "Fire TV Remote", "manufacturer": "Amazon", "buttons": ["power", "home", "back", "menu", "up", "down", "left", "right", "ok", "rewind", "play_pause", "fast_forward", "vol_up", "vol_down", "mute"]},
+        {"id": "firetv_voice", "name": "Fire TV Voice Remote", "manufacturer": "Amazon", "buttons": ["power", "home", "back", "menu", "up", "down", "left", "right", "ok", "rewind", "play_pause", "fast_forward", "vol_up", "vol_down", "mute", "alexa"]},
+        # Roku
+        {"id": "roku_simple", "name": "Roku Simple Remote", "manufacturer": "Roku", "buttons": ["power", "home", "back", "up", "down", "left", "right", "ok", "replay", "options"]},
+        {"id": "roku_voice", "name": "Roku Voice Remote", "manufacturer": "Roku", "buttons": ["power", "home", "back", "up", "down", "left", "right", "ok", "replay", "options", "vol_up", "vol_down", "mute", "voice"]},
+        # Apple TV
+        {"id": "apple_siri", "name": "Apple TV Siri Remote", "manufacturer": "Apple", "buttons": ["power", "home", "back", "menu", "up", "down", "left", "right", "ok", "play_pause", "vol_up", "vol_down", "mute", "siri"]},
+        # NVIDIA Shield
+        {"id": "shield_remote", "name": "NVIDIA Shield Remote", "manufacturer": "NVIDIA", "buttons": ["power", "home", "back", "up", "down", "left", "right", "ok", "vol_up", "vol_down", "mic"]},
+        # Generic
+        {"id": "generic_ir", "name": "Generic IR Remote", "manufacturer": "Generic", "buttons": ["power", "vol_up", "vol_down", "ch_up", "ch_down", "mute", "up", "down", "left", "right", "ok", "menu", "back", "home"]},
+        {"id": "generic_bt", "name": "Generic Bluetooth Remote", "manufacturer": "Generic", "buttons": ["power", "home", "back", "up", "down", "left", "right", "ok", "vol_up", "vol_down"]},
+    ]
+    return jsonify({"models": models})
 
 @app.route("/api/omniremote/mqtt/status", methods=["GET"])
 def api_mqtt_status():
