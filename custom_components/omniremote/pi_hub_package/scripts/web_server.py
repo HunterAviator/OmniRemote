@@ -34,8 +34,8 @@ import paho.mqtt.client as mqtt
 # Configuration
 #-------------------------------------------------------------------------------
 
-VERSION = "1.5.19"
-PANEL_VERSION = "1.10.49"
+VERSION = "1.5.20"
+PANEL_VERSION = "1.10.50"
 BRAND = {
     "name": "OmniRemote",
     "tagline": "One Remote to Rule Them All",
@@ -2111,17 +2111,17 @@ def api_update():
         def do_update():
             time.sleep(1)
             try:
-                log.info("Running install.sh...")
+                log.info("Running install.sh --unattended...")
                 result = subprocess.run(
-                    ["sudo", "bash", str(install_script)],
+                    ["sudo", "bash", str(install_script), "--unattended"],
                     cwd=str(update_dir),
                     capture_output=True,
                     text=True,
-                    timeout=120
+                    timeout=300  # 5 minutes for full install
                 )
-                log.info(f"Install output: {result.stdout}")
+                log.info(f"Install output: {result.stdout[-2000:] if result.stdout else 'none'}")
                 if result.returncode != 0:
-                    log.error(f"Install error: {result.stderr}")
+                    log.error(f"Install error (rc={result.returncode}): {result.stderr[-500:] if result.stderr else 'none'}")
                 else:
                     log.info("Update installed successfully, restarting services...")
                     # Restart services

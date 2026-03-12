@@ -10,8 +10,8 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.49";
-const PIHUB_VERSION = "1.5.18";  // Bundled Pi Hub version
+const OMNIREMOTE_VERSION = "1.10.50";
+const PIHUB_VERSION = "1.5.20";  // Bundled Pi Hub version
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -1047,21 +1047,34 @@ class OmniRemotePanel extends HTMLElement {
     if (statusEl) statusEl.innerHTML = '<ha-icon icon="mdi:loading" class="spin"></ha-icon> Preparing logs...';
     
     try {
-      // Trigger download via direct link
+      // Fetch the log content
       const url = `/api/omniremote/logs?download=true&sanitize=${sanitize}&lines=500`;
+      const response = await fetch(url);
       
-      // Create a temporary link and click it
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      
+      const text = await response.text();
+      
+      // Create a blob and download it
+      const blob = new Blob([text], { type: 'text/plain' });
+      const blobUrl = URL.createObjectURL(blob);
+      
       const link = document.createElement('a');
-      link.href = url;
-      link.download = `omniremote-${sanitize ? 'support-' : ''}log.txt`;
+      link.href = blobUrl;
+      link.download = `omniremote-${sanitize ? 'support-' : ''}log-${new Date().toISOString().slice(0,10)}.txt`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       
+      // Clean up blob URL
+      URL.revokeObjectURL(blobUrl);
+      
       if (statusEl) statusEl.innerHTML = `<span style="color:#4caf50;">✓ Log ${sanitize ? '(sanitized) ' : ''}downloaded</span>`;
     } catch (e) {
       console.error('[OmniRemote] Log download error:', e);
-      if (statusEl) statusEl.innerHTML = `<span style="color:#f44336;">✗ ${e.message}</span>`;
+      if (statusEl) statusEl.innerHTML = `<span style="color:#f44336;">✗ Download failed: ${e.message}</span>`;
     }
   }
   

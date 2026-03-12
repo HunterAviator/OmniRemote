@@ -20,7 +20,7 @@
 set -e
 
 # Version
-CURRENT_VERSION="1.5.18"
+CURRENT_VERSION="1.5.20"
 RELEASE_DATE="2026-03-10"
 GITHUB_REPO="omniremote/pi-zero-hub"
 GITHUB_RELEASES="https://api.github.com/repos/$GITHUB_REPO/releases/latest"
@@ -312,9 +312,13 @@ check_root() {
 check_raspberry_pi() {
     if ! grep -q -E "Raspberry Pi|BCM" /proc/cpuinfo 2>/dev/null; then
         log_warn "Not detected as Raspberry Pi"
-        echo -n "Continue anyway? (y/n): "
-        read -r REPLY
-        [[ ! $REPLY =~ ^[Yy]$ ]] && { log_error "Aborted"; exit 1; }
+        if [ "$UNATTENDED" = "1" ]; then
+            log_info "Unattended mode: continuing anyway"
+        else
+            echo -n "Continue anyway? (y/n): "
+            read -r REPLY
+            [[ ! $REPLY =~ ^[Yy]$ ]] && { log_error "Aborted"; exit 1; }
+        fi
     else
         PI_MODEL=$(grep -E "Model|Hardware" /proc/cpuinfo | head -1 | cut -d: -f2 | xargs)
         log_success "Detected: ${PI_MODEL:-Raspberry Pi}"
@@ -380,6 +384,15 @@ configure_installation() {
     ENABLE_IR_BLASTER="no"
     ENABLE_WEB_SERVER="yes"
     WEB_PORT="8080"
+    
+    # In unattended mode, use defaults without prompts
+    if [ "$UNATTENDED" = "1" ]; then
+        log_info "Unattended mode: using default settings"
+        echo "  Bluetooth: $ENABLE_BLUETOOTH | IR: $ENABLE_IR_BLASTER"
+        echo "  Web Server: port $WEB_PORT"
+        save_settings
+        return
+    fi
     
     echo -e "${WHITE}Quick Setup${NC}"
     echo ""
@@ -708,19 +721,31 @@ show_completion() {
 
 main() {
     # Parse arguments
-    case "${1:-}" in
-        --version|-v) show_version ;;
-        --upgrade|-u) FORCE_UPGRADE=1 ;;
-        --help|-h)
-            echo "Usage: sudo bash install.sh [OPTIONS]"
-            echo ""
-            echo "Options:"
-            echo "  --version, -v    Show version info"
-            echo "  --upgrade, -u    Force upgrade mode"
-            echo "  --help, -h       Show this help"
-            exit 0
-            ;;
-    esac
+    FORCE_UPGRADE=0
+    UNATTENDED=0
+    
+    for arg in "$@"; do
+        case "$arg" in
+            --version|-v) show_version ;;
+            --upgrade|-u) FORCE_UPGRADE=1 ;;
+            --unattended|-y) UNATTENDED=1 ;;
+            --help|-h)
+                echo "Usage: sudo bash install.sh [OPTIONS]"
+                echo ""
+                echo "Options:"
+                echo "  --version, -v     Show version info"
+                echo "  --upgrade, -u     Force upgrade mode"
+                echo "  --unattended, -y  Non-interactive mode (use defaults)"
+                echo "  --help, -h        Show this help"
+                exit 0
+                ;;
+        esac
+    done
+    
+    # Detect if running without TTY (e.g., from subprocess)
+    if [ ! -t 0 ]; then
+        UNATTENDED=1
+    fi
     
     show_banner
     check_root
