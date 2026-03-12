@@ -7,7 +7,7 @@ from typing import Any
 import uuid
 
 DOMAIN = "omniremote"
-VERSION = "1.10.41"
+VERSION = "1.10.42"
 
 # Debug flag - set to True for verbose logging
 DEBUG = True
@@ -200,10 +200,13 @@ class Device:
     input_commands: dict[str, str] = field(default_factory=dict)
     
     def to_dict(self) -> dict[str, Any]:
+        # Handle category being either enum or string
+        category_value = self.category.value if hasattr(self.category, 'value') else str(self.category)
+        
         return {
             "id": self.id,
             "name": self.name,
-            "category": self.category.value,
+            "category": category_value,
             "brand": self.brand,
             "model": self.model,
             "room_id": self.room_id,

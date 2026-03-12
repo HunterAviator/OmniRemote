@@ -10,7 +10,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.41";
+const OMNIREMOTE_VERSION = "1.10.42";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -816,6 +816,21 @@ class OmniRemotePanel extends HTMLElement {
         this._catalogFilter.brand = '';
         this._catalogFilter.search = '';
         this._render();
+        break;
+      
+      case 'go-to-catalog':
+        this._modal = null;
+        this._view = 'catalog';
+        this._render();
+        break;
+      
+      case 'discover-network-devices':
+        this._modal = null;
+        await this._discoverNetworkDevices();
+        break;
+      
+      case 'add-network-device':
+        await this._addNetworkDevice(data);
         break;
       
       case 'add-catalog':
@@ -4836,6 +4851,159 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
     await this._loadData();
   }
 
+  async _discoverNetworkDevices() {
+    console.log('[OmniRemote] Starting network device discovery...');
+    
+    // Show scanning modal
+    this._modal = `
+      <div class="modal-content" style="max-width:600px;">
+        <h3><ha-icon icon="mdi:lan-connect"></ha-icon> Scanning Network...</h3>
+        <div id="network-scan-status" style="padding:20px;text-align:center;">
+          <ha-icon icon="mdi:loading" class="spin" style="font-size:48px;color:#7C3AED;"></ha-icon>
+          <p style="color:#888;margin-top:16px;">Scanning for Roku, AppleTV, Chromecast, and other network devices...</p>
+        </div>
+        <div id="network-device-list" style="max-height:300px;overflow-y:auto;"></div>
+        <div style="margin-top:16px;text-align:right;">
+          <button class="btn" data-action="close-modal">Close</button>
+        </div>
+      </div>
+    `;
+    this._render();
+    
+    try {
+      const res = await this._api('/api/omniremote/network?type=all');
+      
+      const statusEl = this.shadowRoot.getElementById('network-scan-status');
+      const listEl = this.shadowRoot.getElementById('network-device-list');
+      
+      if (res.devices && res.devices.length > 0) {
+        if (statusEl) statusEl.innerHTML = `<p style="color:#4caf50;margin:0;"><ha-icon icon="mdi:check-circle"></ha-icon> Found ${res.devices.length} device(s)</p>`;
+        
+        if (listEl) {
+          listEl.innerHTML = res.devices.map(d => `
+            <div style="display:flex;align-items:center;padding:12px;border-bottom:1px solid #333;gap:12px;">
+              <ha-icon icon="${this._getDeviceIcon(d.type)}" style="font-size:24px;color:#7C3AED;"></ha-icon>
+              <div style="flex:1;">
+                <div style="font-weight:600;">${d.name || d.ip}</div>
+                <div style="font-size:12px;color:#888;">${d.type} • ${d.ip}${d.model ? ' • ' + d.model : ''}</div>
+              </div>
+              <button class="btn btn-p btn-sm" data-action="add-network-device" 
+                      data-device-type="${d.type}" 
+                      data-device-ip="${d.ip}" 
+                      data-device-name="${d.name || d.type}"
+                      data-device-id="${d.id || ''}">
+                <ha-icon icon="mdi:plus"></ha-icon> Add
+              </button>
+            </div>
+          `).join('');
+        }
+      } else {
+        if (statusEl) {
+          statusEl.innerHTML = `
+            <ha-icon icon="mdi:help-circle" style="font-size:48px;color:#888;"></ha-icon>
+            <p style="color:#888;margin-top:16px;">No network devices found</p>
+            <p style="font-size:12px;color:#666;">Make sure devices are powered on and on the same network</p>
+          `;
+        }
+      }
+    } catch (e) {
+      console.error('[OmniRemote] Network discovery error:', e);
+      const statusEl = this.shadowRoot.getElementById('network-scan-status');
+      if (statusEl) {
+        statusEl.innerHTML = `
+          <ha-icon icon="mdi:alert-circle" style="font-size:48px;color:#f44336;"></ha-icon>
+          <p style="color:#f44336;margin-top:16px;">Discovery failed: ${e.message}</p>
+        `;
+      }
+    }
+  }
+  
+  _getDeviceIcon(type) {
+    const icons = {
+      'roku': 'mdi:television',
+      'chromecast': 'mdi:cast',
+      'apple_tv': 'mdi:apple',
+      'fire_tv': 'mdi:fire',
+      'samsung_tv': 'mdi:television',
+      'lg_tv': 'mdi:television',
+      'sony_tv': 'mdi:television',
+      'kodi': 'mdi:kodi',
+      'plex': 'mdi:plex',
+      'sonos': 'mdi:speaker',
+      'hue': 'mdi:lightbulb',
+      'wled': 'mdi:led-strip',
+      'esphome': 'mdi:chip',
+      'tasmota': 'mdi:lightbulb-on',
+      'broadlink': 'mdi:remote',
+    };
+    return icons[type?.toLowerCase()] || 'mdi:devices';
+  }
+  
+  async _addNetworkDevice(data) {
+    const deviceType = data.deviceType;
+    const deviceIp = data.deviceIp;
+    const deviceName = data.deviceName;
+    const deviceId = data.deviceId;
+    
+    try {
+      const res = await this._api('/api/omniremote/devices', 'POST', {
+        name: deviceName,
+        category: this._mapNetworkDeviceCategory(deviceType),
+        brand: this._mapNetworkDeviceBrand(deviceType),
+        ip_address: deviceIp,
+        control_type: 'network',
+        network_device_type: deviceType,
+        network_device_id: deviceId,
+      });
+      
+      if (res.device) {
+        alert(`Added: ${res.device.name}`);
+        this._modal = null;
+        await this._loadData();
+      } else {
+        alert('Failed to add device: ' + (res.error || 'Unknown error'));
+      }
+    } catch (e) {
+      alert('Error adding device: ' + e.message);
+    }
+  }
+  
+  _mapNetworkDeviceCategory(type) {
+    const mapping = {
+      'roku': 'streaming',
+      'chromecast': 'streaming',
+      'apple_tv': 'streaming',
+      'fire_tv': 'streaming',
+      'samsung_tv': 'tv',
+      'lg_tv': 'tv',
+      'sony_tv': 'tv',
+      'kodi': 'streaming',
+      'plex': 'streaming',
+      'sonos': 'soundbar',
+      'hue': 'light',
+      'wled': 'light',
+    };
+    return mapping[type?.toLowerCase()] || 'other';
+  }
+  
+  _mapNetworkDeviceBrand(type) {
+    const mapping = {
+      'roku': 'Roku',
+      'chromecast': 'Google',
+      'apple_tv': 'Apple',
+      'fire_tv': 'Amazon',
+      'samsung_tv': 'Samsung',
+      'lg_tv': 'LG',
+      'sony_tv': 'Sony',
+      'kodi': 'Kodi',
+      'plex': 'Plex',
+      'sonos': 'Sonos',
+      'hue': 'Philips',
+      'wled': 'WLED',
+    };
+    return mapping[type?.toLowerCase()] || type;
+  }
+
   async _runScene(id) {
     console.log('[OmniRemote] Running scene:', id);
     await this._activateScene(id);
@@ -5103,7 +5271,7 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
       </div>
       <p style="color:#888;">Choose how to add a device:</p>
       <div style="display:flex;flex-direction:column;gap:12px;">
-        <button class="btn btn-s" style="justify-content:flex-start;padding:16px;" data-action="close-modal" onclick="setTimeout(() => { this.closest('omniremote-panel')._view = 'catalog'; this.closest('omniremote-panel')._render(); }, 100);">
+        <button class="btn btn-s" style="justify-content:flex-start;padding:16px;" data-action="go-to-catalog">
           <ha-icon icon="mdi:book-open-variant" style="margin-right:12px;"></ha-icon>
           <div style="text-align:left;">
             <div style="font-weight:600;">From Catalog</div>
@@ -5115,6 +5283,13 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
           <div style="text-align:left;">
             <div style="font-weight:600;">Manual Entry</div>
             <div style="font-size:12px;color:#888;">Create custom device with learned codes</div>
+          </div>
+        </button>
+        <button class="btn btn-s" style="justify-content:flex-start;padding:16px;" data-action="discover-network-devices">
+          <ha-icon icon="mdi:lan" style="margin-right:12px;"></ha-icon>
+          <div style="text-align:left;">
+            <div style="font-weight:600;">Scan Network</div>
+            <div style="font-size:12px;color:#888;">Find Roku, AppleTV, Chromecast, etc.</div>
           </div>
         </button>
         <button class="btn btn-s" style="justify-content:flex-start;padding:16px;" data-action="show-import-flipper">
@@ -6574,10 +6749,16 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
           <div class="fg">
             <label class="fl">Bluetooth Adapter</label>
             <select class="fi" id="remote-bt-adapter">
-              <optgroup label="Home Assistant">
-                <option value="ha:hci0">HA Built-in (hci0)</option>
-                <option value="ha:hci1">HA USB Dongle (hci1)</option>
-              </optgroup>
+              ${this._standalone ? `
+                <optgroup label="Local (This Pi Hub)">
+                  <option value="local:hci0" selected>Local Bluetooth (hci0)</option>
+                </optgroup>
+              ` : `
+                <optgroup label="Home Assistant">
+                  <option value="ha:hci0">HA Built-in (hci0)</option>
+                  <option value="ha:hci1">HA USB Dongle (hci1)</option>
+                </optgroup>
+              `}
               ${this._piHubs?.filter(h => h.online && h.has_bluetooth).length ? `
                 <optgroup label="Pi Zero Hubs">
                   ${this._piHubs.filter(h => h.online && h.has_bluetooth).map(h => `
@@ -6671,13 +6852,14 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
     const statusEl = this.shadowRoot.getElementById('bt-scan-status');
     const listEl = this.shadowRoot.getElementById('bt-discovered-list');
     const adapterEl = this.shadowRoot.getElementById('remote-bt-adapter');
-    const adapterValue = adapterEl?.value || 'ha:hci0';
+    const adapterValue = adapterEl?.value || (this._standalone ? 'local:hci0' : 'ha:hci0');
     
-    // Parse adapter value: "ha:hci0", "pi_hub:hub_id"
+    // Parse adapter value: "ha:hci0", "pi_hub:hub_id", "local:hci0"
     const [adapterType, adapterId] = adapterValue.split(':');
     const isPiHub = adapterType === 'pi_hub';
+    const isLocal = adapterType === 'local' || this._standalone;
     
-    if (statusEl) statusEl.innerHTML = `<ha-icon icon="mdi:loading" class="spin"></ha-icon> Scanning ${isPiHub ? 'via Pi Hub' : 'locally'}...`;
+    if (statusEl) statusEl.innerHTML = `<ha-icon icon="mdi:loading" class="spin"></ha-icon> Scanning ${isPiHub ? 'via Pi Hub' : (isLocal ? 'local Bluetooth' : 'via HA')}...`;
     if (listEl) listEl.innerHTML = '<div style="padding:20px;text-align:center;color:#888;">Scanning for Bluetooth devices...</div>';
     
     try {
@@ -6715,12 +6897,20 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
           });
         }
       } else {
-        // Local HA Bluetooth scan
+        // Local scan (standalone) or HA Bluetooth scan
         res = await this._api('/api/omniremote/bluetooth', 'POST', {
           action: 'scan',
           adapter: adapterId,
           duration: 10,
         });
+        
+        // Tag devices with adapter info
+        if (res.devices) {
+          res.devices.forEach(d => {
+            d.adapter = adapterValue;
+            d.source = isLocal ? 'local' : 'ha';
+          });
+        }
       }
       
       // Store devices for filtering (include adapter info)
