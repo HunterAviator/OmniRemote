@@ -613,7 +613,9 @@ class RemoteBridge:
         self.running = True
         
         self.log.info("=" * 50)
-        self.log.info(f"OmniRemote Pi Bridge v{VERSION}")
+        self.log.info("OmniRemote™ Pi Bridge")
+        self.log.info("──────────")
+        self.log.info(f"Version {VERSION}")
         self.log.info("© 2026 One Eye Enterprises LLC")
         self.log.info("=" * 50)
         

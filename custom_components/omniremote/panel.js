@@ -10,8 +10,8 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.46";
-const PIHUB_VERSION = "1.5.16";  // Bundled Pi Hub version
+const OMNIREMOTE_VERSION = "1.10.47";
+const PIHUB_VERSION = "1.5.17";  // Bundled Pi Hub version
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -206,10 +206,8 @@ class OmniRemotePanel extends HTMLElement {
         /* Sidebar */
         .sidebar { width:220px; background:#1a1a2e; border-right:1px solid #2a2a4a; display:flex; flex-direction:column; }
         .logo { padding:16px; font-weight:700; display:flex; align-items:center; gap:12px; border-bottom:1px solid #2a2a4a; background:linear-gradient(135deg, rgba(124,58,237,0.15), rgba(45,212,191,0.08)); }
-        .logo-icon { width:36px; height:36px; background:linear-gradient(135deg, #7C3AED, #8B5CF6); border-radius:10px; display:flex; align-items:center; justify-content:center; position:relative; }
-        .logo-icon::before { content:''; position:absolute; left:-6px; top:50%; transform:translateY(-50%); width:4px; height:16px; border-radius:2px; background:#2DD4BF; opacity:0.8; }
-        .logo-icon::after { content:''; position:absolute; right:-6px; top:50%; transform:translateY(-50%); width:4px; height:16px; border-radius:2px; background:#2DD4BF; opacity:0.8; }
-        .logo-icon ha-icon { color:#2DD4BF; }
+        .logo-icon { width:36px; height:36px; display:flex; align-items:center; justify-content:center; }
+        .logo-icon svg { display:block; }
         .logo-text { display:flex; flex-direction:column; }
         .logo-wordmark { font-size:16px; font-weight:700; color:#fff; letter-spacing:-0.3px; position:relative; display:inline-block; }
         .logo-wordmark::after { content:''; position:absolute; bottom:-3px; left:0; right:0; height:2px; background:#2DD4BF; border-radius:1px; }
@@ -340,7 +338,17 @@ class OmniRemotePanel extends HTMLElement {
         <aside class="sidebar">
           <div class="logo">
             <div class="logo-icon">
-              <ha-icon icon="mdi:remote-tv"></ha-icon>
+              <!-- Trademark logo SVG -->
+              <svg viewBox="0 0 36 36" width="36" height="36" style="border-radius:8px;">
+                <defs>
+                  <linearGradient id="omni-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#7C3AED"/>
+                    <stop offset="100%" stop-color="#2563EB"/>
+                  </linearGradient>
+                </defs>
+                <rect width="36" height="36" rx="8" fill="url(#omni-gradient)"/>
+                <path d="M18 6c-4 0-7 3-7 7v10c0 4 3 7 7 7s7-3 7-7V13c0-4-3-7-7-7zm-2.5 7a2.5 2.5 0 1 1 5 0 2.5 2.5 0 0 1-5 0zM18 27a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5zm0-7a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z" fill="#2DD4BF"/>
+              </svg>
             </div>
             <div class="logo-text">
               <span class="logo-wordmark">OmniRemote<span class="logo-tm">™</span></span>

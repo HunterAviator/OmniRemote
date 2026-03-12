@@ -20,7 +20,7 @@
 set -e
 
 # Version
-CURRENT_VERSION="1.5.15"
+CURRENT_VERSION="1.5.17"
 RELEASE_DATE="2026-03-10"
 GITHUB_REPO="omniremote/pi-zero-hub"
 GITHUB_RELEASES="https://api.github.com/repos/$GITHUB_REPO/releases/latest"
@@ -140,13 +140,11 @@ show_banner() {
     cat << 'EOF'
   ╔══════════════════════════════════════════════════════════════════╗
   ║                                                                  ║
-  ║    ___  __  __ _   _ ___ ____  _____ __  __  ___ _____ _____     ║
-  ║   / _ \|  \/  | \ | |_ _|  _ \| ____|  \/  |/ _ \_   _| ____|    ║
-  ║  | | | | |\/| |  \| || || |_) |  _| | |\/| | | | || | |  _|      ║
-  ║  | |_| | |  | | |\  || ||  _ <| |___| |  | | |_| || | | |___     ║
-  ║   \___/|_|  |_|_| \_|___|_| \_\_____|_|  |_|\___/ |_| |_____|    ║
-  ║                                                                  ║
 EOF
+    # OmniRemote with underline (trademark style)
+    echo -e "  ║       ${WHITE}${BOLD}OmniRemote${NC}${PURPLE}™                                              ║"
+    echo -e "  ║       ${GREEN}══════════${PURPLE}                                              ║"
+    echo -e "  ║                                                                  ║"
     echo -e "  ║       ${WHITE}Pi Zero W Remote Hub${PURPLE}  •  ${GREEN}v$CURRENT_VERSION${PURPLE}                       ║"
     echo -e "  ║       ${GRAY}© 2026 One Eye Enterprises LLC${PURPLE}                          ║"
     echo -e "  ╚══════════════════════════════════════════════════════════════════╝${NC}"
@@ -438,8 +436,9 @@ install_dependencies() {
     
     if [ "$ENABLE_BLUETOOTH" = "yes" ]; then
         log_info "Installing Bluetooth..."
-        run_cmd apt-get install -y bluetooth bluez python3-dbus || {
-            log_warn "Bluetooth failed"; ENABLE_BLUETOOTH="no"
+        # Use non-interactive mode and timeout to prevent hangs
+        DEBIAN_FRONTEND=noninteractive timeout 120 apt-get install -y -q bluetooth bluez python3-dbus >> "$INSTALL_LOG" 2>&1 || {
+            log_warn "Bluetooth install failed or timed out"; ENABLE_BLUETOOTH="no"
         }
         [ "$ENABLE_BLUETOOTH" = "yes" ] && log_success "Bluetooth"
     fi

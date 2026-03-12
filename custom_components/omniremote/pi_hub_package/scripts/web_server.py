@@ -34,8 +34,8 @@ import paho.mqtt.client as mqtt
 # Configuration
 #-------------------------------------------------------------------------------
 
-VERSION = "1.5.15"
-PANEL_VERSION = "1.10.45"
+VERSION = "1.5.17"
+PANEL_VERSION = "1.10.47"
 BRAND = {
     "name": "OmniRemote",
     "tagline": "One Remote to Rule Them All",
@@ -747,22 +747,25 @@ STANDALONE_HTML = '''<!DOCTYPE html>
                     display: inline-flex;
                     align-items: center;
                     justify-content: center;
-                    width: 24px;
-                    height: 24px;
+                    width: var(--mdc-icon-size, 24px);
+                    height: var(--mdc-icon-size, 24px);
                     pointer-events: none;
+                    vertical-align: middle;
                 `;
                 
                 // Create or update the inner span
                 if (!this._span) {
                     this._span = document.createElement('span');
-                    this._span.style.cssText = `
-                        font-size: 24px;
-                        line-height: 1;
-                        pointer-events: none;
-                    `;
                     this.appendChild(this._span);
                 }
                 this._span.className = `mdi ${mdiClass}`;
+                // Inherit color from parent and use variable size
+                this._span.style.cssText = `
+                    font-size: var(--mdc-icon-size, 24px);
+                    line-height: 1;
+                    pointer-events: none;
+                    color: inherit;
+                `;
             }
         }
         
@@ -1393,7 +1396,7 @@ def bluetooth_scan_sync():
 
 @app.route("/api/omniremote/bluetooth", methods=["POST"])
 def api_bluetooth():
-    """Handle Bluetooth operations (scan, pair, unpair, list_paired)."""
+    """Handle Bluetooth operations (scan, pair, unpair, list_paired, list_hid)."""
     data = request.json or {}
     action = data.get("action")
     
@@ -1411,6 +1414,8 @@ def api_bluetooth():
         return bluetooth_unpair(mac)
     elif action == "list_paired":
         return bluetooth_list_paired()
+    elif action == "list_hid":
+        return list_hid_devices()
     elif action == "trust":
         mac = data.get("mac")
         if not mac:
@@ -1419,15 +1424,58 @@ def api_bluetooth():
     else:
         return jsonify({"success": False, "error": f"Unknown action: {action}"})
 
+
+def list_hid_devices():
+    """List connected HID input devices (USB and Bluetooth remotes)."""
+    try:
+        from evdev import InputDevice, list_devices, ecodes
+        
+        devices = []
+        for path in list_devices():
+            try:
+                dev = InputDevice(path)
+                if ecodes.EV_KEY in dev.capabilities():
+                    # Determine if it's likely a remote
+                    name_lower = dev.name.lower()
+                    is_remote = any(x in name_lower for x in [
+                        'remote', 'keyboard', 'g20', 'g30', 'air', 'mouse',
+                        'hid', 'gamepad', 'controller', 'clicker', 'rii',
+                        'wechip', 'mele', 'vontar', 'h17', 'minix', 'firetv',
+                        'usb', '2.4g', 'wireless'
+                    ])
+                    
+                    # Check if it's a Bluetooth device (path contains bluetooth)
+                    is_bluetooth = 'bluetooth' in path.lower() or 'bt' in name_lower
+                    
+                    devices.append({
+                        "path": path,
+                        "name": dev.name,
+                        "phys": dev.phys,
+                        "is_remote": is_remote,
+                        "is_bluetooth": is_bluetooth,
+                        "connected": True,
+                    })
+            except Exception as e:
+                log.debug(f"Failed to read device {path}: {e}")
+        
+        log.info(f"Found {len(devices)} HID input devices")
+        return jsonify({"success": True, "devices": devices})
+        
+    except ImportError:
+        log.warning("evdev not available - cannot list HID devices")
+        return jsonify({"success": False, "error": "evdev not available", "devices": []})
+    except Exception as e:
+        log.error(f"HID device list error: {e}")
+        return jsonify({"success": False, "error": str(e), "devices": []})
 def bluetooth_scan():
     """Scan for Bluetooth devices."""
     import subprocess
     import time
     
     devices = []
-    paired_macs = set()
+    paired_devices = {}  # mac -> name
     
-    # Get currently paired devices first
+    # Get currently paired devices first (we'll ALWAYS show these)
     try:
         result = subprocess.run(
             ["bluetoothctl", "devices", "Paired"],
@@ -1436,12 +1484,25 @@ def bluetooth_scan():
         for line in result.stdout.strip().split('\n'):
             if line.startswith("Device "):
                 parts = line.split(" ", 2)
-                if len(parts) >= 2:
-                    paired_macs.add(parts[1].upper())
+                if len(parts) >= 3:
+                    mac = parts[1].upper()
+                    name = parts[2]
+                    paired_devices[mac] = name
+        log.info(f"Found {len(paired_devices)} paired Bluetooth devices")
     except Exception as e:
         log.warning(f"Failed to get paired devices: {e}")
     
-    # Start scanning
+    # Add all paired devices first (they should always be visible)
+    for mac, name in paired_devices.items():
+        devices.append({
+            "mac": mac,
+            "name": name,
+            "paired": True,
+            "source": "pi_hub",
+            "hub_id": config.get("hub_id", "local"),
+        })
+    
+    # Start scanning for additional devices
     try:
         # Power on adapter
         subprocess.run(["bluetoothctl", "power", "on"], capture_output=True, timeout=5)
@@ -1463,7 +1524,7 @@ def bluetooth_scan():
         scan_proc.terminate()
         subprocess.run(["bluetoothctl", "scan", "off"], capture_output=True, timeout=5)
         
-        # Get all devices
+        # Get all discovered devices
         result = subprocess.run(
             ["bluetoothctl", "devices"],
             capture_output=True, text=True, timeout=5
@@ -1476,28 +1537,34 @@ def bluetooth_scan():
                     mac = parts[1].upper()
                     name = parts[2]
                     
-                    # Filter for likely remotes
+                    # Skip if already in list (from paired)
+                    if mac in paired_devices:
+                        continue
+                    
+                    # Filter for likely remotes (only for non-paired devices)
                     name_lower = name.lower()
                     is_remote = any(x in name_lower for x in [
                         'remote', 'keyboard', 'g20', 'g30', 'air', 'mouse',
-                        'hid', 'gamepad', 'controller', 'clicker', 'rii'
+                        'hid', 'gamepad', 'controller', 'clicker', 'rii',
+                        'wechip', 'mele', 'vontar', 'h17', 'minix', 'firetv'
                     ])
                     
-                    if is_remote or mac in paired_macs:
+                    if is_remote:
                         devices.append({
                             "mac": mac,
                             "name": name,
-                            "paired": mac in paired_macs,
+                            "paired": False,
                             "source": "pi_hub",
                             "hub_id": config.get("hub_id", "local"),
                         })
         
-        log.info(f"Bluetooth scan found {len(devices)} devices")
+        log.info(f"Bluetooth scan found {len(devices)} devices ({len(paired_devices)} paired)")
         return jsonify({"success": True, "devices": devices})
         
     except Exception as e:
         log.error(f"Bluetooth scan error: {e}")
-        return jsonify({"success": False, "error": str(e), "devices": []})
+        # Still return paired devices even if scan failed
+        return jsonify({"success": True, "devices": devices, "scan_error": str(e)})
 
 def bluetooth_pair(mac: str):
     """Pair with a Bluetooth device."""
@@ -2558,8 +2625,9 @@ def main():
     
     log = setup_logging(config)
     log.info("=" * 60)
-    log.info(f"OmniRemote™ Standalone Web Server v{VERSION}")
-    log.info(f"Panel version: {PANEL_VERSION}")
+    log.info("OmniRemote™ Standalone Web Server")
+    log.info("──────────")
+    log.info(f"Version {VERSION} | Panel {PANEL_VERSION}")
     log.info("© 2026 One Eye Enterprises LLC")
     log.info("=" * 60)
     
