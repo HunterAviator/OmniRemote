@@ -91,6 +91,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     hass.http.register_view(OmniApiPiHubs(hass))
     hass.http.register_view(OmniApiPiHubCommand(hass))
     hass.http.register_view(OmniApiPiHubDiscover(hass))
+    hass.http.register_view(OmniApiPiHubUpdate(hass))
     hass.http.register_view(OmniApiPiHubDevices(hass))
     hass.http.register_view(OmniIconView(hass))
     hass.http.register_view(OmniLogoView(hass))
@@ -2852,6 +2853,81 @@ class OmniApiPiHubDiscover(HomeAssistantView):
             await manager._request_discovery()
             return web.json_response({"success": True, "message": "Discovery request sent"})
         except Exception as e:
+            return web.json_response({"success": False, "error": str(e)})
+
+
+class OmniApiPiHubUpdate(HomeAssistantView):
+    """API for pushing updates to Pi Hubs."""
+    
+    url = "/api/omniremote/pi_hubs/update"
+    name = "api:omniremote:pi_hubs:update"
+    requires_auth = False
+    
+    def __init__(self, hass: HomeAssistant) -> None:
+        self.hass = hass
+    
+    async def post(self, request: web.Request) -> web.Response:
+        """Push an update to a specific Pi Hub."""
+        import aiohttp
+        import base64
+        import tarfile
+        import io
+        from pathlib import Path
+        
+        data = await request.json()
+        hub_id = data.get("hub_id")
+        hub_ip = data.get("hub_ip")
+        
+        if not hub_ip:
+            return web.json_response({"success": False, "error": "hub_ip required"})
+        
+        # Get the path to our integration
+        integration_path = Path(__file__).parent
+        
+        # Create a tarball of the Pi Hub files from the pi_hub_package directory
+        pi_hub_path = integration_path / "pi_hub_package"
+        
+        if not pi_hub_path.exists():
+            _LOGGER.warning("Pi Hub package not found at %s", pi_hub_path)
+            return web.json_response({
+                "success": False, 
+                "error": "Pi Hub package not bundled with integration. Update via SSH: sudo bash /opt/omniremote/install.sh"
+            })
+        
+        try:
+            # Create in-memory tarball
+            tar_buffer = io.BytesIO()
+            with tarfile.open(fileobj=tar_buffer, mode='w:gz') as tar:
+                for file_path in pi_hub_path.rglob('*'):
+                    if file_path.is_file() and '__pycache__' not in str(file_path):
+                        arcname = file_path.relative_to(pi_hub_path)
+                        tar.add(file_path, arcname=str(arcname))
+            
+            tar_data = tar_buffer.getvalue()
+            tar_b64 = base64.b64encode(tar_data).decode('utf-8')
+            
+            _LOGGER.info("Pushing update to Pi Hub at %s (%d bytes)", hub_ip, len(tar_data))
+            
+            # Send to Pi Hub's update endpoint
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"http://{hub_ip}:8080/api/omniremote/update",
+                    json={"package_b64": tar_b64},
+                    timeout=aiohttp.ClientTimeout(total=120)
+                ) as resp:
+                    result = await resp.json()
+                    
+                    if result.get("success"):
+                        _LOGGER.info("Pi Hub %s updated successfully", hub_id)
+                        return web.json_response({"success": True, "message": "Update pushed successfully"})
+                    else:
+                        return web.json_response({"success": False, "error": result.get("error", "Unknown error")})
+        
+        except aiohttp.ClientError as e:
+            _LOGGER.error("Failed to connect to Pi Hub at %s: %s", hub_ip, e)
+            return web.json_response({"success": False, "error": f"Connection failed: {e}"})
+        except Exception as e:
+            _LOGGER.error("Update push failed: %s", e)
             return web.json_response({"success": False, "error": str(e)})
 
 
