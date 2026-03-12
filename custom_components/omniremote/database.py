@@ -159,9 +159,48 @@ class RemoteDatabase:
                 retain=True
             )
             
+            # Also publish full database sync (retained)
+            await self._publish_full_database_sync()
+            
             _LOGGER.debug("Published config to MQTT for Pi Hub sync")
         except Exception as e:
             _LOGGER.debug("Could not publish config to MQTT: %s", e)
+    
+    async def _publish_full_database_sync(self) -> None:
+        """Publish full database to MQTT for Pi Hub sync - HA is source of truth."""
+        try:
+            from homeassistant.components import mqtt
+            import json
+            from datetime import datetime
+            
+            if "mqtt" not in self.hass.config.components:
+                return
+            
+            # Build full database payload
+            sync_payload = {
+                "source": "home_assistant",
+                "timestamp": datetime.now().isoformat(),
+                "rooms": {r.id: r.to_dict() for r in self.rooms.values()},
+                "devices": {d.id: d.to_dict() for d in self.devices.values()},
+                "scenes": {s.id: s.to_dict() for s in self.scenes.values()},
+                "physical_remotes": self._data.get("physical_remotes", {}),
+                "remote_profiles": self._data.get("remote_profiles", []),
+                "remote_bridges": self._data.get("remote_bridges", {}),
+            }
+            
+            # Publish retained so Pi Hubs get it immediately on connect
+            await mqtt.async_publish(
+                self.hass,
+                "omniremote/sync/database",
+                json.dumps(sync_payload),
+                qos=1,
+                retain=True
+            )
+            
+            _LOGGER.info("Published full database sync to MQTT (%d rooms, %d devices)", 
+                        len(sync_payload["rooms"]), len(sync_payload["devices"]))
+        except Exception as e:
+            _LOGGER.warning("Could not publish full database sync: %s", e)
 
     # === Room Management ===
 

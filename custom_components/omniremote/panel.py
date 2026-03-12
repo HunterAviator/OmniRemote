@@ -2908,23 +2908,39 @@ class OmniApiPiHubUpdate(HomeAssistantView):
             
             _LOGGER.info("Pushing update to Pi Hub at %s (%d bytes)", hub_ip, len(tar_data))
             
-            # Send to Pi Hub's update endpoint
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"http://{hub_ip}:8080/api/omniremote/update",
-                    json={"package_b64": tar_b64},
-                    timeout=aiohttp.ClientTimeout(total=120)
-                ) as resp:
-                    result = await resp.json()
-                    
-                    if result.get("success"):
-                        _LOGGER.info("Pi Hub %s updated successfully", hub_id)
-                        return web.json_response({"success": True, "message": "Update pushed successfully"})
-                    else:
-                        return web.json_response({"success": False, "error": result.get("error", "Unknown error")})
+            # Send to Pi Hub's update endpoint (no SSL)
+            connector = aiohttp.TCPConnector(ssl=False)
+            async with aiohttp.ClientSession(connector=connector) as session:
+                try:
+                    async with session.post(
+                        f"http://{hub_ip}:8080/api/omniremote/update",
+                        json={"package_b64": tar_b64},
+                        timeout=aiohttp.ClientTimeout(total=120)
+                    ) as resp:
+                        result = await resp.json()
+                        
+                        if result.get("success"):
+                            _LOGGER.info("Pi Hub %s updated successfully", hub_id)
+                            return web.json_response({"success": True, "message": "Update pushed successfully"})
+                        else:
+                            return web.json_response({"success": False, "error": result.get("error", "Unknown error")})
+                except aiohttp.ClientResponseError as e:
+                    if e.status == 404:
+                        return web.json_response({
+                            "success": False, 
+                            "error": "Pi Hub doesn't have the update endpoint. Update manually first: SSH to Pi and run 'sudo bash /opt/omniremote/install.sh'"
+                        })
+                    raise
         
         except aiohttp.ClientError as e:
             _LOGGER.error("Failed to connect to Pi Hub at %s: %s", hub_ip, e)
+            # Check if it's a connection refused (Pi Hub might not be running or need manual update)
+            error_msg = str(e)
+            if "Connect call failed" in error_msg or "Connection refused" in error_msg:
+                return web.json_response({
+                    "success": False, 
+                    "error": f"Cannot connect to Pi Hub at {hub_ip}:8080. The Pi Hub may need a manual update first to get the update endpoint. SSH to Pi and run: sudo bash /opt/omniremote/install.sh"
+                })
             return web.json_response({"success": False, "error": f"Connection failed: {e}"})
         except Exception as e:
             _LOGGER.error("Update push failed: %s", e)

@@ -396,10 +396,25 @@ class MQTTClient:
             client.subscribe(f"{self.prefix}/config/physical_remotes")
             client.subscribe(f"{self.prefix}/config/rooms")
             client.subscribe(f"{self.prefix}/config/devices")
+            # Subscribe to full database sync from HA
+            client.subscribe(f"{self.prefix}/sync/database")
+            
+            # Request full sync from HA
+            self.log.info("📤 Requesting database sync from Home Assistant")
+            client.publish(f"{self.prefix}/sync/request", json.dumps({
+                "hub_id": self.cfg.get("hub_id", "standalone"),
+                "timestamp": datetime.now().isoformat()
+            }))
     
     def _on_message(self, client, userdata, msg):
         try:
             topic_parts = msg.topic.split('/')
+            
+            # Handle full database sync from HA
+            if msg.topic == f"{self.prefix}/sync/database":
+                payload = json.loads(msg.payload.decode())
+                self._handle_full_database_sync(payload)
+                return
             
             # Handle config sync from HA
             if len(topic_parts) >= 3 and topic_parts[1] == 'config':
@@ -471,6 +486,85 @@ class MQTTClient:
                     ddata["synced_from_ha"] = True
                     self.db.data["devices"][did] = ddata
                 self.db.save()
+    
+    def _handle_full_database_sync(self, payload: dict):
+        """Handle full database sync from HA - HA is the source of truth."""
+        timestamp = payload.get("timestamp", "")
+        source = payload.get("source", "unknown")
+        
+        self.log.info(f"📥 Receiving full database sync from HA (source: {source})")
+        
+        # Sync rooms - HA data replaces local
+        if "rooms" in payload:
+            rooms = payload["rooms"]
+            self.log.info(f"  • Syncing {len(rooms)} rooms")
+            # Convert list to dict if needed
+            if isinstance(rooms, list):
+                rooms = {r.get("id"): r for r in rooms if r.get("id")}
+            for rid, rdata in rooms.items():
+                rdata["synced_from_ha"] = True
+            self.db.data["rooms"] = rooms
+        
+        # Sync devices - HA data replaces local
+        if "devices" in payload:
+            devices = payload["devices"]
+            self.log.info(f"  • Syncing {len(devices)} devices")
+            if isinstance(devices, list):
+                devices = {d.get("id"): d for d in devices if d.get("id")}
+            for did, ddata in devices.items():
+                ddata["synced_from_ha"] = True
+            self.db.data["devices"] = devices
+        
+        # Sync scenes
+        if "scenes" in payload:
+            scenes = payload["scenes"]
+            self.log.info(f"  • Syncing {len(scenes)} scenes")
+            if isinstance(scenes, list):
+                scenes = {s.get("id"): s for s in scenes if s.get("id")}
+            for sid, sdata in scenes.items():
+                sdata["synced_from_ha"] = True
+            self.db.data["scenes"] = scenes
+        
+        # Sync physical remotes
+        if "physical_remotes" in payload:
+            remotes = payload["physical_remotes"]
+            self.log.info(f"  • Syncing {len(remotes)} physical remotes")
+            if isinstance(remotes, list):
+                remotes = {r.get("id"): r for r in remotes if r.get("id")}
+            for rid, rdata in remotes.items():
+                rdata["synced_from_ha"] = True
+            self.db.data["physical_remotes"] = remotes
+        
+        # Sync remote profiles
+        if "remote_profiles" in payload:
+            profiles = payload["remote_profiles"]
+            self.log.info(f"  • Syncing {len(profiles)} remote profiles")
+            if isinstance(profiles, dict):
+                profiles = list(profiles.values())
+            for p in profiles:
+                p["synced_from_ha"] = True
+            self.db.data["remote_profiles"] = profiles
+        
+        # Sync remote bridges
+        if "remote_bridges" in payload:
+            bridges = payload["remote_bridges"]
+            self.log.info(f"  • Syncing {len(bridges)} remote bridges")
+            if isinstance(bridges, list):
+                bridges = {b.get("id"): b for b in bridges if b.get("id")}
+            for bid, bdata in bridges.items():
+                bdata["synced_from_ha"] = True
+            self.db.data["remote_bridges"] = bridges
+        
+        # Track sync metadata
+        self.db.data["_sync_meta"] = {
+            "last_sync": datetime.now().isoformat(),
+            "source": source,
+            "ha_timestamp": timestamp,
+            "synced_from_ha": True
+        }
+        
+        self.db.save()
+        self.log.info(f"✅ Database sync complete - HA is now the source of truth")
     
     def publish_discover(self):
         if self.client and self.connected:
@@ -1903,13 +1997,30 @@ def api_remote_models():
 @app.route("/api/omniremote/mqtt/status", methods=["GET"])
 def api_mqtt_status():
     if not mqtt_client:
-        return jsonify({"connected": False, "broker": None})
+        return jsonify({
+            "connected": False, 
+            "broker": None,
+            "sync_status": "disconnected"
+        })
+    
+    # Get sync metadata from database
+    sync_meta = db.data.get("_sync_meta", {})
+    
+    sync_status = "local_only"
+    if mqtt_client.connected:
+        if sync_meta.get("synced_from_ha"):
+            sync_status = "synced"
+        else:
+            sync_status = "connected_awaiting_sync"
     
     return jsonify({
         "connected": mqtt_client.connected,
         "broker": mqtt_client.cfg.get("broker"),
         "port": mqtt_client.cfg.get("port", 1883),
         "username": mqtt_client.cfg.get("username", ""),
+        "sync_status": sync_status,
+        "last_sync": sync_meta.get("last_sync"),
+        "sync_source": sync_meta.get("source"),
     })
 
 @app.route("/api/omniremote/mqtt/config", methods=["POST"])

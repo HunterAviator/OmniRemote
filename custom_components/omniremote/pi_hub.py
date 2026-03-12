@@ -194,6 +194,13 @@ class PiHubManager:
                 self._handle_rooms_sync
             )
             
+            # Subscribe to sync requests from Pi Hubs
+            await mqtt.async_subscribe(
+                self.hass,
+                f"{MQTT_TOPIC_PREFIX}/sync/request",
+                self._handle_sync_request
+            )
+            
             self._subscribed = True
             _LOGGER.info("Pi Hub MQTT subscriptions active")
             
@@ -360,6 +367,43 @@ class PiHubManager:
             
         except Exception as e:
             _LOGGER.debug("Error handling button: %s", e)
+    
+    @callback
+    def _handle_sync_request(self, msg):
+        """Handle database sync request from Pi Hub."""
+        try:
+            payload = json.loads(msg.payload)
+            hub_id = payload.get("hub_id", "unknown")
+            
+            _LOGGER.info("📤 Sync request received from Pi Hub: %s", hub_id)
+            
+            # Publish full database - run async in background
+            self.hass.async_create_task(self._publish_full_sync())
+            
+        except Exception as e:
+            _LOGGER.debug("Error handling sync request: %s", e)
+    
+    async def _publish_full_sync(self):
+        """Publish full database sync to MQTT."""
+        try:
+            from .const import DOMAIN
+            
+            # Get the database
+            db = None
+            if DOMAIN in self.hass.data:
+                for entry_data in self.hass.data[DOMAIN].values():
+                    if isinstance(entry_data, dict) and "database" in entry_data:
+                        db = entry_data.get("database")
+                        break
+            
+            if db:
+                await db._publish_full_database_sync()
+                _LOGGER.info("✅ Full database sync published to MQTT")
+            else:
+                _LOGGER.warning("Could not find database for sync")
+                
+        except Exception as e:
+            _LOGGER.error("Error publishing sync: %s", e)
     
     async def _cleanup_stale_hubs(self, now=None):
         """Mark hubs as offline if not seen recently."""
