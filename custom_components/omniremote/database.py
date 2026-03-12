@@ -119,6 +119,49 @@ class RemoteDatabase:
             "remote_profiles": {p.id: p.to_dict() for p in self.remote_profiles.values()},
         }
         await self.store.async_save(data)
+        
+        # Publish config to MQTT for Pi Hub sync
+        await self._publish_config_to_mqtt(data)
+    
+    async def _publish_config_to_mqtt(self, data: dict) -> None:
+        """Publish configuration to MQTT for Pi Hub standalone sync."""
+        try:
+            from homeassistant.components import mqtt
+            import json
+            
+            if "mqtt" not in self.hass.config.components:
+                return
+            
+            # Publish physical remotes config (retained so Pi Hubs get it on connect)
+            await mqtt.async_publish(
+                self.hass,
+                "omniremote/config/physical_remotes",
+                json.dumps({"remotes": data.get("physical_remotes", {})}),
+                qos=1,
+                retain=True
+            )
+            
+            # Publish rooms config
+            await mqtt.async_publish(
+                self.hass,
+                "omniremote/config/rooms",
+                json.dumps({"rooms": data.get("rooms", {})}),
+                qos=1,
+                retain=True
+            )
+            
+            # Publish devices config
+            await mqtt.async_publish(
+                self.hass,
+                "omniremote/config/devices",
+                json.dumps({"devices": data.get("devices", {})}),
+                qos=1,
+                retain=True
+            )
+            
+            _LOGGER.debug("Published config to MQTT for Pi Hub sync")
+        except Exception as e:
+            _LOGGER.debug("Could not publish config to MQTT: %s", e)
 
     # === Room Management ===
 

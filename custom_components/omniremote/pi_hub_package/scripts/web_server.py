@@ -34,8 +34,8 @@ import paho.mqtt.client as mqtt
 # Configuration
 #-------------------------------------------------------------------------------
 
-VERSION = "1.5.13"
-PANEL_VERSION = "1.10.43"
+VERSION = "1.5.14"
+PANEL_VERSION = "1.10.44"
 BRAND = {
     "name": "OmniRemote",
     "tagline": "One Remote to Rule Them All",
@@ -115,16 +115,30 @@ class Database:
     
     # Rooms
     def get_rooms(self) -> List[dict]:
-        return self.data.get("rooms", [])
+        rooms = self.data.get("rooms", [])
+        # Handle both dict (from HA sync) and list (local) format
+        if isinstance(rooms, dict):
+            return list(rooms.values())
+        return rooms
     
     def get_room(self, room_id: str) -> Optional[dict]:
-        return next((r for r in self.get_rooms() if r.get("id") == room_id), None)
+        rooms = self.data.get("rooms", [])
+        # Handle dict format
+        if isinstance(rooms, dict):
+            return rooms.get(room_id)
+        return next((r for r in rooms if r.get("id") == room_id), None)
     
     def add_room(self, room: dict) -> dict:
         if "id" not in room:
             room["id"] = self._generate_id("room")
         room["created"] = datetime.now().isoformat()
-        self.data.setdefault("rooms", []).append(room)
+        
+        # Handle both dict and list storage formats
+        rooms = self.data.get("rooms", [])
+        if isinstance(rooms, dict):
+            rooms[room["id"]] = room
+        else:
+            self.data.setdefault("rooms", []).append(room)
         self.save()
         self.log.info(f"Added room: {room.get('name')}")
         return room
@@ -134,31 +148,55 @@ class Database:
         if room:
             room.update(updates)
             room["updated"] = datetime.now().isoformat()
+            # If stored as dict, update in place
+            rooms = self.data.get("rooms", [])
+            if isinstance(rooms, dict):
+                rooms[room_id] = room
             self.save()
             return room
         return None
     
     def delete_room(self, room_id: str) -> bool:
         rooms = self.data.get("rooms", [])
-        for i, r in enumerate(rooms):
-            if r.get("id") == room_id:
-                del rooms[i]
+        if isinstance(rooms, dict):
+            if room_id in rooms:
+                del rooms[room_id]
                 self.save()
                 return True
+        else:
+            for i, r in enumerate(rooms):
+                if r.get("id") == room_id:
+                    del rooms[i]
+                    self.save()
+                    return True
         return False
     
     # Devices
     def get_devices(self) -> List[dict]:
-        return self.data.get("devices", [])
+        devices = self.data.get("devices", [])
+        # Handle both dict (from HA sync) and list (local) format
+        if isinstance(devices, dict):
+            return list(devices.values())
+        return devices
     
     def get_device(self, device_id: str) -> Optional[dict]:
-        return next((d for d in self.get_devices() if d.get("id") == device_id), None)
+        devices = self.data.get("devices", [])
+        # Handle dict format
+        if isinstance(devices, dict):
+            return devices.get(device_id)
+        return next((d for d in devices if d.get("id") == device_id), None)
     
     def add_device(self, device: dict) -> dict:
         if "id" not in device:
             device["id"] = self._generate_id("dev")
         device["created"] = datetime.now().isoformat()
-        self.data.setdefault("devices", []).append(device)
+        
+        # Handle both dict and list storage formats
+        devices = self.data.get("devices", [])
+        if isinstance(devices, dict):
+            devices[device["id"]] = device
+        else:
+            self.data.setdefault("devices", []).append(device)
         self.save()
         self.log.info(f"Added device: {device.get('name')}")
         return device
@@ -271,11 +309,19 @@ class Database:
     
     # Physical Remotes
     def get_physical_remotes(self) -> List[dict]:
-        return self.data.get("physical_remotes", [])
+        remotes = self.data.get("physical_remotes", [])
+        # Handle both dict (from HA sync) and list (legacy) format
+        if isinstance(remotes, dict):
+            return list(remotes.values())
+        return remotes
     
     # Remote Bridges
     def get_remote_bridges(self) -> List[dict]:
-        return self.data.get("remote_bridges", [])
+        bridges = self.data.get("remote_bridges", [])
+        # Handle both dict and list format
+        if isinstance(bridges, dict):
+            return list(bridges.values())
+        return bridges
 
 #-------------------------------------------------------------------------------
 # MQTT Client
@@ -346,10 +392,22 @@ class MQTTClient:
             client.subscribe(f"{self.prefix}/hub/+/status")
             client.subscribe(f"{self.prefix}/hub/+/devices")
             client.subscribe(f"{self.prefix}/physical_remote")
+            # Subscribe to config sync from HA
+            client.subscribe(f"{self.prefix}/config/physical_remotes")
+            client.subscribe(f"{self.prefix}/config/rooms")
+            client.subscribe(f"{self.prefix}/config/devices")
     
     def _on_message(self, client, userdata, msg):
         try:
             topic_parts = msg.topic.split('/')
+            
+            # Handle config sync from HA
+            if len(topic_parts) >= 3 and topic_parts[1] == 'config':
+                config_type = topic_parts[2]
+                payload = json.loads(msg.payload.decode())
+                self._handle_config_sync(config_type, payload)
+                return
+            
             if len(topic_parts) >= 4 and topic_parts[1] == 'hub':
                 hub_id = topic_parts[2]
                 msg_type = topic_parts[3]
@@ -370,6 +428,49 @@ class MQTTClient:
                         self.pi_hubs[hub_id]["devices"] = payload
         except Exception as e:
             self.log.error(f"MQTT message error: {e}")
+    
+    def _handle_config_sync(self, config_type: str, payload: dict):
+        """Handle config sync messages from HA."""
+        if config_type == 'physical_remotes':
+            remotes = payload.get("remotes", {})
+            if remotes:
+                self.log.info(f"📥 Syncing {len(remotes)} physical remotes from HA")
+                if "physical_remotes" not in self.db.data:
+                    self.db.data["physical_remotes"] = {}
+                # Convert to dict format if needed
+                if isinstance(self.db.data["physical_remotes"], list):
+                    self.db.data["physical_remotes"] = {}
+                for rid, rdata in remotes.items():
+                    rdata["synced_from_ha"] = True
+                    self.db.data["physical_remotes"][rid] = rdata
+                self.db.save()
+        
+        elif config_type == 'rooms':
+            rooms = payload.get("rooms", {})
+            if rooms:
+                self.log.info(f"📥 Syncing {len(rooms)} rooms from HA")
+                if "rooms" not in self.db.data:
+                    self.db.data["rooms"] = {}
+                if isinstance(self.db.data["rooms"], list):
+                    # Convert list to dict
+                    self.db.data["rooms"] = {r.get("id"): r for r in self.db.data["rooms"] if r.get("id")}
+                for rid, rdata in rooms.items():
+                    rdata["synced_from_ha"] = True
+                    self.db.data["rooms"][rid] = rdata
+                self.db.save()
+        
+        elif config_type == 'devices':
+            devices = payload.get("devices", {})
+            if devices:
+                self.log.info(f"📥 Syncing {len(devices)} devices from HA")
+                if "devices" not in self.db.data:
+                    self.db.data["devices"] = {}
+                if isinstance(self.db.data["devices"], list):
+                    self.db.data["devices"] = {d.get("id"): d for d in self.db.data["devices"] if d.get("id")}
+                for did, ddata in devices.items():
+                    ddata["synced_from_ha"] = True
+                    self.db.data["devices"][did] = ddata
+                self.db.save()
     
     def publish_discover(self):
         if self.client and self.connected:

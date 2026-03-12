@@ -182,6 +182,18 @@ class PiHubManager:
                 self._handle_remote_button
             )
             
+            # Subscribe to config sync from HA (for standalone Pi Hubs)
+            await mqtt.async_subscribe(
+                self.hass,
+                f"{MQTT_TOPIC_PREFIX}/config/physical_remotes",
+                self._handle_config_sync
+            )
+            await mqtt.async_subscribe(
+                self.hass,
+                f"{MQTT_TOPIC_PREFIX}/config/rooms",
+                self._handle_rooms_sync
+            )
+            
             self._subscribed = True
             _LOGGER.info("Pi Hub MQTT subscriptions active")
             

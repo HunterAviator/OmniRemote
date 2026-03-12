@@ -30,7 +30,7 @@ try:
 except ImportError:
     EVDEV_AVAILABLE = False
 
-VERSION = "1.5.13"
+VERSION = "1.5.14"
 
 KEY_MAP = {
     116: "power", 142: "sleep", 143: "wakeup",
@@ -173,9 +173,111 @@ class RemoteBridge:
             elif msg.topic == f"{prefix}/hub/{self.hub_id}/ir/send":
                 payload = json.loads(msg.payload.decode())
                 self._handle_ir_send(payload)
+            
+            elif msg.topic == f"{prefix}/hub/discover":
+                # Re-announce ourselves
+                self._publish_discovery()
+            
+            # Config sync from HA
+            elif msg.topic == f"{prefix}/config/physical_remotes":
+                payload = json.loads(msg.payload.decode())
+                self._sync_physical_remotes(payload)
+            
+            elif msg.topic == f"{prefix}/config/rooms":
+                payload = json.loads(msg.payload.decode())
+                self._sync_rooms(payload)
+            
+            elif msg.topic == f"{prefix}/config/devices":
+                payload = json.loads(msg.payload.decode())
+                self._sync_devices(payload)
                 
         except Exception as e:
             self.log.error(f"Message handling error: {e}")
+    
+    def _sync_physical_remotes(self, payload: dict):
+        """Sync physical remotes config from HA."""
+        remotes = payload.get("remotes", {})
+        if not remotes:
+            return
+        
+        self.log.info(f"📥 Syncing {len(remotes)} physical remotes from HA")
+        
+        # Load current database
+        db_path = Path("/etc/omniremote/database.json")
+        db = {}
+        if db_path.exists():
+            try:
+                db = json.loads(db_path.read_text())
+            except:
+                db = {}
+        
+        # Update physical remotes (merge, don't replace)
+        if "physical_remotes" not in db:
+            db["physical_remotes"] = {}
+        
+        for remote_id, remote_data in remotes.items():
+            # Mark as synced from HA
+            remote_data["synced_from_ha"] = True
+            db["physical_remotes"][remote_id] = remote_data
+        
+        # Save
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        db_path.write_text(json.dumps(db, indent=2))
+        self.log.info(f"✓ Physical remotes synced")
+    
+    def _sync_rooms(self, payload: dict):
+        """Sync rooms config from HA."""
+        rooms = payload.get("rooms", {})
+        if not rooms:
+            return
+        
+        self.log.info(f"📥 Syncing {len(rooms)} rooms from HA")
+        
+        db_path = Path("/etc/omniremote/database.json")
+        db = {}
+        if db_path.exists():
+            try:
+                db = json.loads(db_path.read_text())
+            except:
+                db = {}
+        
+        if "rooms" not in db:
+            db["rooms"] = {}
+        
+        for room_id, room_data in rooms.items():
+            room_data["synced_from_ha"] = True
+            db["rooms"][room_id] = room_data
+        
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        db_path.write_text(json.dumps(db, indent=2))
+        self.log.info(f"✓ Rooms synced")
+    
+    def _sync_devices(self, payload: dict):
+        """Sync devices config from HA."""
+        devices = payload.get("devices", {})
+        if not devices:
+            return
+        
+        self.log.info(f"📥 Syncing {len(devices)} devices from HA")
+        
+        db_path = Path("/etc/omniremote/database.json")
+        db = {}
+        if db_path.exists():
+            try:
+                db = json.loads(db_path.read_text())
+            except:
+                db = {}
+        
+        if "devices" not in db:
+            db["devices"] = {}
+        
+        for device_id, device_data in devices.items():
+            device_data["synced_from_ha"] = True
+            db["devices"][device_id] = device_data
+        
+        db_path.parent.mkdir(parents=True, exist_ok=True)
+        db_path.write_text(json.dumps(db, indent=2))
+        self.log.info(f"✓ Devices synced")
     
     def _handle_ir_send(self, payload: dict):
         """Handle IR send request from Home Assistant."""
@@ -366,6 +468,11 @@ class RemoteBridge:
             client.subscribe(f"{prefix}/hub/{self.hub_id}/command")
             client.subscribe(f"{prefix}/hub/{self.hub_id}/ir/send")  # IR send commands
             client.subscribe(f"{prefix}/hub/discover")  # Discovery request
+            
+            # Subscribe to config sync from HA (retained messages)
+            client.subscribe(f"{prefix}/config/physical_remotes")
+            client.subscribe(f"{prefix}/config/rooms")
+            client.subscribe(f"{prefix}/config/devices")
             
             # Publish discovery info
             self._publish_discovery()
