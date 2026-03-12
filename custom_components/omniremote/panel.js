@@ -10,7 +10,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.38";
+const OMNIREMOTE_VERSION = "1.10.39";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -528,6 +528,11 @@ class OmniRemotePanel extends HTMLElement {
     if (this._view === 'debugger') {
       this._setupDebuggerInputs();
     }
+    
+    // System status refresh for standalone settings
+    if (this._view === 'settings' && this._standalone) {
+      this._refreshSystemStatus();
+    }
   }
 
   async _handleAction(action, data) {
@@ -966,8 +971,95 @@ class OmniRemotePanel extends HTMLElement {
         console.log('[OmniRemote] discover-hubs case matched!');
         await this._discoverPiHubs();
         break;
+      
+      // System control actions (standalone mode)
+      case 'system-refresh-status':
+        await this._refreshSystemStatus();
+        break;
+      case 'system-enable-ssh':
+        await this._systemAction('enable_ssh', 'Enabling SSH...');
+        break;
+      case 'system-restart-services':
+        await this._systemAction('restart_services', 'Restarting services...');
+        break;
+      case 'system-reboot':
+        if (confirm('Are you sure you want to reboot the Pi Hub?')) {
+          await this._systemAction('reboot', 'Rebooting...');
+        }
+        break;
+      case 'system-safe-mode':
+        if (confirm('SAFE MODE REBOOT\\n\\nThis will:\\n• Disable the web server\\n• Reboot the Pi\\n• SSH will still work\\n\\nTo restore web access later:\\n1. SSH into the Pi\\n2. Edit /etc/omniremote/config.yaml\\n3. Set web_server.enabled: true\\n4. Reboot\\n\\nContinue?')) {
+          await this._systemAction('safe_mode', 'Entering safe mode...');
+        }
+        break;
+      case 'system-shutdown':
+        if (confirm('Are you sure you want to shut down the Pi Hub? You will need physical access to turn it back on.')) {
+          await this._systemAction('shutdown', 'Shutting down...');
+        }
+        break;
+      
       default:
         console.log('[OmniRemote] Unhandled action:', action);
+    }
+  }
+  
+  async _refreshSystemStatus() {
+    try {
+      const res = await this._api('/api/omniremote/system');
+      
+      const hostnameEl = this.shadowRoot.getElementById('sys-hostname');
+      const ipEl = this.shadowRoot.getElementById('sys-ip');
+      const uptimeEl = this.shadowRoot.getElementById('sys-uptime');
+      const sshEl = this.shadowRoot.getElementById('sys-ssh');
+      
+      if (hostnameEl) hostnameEl.textContent = res.hostname || 'unknown';
+      if (ipEl) ipEl.textContent = res.ip || 'unknown';
+      if (uptimeEl) uptimeEl.textContent = res.uptime || 'unknown';
+      if (sshEl) {
+        sshEl.innerHTML = res.ssh_enabled ? 
+          '<span style="color:#4caf50;">● Enabled</span>' : 
+          '<span style="color:#f44336;">● Disabled</span>';
+      }
+    } catch (e) {
+      console.error('[OmniRemote] System status error:', e);
+    }
+  }
+  
+  async _systemAction(action, message) {
+    const statusEl = this.shadowRoot.getElementById('system-status');
+    if (statusEl) statusEl.innerHTML = `<ha-icon icon="mdi:loading" class="spin"></ha-icon> ${message}`;
+    
+    try {
+      const res = await this._api('/api/omniremote/system', 'POST', { action });
+      
+      if (res.success) {
+        if (statusEl) statusEl.innerHTML = `<span style="color:#4caf50;">✓ ${res.message || 'Done'}</span>`;
+        
+        // Refresh status after certain actions
+        if (action === 'enable_ssh' || action === 'restart_services') {
+          setTimeout(() => this._refreshSystemStatus(), 2000);
+        }
+        
+        // Show countdown for reboot/shutdown
+        if (action === 'reboot' || action === 'safe_mode' || action === 'shutdown') {
+          if (statusEl) {
+            let countdown = 5;
+            const interval = setInterval(() => {
+              statusEl.innerHTML = `<span style="color:#ff9800;">System will be unreachable in ${countdown}s...</span>`;
+              countdown--;
+              if (countdown < 0) {
+                clearInterval(interval);
+                statusEl.innerHTML = '<span style="color:#888;">System offline</span>';
+              }
+            }, 1000);
+          }
+        }
+      } else {
+        if (statusEl) statusEl.innerHTML = `<span style="color:#f44336;">✗ ${res.error || 'Failed'}</span>`;
+      }
+    } catch (e) {
+      console.error('[OmniRemote] System action error:', e);
+      if (statusEl) statusEl.innerHTML = `<span style="color:#f44336;">✗ ${e.message}</span>`;
     }
   }
 
@@ -2128,8 +2220,68 @@ class OmniRemotePanel extends HTMLElement {
       </div>
     `;
     
+    // System controls card - standalone mode only
+    const systemControlsCard = `
+      <div class="card" style="margin-bottom:24px;border-color:#ff9800;">
+        <h3 style="margin:0 0 16px 0;display:flex;align-items:center;gap:10px;">
+          <ha-icon icon="mdi:cog" style="color:#ff9800;"></ha-icon>
+          System Controls
+          <span id="system-status" style="margin-left:auto;font-size:12px;color:#888;"></span>
+        </h3>
+        
+        <div id="system-info" style="background:#252545;border-radius:8px;padding:12px;margin-bottom:16px;">
+          <div style="display:grid;grid-template-columns:100px 1fr;gap:6px;font-size:13px;">
+            <span style="color:#888;">Hostname:</span>
+            <span id="sys-hostname">Loading...</span>
+            <span style="color:#888;">IP Address:</span>
+            <span id="sys-ip">Loading...</span>
+            <span style="color:#888;">Uptime:</span>
+            <span id="sys-uptime">Loading...</span>
+            <span style="color:#888;">SSH:</span>
+            <span id="sys-ssh">Loading...</span>
+          </div>
+        </div>
+        
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;">
+          <button class="btn" data-action="system-enable-ssh" title="Enable SSH access">
+            <ha-icon icon="mdi:console"></ha-icon> Enable SSH
+          </button>
+          <button class="btn" data-action="system-restart-services" title="Restart OmniRemote services">
+            <ha-icon icon="mdi:restart"></ha-icon> Restart Services
+          </button>
+          <button class="btn" data-action="system-refresh-status" title="Refresh system status">
+            <ha-icon icon="mdi:refresh"></ha-icon> Refresh
+          </button>
+        </div>
+        
+        <div style="border-top:1px solid #333;padding-top:16px;margin-top:8px;">
+          <h4 style="margin:0 0 12px 0;color:#ff9800;font-size:14px;">
+            <ha-icon icon="mdi:alert" style="font-size:16px;"></ha-icon> Power Controls
+          </h4>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;">
+            <button class="btn" data-action="system-reboot" style="border-color:#ff9800;color:#ff9800;">
+              <ha-icon icon="mdi:restart"></ha-icon> Reboot
+            </button>
+            <button class="btn" data-action="system-safe-mode" style="border-color:#f44336;color:#f44336;" title="Reboot with web server disabled - use when locked out of SSH">
+              <ha-icon icon="mdi:shield-alert"></ha-icon> Safe Mode Reboot
+            </button>
+            <button class="btn" data-action="system-shutdown" style="border-color:#888;color:#888;">
+              <ha-icon icon="mdi:power"></ha-icon> Shutdown
+            </button>
+          </div>
+          <p style="margin:12px 0 0;font-size:11px;color:#888;">
+            <strong>Safe Mode:</strong> Reboots with web server disabled. SSH will still work. 
+            To restore, SSH in and edit <code>/etc/omniremote/config.yaml</code> → set <code>web_server.enabled: true</code>
+          </p>
+        </div>
+      </div>
+    `;
+    
     return `
       <div style="max-width:800px;">
+        <!-- System Controls - Standalone mode only -->
+        ${this._standalone ? systemControlsCard : ''}
+        
         <!-- MQTT Config - Show different UI based on standalone mode -->
         ${this._standalone ? standaloneMqttCard : `
         <!-- MQTT Status (HA mode) -->
