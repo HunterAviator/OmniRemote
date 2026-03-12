@@ -40,7 +40,7 @@ async def async_register_panel(hass: HomeAssistant) -> None:
     # Generate a unique cache-buster based on version AND a hash of panel.js
     panel_path = Path(__file__).parent / "panel.js"
     if panel_path.exists():
-        content = panel_path.read_bytes()
+        content = await hass.async_add_executor_job(panel_path.read_bytes)
         content_hash = hashlib.md5(content).hexdigest()[:8]
     else:
         content_hash = str(int(time.time()))
@@ -2873,13 +2873,25 @@ class OmniApiPiHubUpdate(HomeAssistantView):
         import tarfile
         import io
         from pathlib import Path
+        from urllib.parse import urlparse
         
         data = await request.json()
         hub_id = data.get("hub_id")
         hub_ip = data.get("hub_ip")
+        web_ui = data.get("web_ui", "")
         
         if not hub_ip:
             return web.json_response({"success": False, "error": "hub_ip required"})
+        
+        # Extract port from web_ui if available
+        target_port = 8125  # Default to HTTPS port
+        if web_ui:
+            try:
+                parsed = urlparse(web_ui)
+                if parsed.port:
+                    target_port = parsed.port
+            except:
+                pass
         
         # Get the path to our integration
         integration_path = Path(__file__).parent
@@ -2895,27 +2907,41 @@ class OmniApiPiHubUpdate(HomeAssistantView):
             })
         
         try:
-            # Create in-memory tarball
-            tar_buffer = io.BytesIO()
-            with tarfile.open(fileobj=tar_buffer, mode='w:gz') as tar:
-                for file_path in pi_hub_path.rglob('*'):
-                    if file_path.is_file() and '__pycache__' not in str(file_path):
-                        arcname = file_path.relative_to(pi_hub_path)
-                        tar.add(file_path, arcname=str(arcname))
+            # Create tarball in executor to avoid blocking event loop
+            def create_tarball():
+                tar_buffer = io.BytesIO()
+                with tarfile.open(fileobj=tar_buffer, mode='w:gz') as tar:
+                    for file_path in pi_hub_path.rglob('*'):
+                        if file_path.is_file() and '__pycache__' not in str(file_path):
+                            arcname = file_path.relative_to(pi_hub_path)
+                            tar.add(file_path, arcname=str(arcname))
+                return tar_buffer.getvalue()
             
-            tar_data = tar_buffer.getvalue()
+            import asyncio
+            tar_data = await asyncio.get_event_loop().run_in_executor(None, create_tarball)
             tar_b64 = base64.b64encode(tar_data).decode('utf-8')
             
-            _LOGGER.info("Pushing update to Pi Hub at %s (%d bytes)", hub_ip, len(tar_data))
+            _LOGGER.info("Pushing update to Pi Hub at %s:%d (%d bytes)", hub_ip, target_port, len(tar_data))
             
             # Try HTTPS first (Pi Hub uses self-signed cert), fall back to HTTP
             # Skip SSL verification for self-signed certs
             connector = aiohttp.TCPConnector(ssl=False)
             async with aiohttp.ClientSession(connector=connector) as session:
-                # Try HTTPS first
-                for protocol in ["https", "http"]:
+                # Try common port combinations: target_port with HTTPS/HTTP, then fallback ports
+                port_attempts = [
+                    ("https", target_port),
+                    ("http", target_port),
+                    ("https", 8125),
+                    ("http", 8080),
+                ]
+                # Remove duplicates while preserving order
+                seen = set()
+                port_attempts = [x for x in port_attempts if not (x in seen or seen.add(x))]
+                
+                last_error = None
+                for protocol, port in port_attempts:
                     try:
-                        url = f"{protocol}://{hub_ip}:8080/api/omniremote/update"
+                        url = f"{protocol}://{hub_ip}:{port}/api/omniremote/update"
                         _LOGGER.debug("Trying %s", url)
                         async with session.post(
                             url,
@@ -2925,7 +2951,7 @@ class OmniApiPiHubUpdate(HomeAssistantView):
                             result = await resp.json()
                             
                             if result.get("success"):
-                                _LOGGER.info("Pi Hub %s updated successfully via %s", hub_id, protocol.upper())
+                                _LOGGER.info("Pi Hub %s updated successfully via %s:%d", hub_id, protocol.upper(), port)
                                 return web.json_response({"success": True, "message": "Update pushed successfully"})
                             else:
                                 return web.json_response({"success": False, "error": result.get("error", "Unknown error")})
@@ -2935,13 +2961,15 @@ class OmniApiPiHubUpdate(HomeAssistantView):
                                 "success": False, 
                                 "error": "Pi Hub doesn't have the update endpoint. Update manually first: SSH to Pi and run 'sudo bash /opt/omniremote/install.sh'"
                             })
-                        if protocol == "http":  # Only raise on last attempt
-                            raise
-                        continue  # Try HTTP next
-                    except aiohttp.ClientError:
-                        if protocol == "http":  # Only raise on last attempt
-                            raise
-                        continue  # Try HTTP next
+                        last_error = e
+                        continue  # Try next port
+                    except aiohttp.ClientError as e:
+                        last_error = e
+                        continue  # Try next port
+                
+                # All attempts failed
+                if last_error:
+                    raise last_error
         
         except aiohttp.ClientError as e:
             _LOGGER.error("Failed to connect to Pi Hub at %s: %s", hub_ip, e)
@@ -2950,7 +2978,7 @@ class OmniApiPiHubUpdate(HomeAssistantView):
             if "Connect call failed" in error_msg or "Connection refused" in error_msg:
                 return web.json_response({
                     "success": False, 
-                    "error": f"Cannot connect to Pi Hub at {hub_ip}:8080. The Pi Hub may need a manual update first to get the update endpoint. SSH to Pi and run: sudo bash /opt/omniremote/install.sh"
+                    "error": f"Cannot connect to Pi Hub at {hub_ip}. Tried ports 8125 (HTTPS) and 8080 (HTTP). The Pi Hub may need a manual update first. SSH to Pi and run: sudo bash /opt/omniremote/install.sh"
                 })
             return web.json_response({"success": False, "error": f"Connection failed: {e}"})
         except Exception as e:

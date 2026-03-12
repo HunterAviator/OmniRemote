@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 100">
+  <defs>
+    <linearGradient id="text-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#e0e0e0"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="500" height="100" fill="#0f172a"/>
+  
+  <!-- Wordmark -->
+  <text x="20" y="45" font-family="system-ui, -apple-system, sans-serif" font-size="36" font-weight="700" fill="url(#text-gradient)">
+    OmniRemote
+  </text>
+  
+  <!-- Trademark symbol -->
+  <text x="250" y="22" font-family="system-ui, -apple-system, sans-serif" font-size="12" fill="#888">™</text>
+  
+  <!-- Underline -->
+  <rect x="20" y="52" width="230" height="2.5" rx="1" fill="#2DD4BF"/>
+  
+  <!-- Tagline -->
+  <text x="20" y="80" font-family="system-ui, -apple-system, sans-serif" font-size="16" fill="#9CA3AF">
+    Universal Remote Control for Home Assistant
+  </text>
+</svg>

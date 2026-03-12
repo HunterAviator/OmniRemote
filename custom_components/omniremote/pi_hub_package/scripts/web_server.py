@@ -34,8 +34,8 @@ import paho.mqtt.client as mqtt
 # Configuration
 #-------------------------------------------------------------------------------
 
-VERSION = "1.5.17"
-PANEL_VERSION = "1.10.47"
+VERSION = "1.5.18"
+PANEL_VERSION = "1.10.48"
 BRAND = {
     "name": "OmniRemote",
     "tagline": "One Remote to Rule Them All",
@@ -2381,7 +2381,14 @@ def api_pi_hubs():
     
     # Always include THIS Pi Hub (local)
     local_ip = get_local_ip()
-    web_port = config.get("web_server", {}).get("port", 8080)
+    web_cfg = config.get("web_server", {})
+    web_port = web_cfg.get("port", 8125)  # Default to 8125 (HTTPS)
+    
+    # Determine protocol - SSL is enabled by default
+    ssl_cfg = web_cfg.get("ssl", {})
+    ssl_enabled = ssl_cfg.get("enabled", True)
+    protocol = "https" if ssl_enabled else "http"
+    
     hub_id = config.get("hub_id", get_hub_id())
     hub_name = config.get("hub_name", config.get("name", "Pi Hub (Local)"))
     
@@ -2409,7 +2416,7 @@ def api_pi_hubs():
         "bluetooth_status": bt_status,
         "has_usb": True,
         "has_ir": config.get("ir_blaster", {}).get("enabled", False),
-        "web_ui": f"http://{local_ip}:{web_port}",
+        "web_ui": f"{protocol}://{local_ip}:{web_port}",
         "web_port": web_port,
         "version": VERSION,
         "capabilities": {
@@ -2642,7 +2649,7 @@ def main():
     # Start web server
     web = config.get("web_server", {})
     host = web.get("host", "0.0.0.0")
-    port = int(web.get("port", 8080))
+    port = int(web.get("port", 8125))
     
     if panel_js_path and panel_js_path.exists():
         log.info(f"Panel.js: {panel_js_path}")

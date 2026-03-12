@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 80">
+  <defs>
+    <linearGradient id="text-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#e0e0e0"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Background (transparent or dark) -->
+  <rect width="400" height="80" fill="#0f172a"/>
+  
+  <!-- Wordmark -->
+  <text x="20" y="48" font-family="system-ui, -apple-system, sans-serif" font-size="42" font-weight="700" fill="url(#text-gradient)">
+    OmniRemote
+  </text>
+  
+  <!-- Trademark symbol -->
+  <text x="292" y="26" font-family="system-ui, -apple-system, sans-serif" font-size="14" fill="#888">™</text>
+  
+  <!-- Underline -->
+  <rect x="20" y="56" width="270" height="3" rx="1.5" fill="#2DD4BF"/>
+</svg>

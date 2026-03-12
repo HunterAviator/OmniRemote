@@ -10,8 +10,8 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.47";
-const PIHUB_VERSION = "1.5.17";  // Bundled Pi Hub version
+const OMNIREMOTE_VERSION = "1.10.48";
+const PIHUB_VERSION = "1.5.18";  // Bundled Pi Hub version
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -998,10 +998,10 @@ class OmniRemotePanel extends HTMLElement {
         break;
       
       case 'update-pi-hub':
-        await this._updatePiHub(data.hubId, data.hubIp);
+        await this._updatePiHub(data.hubId, data.hubIp, data.hubWebUi);
         break;
       case 'restart-pi-hub':
-        await this._restartPiHub(data.hubId, data.hubIp);
+        await this._restartPiHub(data.hubId, data.hubIp, data.hubWebUi);
         break;
       
       // System control actions (standalone mode)
@@ -1175,8 +1175,8 @@ class OmniRemotePanel extends HTMLElement {
     return 0;
   }
   
-  async _updatePiHub(hubId, hubIp) {
-    console.log(`[OmniRemote] Updating Pi Hub ${hubId} at ${hubIp}`);
+  async _updatePiHub(hubId, hubIp, webUi) {
+    console.log(`[OmniRemote] Updating Pi Hub ${hubId} at ${hubIp} (web_ui: ${webUi})`);
     
     // Show progress modal
     this._modal = `
@@ -1195,6 +1195,7 @@ class OmniRemotePanel extends HTMLElement {
       const res = await this._api('/api/omniremote/pi_hubs/update', 'POST', {
         hub_id: hubId,
         hub_ip: hubIp,
+        web_ui: webUi || '',
       });
       
       const statusEl = this.shadowRoot.getElementById('update-status');
@@ -1235,34 +1236,52 @@ class OmniRemotePanel extends HTMLElement {
     }
   }
   
-  async _fetchPiHub(hubIp, endpoint, options = {}) {
-    // Try HTTPS first (Pi Hub uses self-signed cert), fall back to HTTP
-    for (const protocol of ['https', 'http']) {
+  async _fetchPiHub(hubIp, endpoint, options = {}, webUi = null) {
+    // If webUi is provided, use it directly
+    if (webUi) {
       try {
-        const url = `${protocol}://${hubIp}:8080${endpoint}`;
+        const url = `${webUi.replace(/\/$/, '')}${endpoint}`;
+        console.log(`[OmniRemote] Trying ${url} (from web_ui)`);
+        const response = await fetch(url, options);
+        return response;
+      } catch (e) {
+        console.log(`[OmniRemote] web_ui URL failed, falling back to port scan...`);
+      }
+    }
+    
+    // Fallback: Try HTTPS on 8125 first (Pi Hub default), then HTTP on 8080
+    const attempts = [
+      { protocol: 'https', port: 8125 },
+      { protocol: 'http', port: 8080 },
+      { protocol: 'http', port: 8125 },
+    ];
+    
+    for (const { protocol, port } of attempts) {
+      try {
+        const url = `${protocol}://${hubIp}:${port}${endpoint}`;
         console.log(`[OmniRemote] Trying ${url}`);
         const response = await fetch(url, options);
         return response;
       } catch (e) {
-        if (protocol === 'http') throw e;  // Last attempt, throw error
-        console.log(`[OmniRemote] ${protocol.toUpperCase()} failed, trying next...`);
+        console.log(`[OmniRemote] ${protocol.toUpperCase()}:${port} failed, trying next...`);
         continue;
       }
     }
+    throw new Error(`Cannot connect to Pi Hub at ${hubIp}`);
   }
   
-  async _restartPiHub(hubId, hubIp) {
+  async _restartPiHub(hubId, hubIp, webUi) {
     if (!confirm(`Restart Pi Hub at ${hubIp}?`)) return;
     
-    console.log(`[OmniRemote] Restarting Pi Hub ${hubId} at ${hubIp}`);
+    console.log(`[OmniRemote] Restarting Pi Hub ${hubId} at ${hubIp} (web_ui: ${webUi})`);
     
     try {
-      // Send restart command directly to the hub's API (tries HTTPS first)
+      // Send restart command directly to the hub's API
       const response = await this._fetchPiHub(hubIp, '/api/omniremote/system', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'restart_services' }),
-      });
+      }, webUi);
       const res = await response.json();
       
       if (res.success) {
@@ -2610,7 +2629,7 @@ class OmniRemotePanel extends HTMLElement {
                   <!-- Update controls -->
                   <div style="display:flex;gap:8px;margin-top:12px;padding-top:12px;border-top:1px solid #333;">
                     ${this._compareVersions(hub.version, this._piHubVersion || '1.5.12') < 0 ? `
-                      <button class="btn btn-p btn-sm" data-action="update-pi-hub" data-hub-id="${hub.hub_id || hub.id}" data-hub-ip="${hub.ip}">
+                      <button class="btn btn-p btn-sm" data-action="update-pi-hub" data-hub-id="${hub.hub_id || hub.id}" data-hub-ip="${hub.ip}" data-hub-web-ui="${hub.web_ui || ''}">
                         <ha-icon icon="mdi:download"></ha-icon> Update to v${this._piHubVersion || '1.5.12'}
                       </button>
                     ` : `
@@ -2618,7 +2637,7 @@ class OmniRemotePanel extends HTMLElement {
                         <ha-icon icon="mdi:check-circle"></ha-icon> Up to date
                       </span>
                     `}
-                    <button class="btn btn-s btn-sm" data-action="restart-pi-hub" data-hub-id="${hub.hub_id || hub.id}" data-hub-ip="${hub.ip}" style="margin-left:auto;">
+                    <button class="btn btn-s btn-sm" data-action="restart-pi-hub" data-hub-id="${hub.hub_id || hub.id}" data-hub-ip="${hub.ip}" data-hub-web-ui="${hub.web_ui || ''}" style="margin-left:auto;">
                       <ha-icon icon="mdi:restart"></ha-icon> Restart
                     </button>
                   </div>
