@@ -176,16 +176,16 @@ class RemoteDatabase:
             if "mqtt" not in self.hass.config.components:
                 return
             
-            # Build full database payload
+            # Build full database payload from class attributes
             sync_payload = {
                 "source": "home_assistant",
                 "timestamp": datetime.now().isoformat(),
                 "rooms": {r.id: r.to_dict() for r in self.rooms.values()},
                 "devices": {d.id: d.to_dict() for d in self.devices.values()},
                 "scenes": {s.id: s.to_dict() for s in self.scenes.values()},
-                "physical_remotes": self._data.get("physical_remotes", {}),
-                "remote_profiles": self._data.get("remote_profiles", []),
-                "remote_bridges": self._data.get("remote_bridges", {}),
+                "physical_remotes": {r.id: r.to_dict() for r in self.physical_remotes.values()},
+                "remote_profiles": {p.id: p.to_dict() for p in self.remote_profiles.values()},
+                "remote_bridges": {b.id: b.to_dict() for b in self.remote_bridges.values()},
             }
             
             # Publish retained so Pi Hubs get it immediately on connect

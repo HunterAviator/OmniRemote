@@ -369,6 +369,18 @@ class PiHubManager:
             _LOGGER.debug("Error handling button: %s", e)
     
     @callback
+    def _handle_config_sync(self, msg):
+        """Handle physical remotes config sync (legacy - for Pi Hubs subscribing to HA)."""
+        # This is for HA receiving config - but HA is source of truth, so we ignore incoming
+        _LOGGER.debug("Received config sync message (ignoring - HA is source of truth)")
+    
+    @callback
+    def _handle_rooms_sync(self, msg):
+        """Handle rooms config sync (legacy - for Pi Hubs subscribing to HA)."""
+        # This is for HA receiving config - but HA is source of truth, so we ignore incoming
+        _LOGGER.debug("Received rooms sync message (ignoring - HA is source of truth)")
+    
+    @callback
     def _handle_sync_request(self, msg):
         """Handle database sync request from Pi Hub."""
         try:
