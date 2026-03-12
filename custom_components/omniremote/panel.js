@@ -10,7 +10,7 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.39";
+const OMNIREMOTE_VERSION = "1.10.41";
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -998,8 +998,38 @@ class OmniRemotePanel extends HTMLElement {
         }
         break;
       
+      case 'download-logs':
+        await this._downloadLogs(false);
+        break;
+      case 'download-logs-sanitized':
+        await this._downloadLogs(true);
+        break;
+      
       default:
         console.log('[OmniRemote] Unhandled action:', action);
+    }
+  }
+  
+  async _downloadLogs(sanitize = false) {
+    const statusEl = this.shadowRoot.getElementById('system-status');
+    if (statusEl) statusEl.innerHTML = '<ha-icon icon="mdi:loading" class="spin"></ha-icon> Preparing logs...';
+    
+    try {
+      // Trigger download via direct link
+      const url = `/api/omniremote/logs?download=true&sanitize=${sanitize}&lines=500`;
+      
+      // Create a temporary link and click it
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `omniremote-${sanitize ? 'support-' : ''}log.txt`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      if (statusEl) statusEl.innerHTML = `<span style="color:#4caf50;">✓ Log ${sanitize ? '(sanitized) ' : ''}downloaded</span>`;
+    } catch (e) {
+      console.error('[OmniRemote] Log download error:', e);
+      if (statusEl) statusEl.innerHTML = `<span style="color:#f44336;">✗ ${e.message}</span>`;
     }
   }
   
@@ -2254,7 +2284,25 @@ class OmniRemotePanel extends HTMLElement {
           </button>
         </div>
         
+        <!-- Support Logs Section -->
         <div style="border-top:1px solid #333;padding-top:16px;margin-top:8px;">
+          <h4 style="margin:0 0 12px 0;color:#2196f3;font-size:14px;">
+            <ha-icon icon="mdi:file-document-outline" style="font-size:16px;"></ha-icon> Support Logs
+          </h4>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+            <button class="btn" data-action="download-logs" title="Download full logs">
+              <ha-icon icon="mdi:download"></ha-icon> Download Logs
+            </button>
+            <button class="btn btn-p" data-action="download-logs-sanitized" title="Download logs with personal info removed (recommended for sharing)">
+              <ha-icon icon="mdi:shield-check"></ha-icon> Export for Support
+            </button>
+          </div>
+          <p style="margin:0;font-size:11px;color:#888;">
+            <strong>Export for Support</strong> removes IP addresses, MAC addresses, hostnames, and credentials before downloading.
+          </p>
+        </div>
+        
+        <div style="border-top:1px solid #333;padding-top:16px;margin-top:16px;">
           <h4 style="margin:0 0 12px 0;color:#ff9800;font-size:14px;">
             <ha-icon icon="mdi:alert" style="font-size:16px;"></ha-icon> Power Controls
           </h4>
@@ -6482,14 +6530,14 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
           </select>
         </div>
         
-        <div class="fg" id="bridge-select-group" style="display:${['usb_keyboard', 'bluetooth'].includes(remoteType) ? 'block' : 'none'};">
+        <div class="fg" id="bridge-select-group" style="display:${['usb_keyboard', 'bluetooth', 'bluetooth_ha'].includes(remoteType) ? 'block' : 'none'};">
           <label class="fl">Bridge/Hub</label>
           <select class="fi" id="remote-bridge">
-            <option value="">-- Select Bridge --</option>
+            <option value="">-- Select Bridge (optional for BT) --</option>
             ${this._piHubs?.filter(h => h.online).length ? `
               <optgroup label="Pi Zero Hubs (Auto-Discovered)">
                 ${this._piHubs.filter(h => h.online).map(h => `
-                  <option value="pi_hub:${h.id}" data-type="pi_hub">${h.name} (${h.ip})</option>
+                  <option value="pi_hub:${h.hub_id || h.id}" data-type="pi_hub">${h.name} (${h.ip})</option>
                 `).join('')}
               </optgroup>
             ` : ''}
@@ -6499,7 +6547,7 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
               </optgroup>
             ` : ''}
           </select>
-          <small style="color:#888;">Required for USB remotes; optional for Bluetooth</small>
+          <small style="color:#888;">Select which Pi Hub will handle this remote's button presses</small>
         </div>
         
         <div class="fg" id="zigbee-ieee-group" style="display:${remoteType === 'zigbee' ? 'block' : 'none'};">
@@ -6533,14 +6581,14 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
               ${this._piHubs?.filter(h => h.online && h.has_bluetooth).length ? `
                 <optgroup label="Pi Zero Hubs">
                   ${this._piHubs.filter(h => h.online && h.has_bluetooth).map(h => `
-                    <option value="pi_hub:${h.id}">${h.name} (${h.ip})</option>
+                    <option value="pi_hub:${h.hub_id || h.id}">${h.name} (${h.ip})</option>
                   `).join('')}
                 </optgroup>
               ` : ''}
               ${this._piHubs?.filter(h => h.online && !h.has_bluetooth).length ? `
                 <optgroup label="Pi Zero Hubs (BT not detected)">
                   ${this._piHubs.filter(h => h.online && !h.has_bluetooth).map(h => `
-                    <option value="pi_hub:${h.id}">${h.name} - try anyway</option>
+                    <option value="pi_hub:${h.hub_id || h.id}">${h.name} - try anyway</option>
                   `).join('')}
                 </optgroup>
               ` : ''}
@@ -7222,11 +7270,12 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
     // Build bridge selector options
     const bridgeOptions = [
       `<option value="">-- Select Bridge --</option>`,
-      ...piHubs.filter(h => h.online).map(h => 
-        `<option value="pi_hub:${h.id}" ${h.id === preFillHubId ? 'selected' : ''}>
+      ...piHubs.filter(h => h.online).map(h => {
+        const hubId = h.hub_id || h.id;
+        return `<option value="pi_hub:${hubId}" ${hubId === preFillHubId ? 'selected' : ''}>
           🍓 ${h.name} (Pi Hub)
-        </option>`
-      ),
+        </option>`;
+      }),
       ...bridges.map(b => 
         `<option value="bridge:${b.id}">
           ${b.bridge_type === 'usb_bridge' ? '🔌' : '📡'} ${b.name}

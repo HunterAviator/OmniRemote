@@ -3454,13 +3454,17 @@ class OmniApiRemoteBridges(HomeAssistantView):
         
         bridges = []
         for bridge in database.remote_bridges.values():
-            bridge_dict = bridge.to_dict()
-            # Add room name for display
-            if bridge.room_id and bridge.room_id in database.rooms:
-                bridge_dict["room_name"] = database.rooms[bridge.room_id].name
-            else:
-                bridge_dict["room_name"] = None
-            bridges.append(bridge_dict)
+            try:
+                bridge_dict = bridge.to_dict()
+                # Add room name for display (use getattr for safety with different bridge types)
+                room_id = getattr(bridge, 'room_id', None)
+                if room_id and room_id in database.rooms:
+                    bridge_dict["room_name"] = database.rooms[room_id].name
+                else:
+                    bridge_dict["room_name"] = None
+                bridges.append(bridge_dict)
+            except Exception as e:
+                _LOGGER.warning("Error processing bridge %s: %s", getattr(bridge, 'id', 'unknown'), e)
         
         return web.json_response({"bridges": bridges})
     

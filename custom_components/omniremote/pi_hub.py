@@ -35,6 +35,7 @@ class PiHubBridge:
     capabilities: dict = field(default_factory=dict)
     status: str = "offline"
     version: str = "unknown"
+    room_id: Optional[str] = None  # Room this bridge is assigned to
     
     @property
     def has_ir(self) -> bool:
@@ -66,6 +67,7 @@ class PiHubBridge:
             "status": self.status,
             "online": self.is_online,
             "version": self.version,
+            "room_id": self.room_id,
         }
 
 
@@ -107,6 +109,7 @@ class PiHub:
     
     def to_dict(self) -> dict:
         return {
+            "id": self.hub_id,  # For panel.js compatibility
             "hub_id": self.hub_id,
             "name": self.name,
             "version": self.version,
