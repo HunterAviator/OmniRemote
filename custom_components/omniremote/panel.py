@@ -2908,29 +2908,40 @@ class OmniApiPiHubUpdate(HomeAssistantView):
             
             _LOGGER.info("Pushing update to Pi Hub at %s (%d bytes)", hub_ip, len(tar_data))
             
-            # Send to Pi Hub's update endpoint (no SSL)
+            # Try HTTPS first (Pi Hub uses self-signed cert), fall back to HTTP
+            # Skip SSL verification for self-signed certs
             connector = aiohttp.TCPConnector(ssl=False)
             async with aiohttp.ClientSession(connector=connector) as session:
-                try:
-                    async with session.post(
-                        f"http://{hub_ip}:8080/api/omniremote/update",
-                        json={"package_b64": tar_b64},
-                        timeout=aiohttp.ClientTimeout(total=120)
-                    ) as resp:
-                        result = await resp.json()
-                        
-                        if result.get("success"):
-                            _LOGGER.info("Pi Hub %s updated successfully", hub_id)
-                            return web.json_response({"success": True, "message": "Update pushed successfully"})
-                        else:
-                            return web.json_response({"success": False, "error": result.get("error", "Unknown error")})
-                except aiohttp.ClientResponseError as e:
-                    if e.status == 404:
-                        return web.json_response({
-                            "success": False, 
-                            "error": "Pi Hub doesn't have the update endpoint. Update manually first: SSH to Pi and run 'sudo bash /opt/omniremote/install.sh'"
-                        })
-                    raise
+                # Try HTTPS first
+                for protocol in ["https", "http"]:
+                    try:
+                        url = f"{protocol}://{hub_ip}:8080/api/omniremote/update"
+                        _LOGGER.debug("Trying %s", url)
+                        async with session.post(
+                            url,
+                            json={"package_b64": tar_b64},
+                            timeout=aiohttp.ClientTimeout(total=120)
+                        ) as resp:
+                            result = await resp.json()
+                            
+                            if result.get("success"):
+                                _LOGGER.info("Pi Hub %s updated successfully via %s", hub_id, protocol.upper())
+                                return web.json_response({"success": True, "message": "Update pushed successfully"})
+                            else:
+                                return web.json_response({"success": False, "error": result.get("error", "Unknown error")})
+                    except aiohttp.ClientResponseError as e:
+                        if e.status == 404:
+                            return web.json_response({
+                                "success": False, 
+                                "error": "Pi Hub doesn't have the update endpoint. Update manually first: SSH to Pi and run 'sudo bash /opt/omniremote/install.sh'"
+                            })
+                        if protocol == "http":  # Only raise on last attempt
+                            raise
+                        continue  # Try HTTP next
+                    except aiohttp.ClientError:
+                        if protocol == "http":  # Only raise on last attempt
+                            raise
+                        continue  # Try HTTP next
         
         except aiohttp.ClientError as e:
             _LOGGER.error("Failed to connect to Pi Hub at %s: %s", hub_ip, e)

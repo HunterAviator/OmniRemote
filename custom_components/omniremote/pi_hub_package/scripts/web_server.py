@@ -34,8 +34,8 @@ import paho.mqtt.client as mqtt
 # Configuration
 #-------------------------------------------------------------------------------
 
-VERSION = "1.5.14"
-PANEL_VERSION = "1.10.44"
+VERSION = "1.5.15"
+PANEL_VERSION = "1.10.45"
 BRAND = {
     "name": "OmniRemote",
     "tagline": "One Remote to Rule Them All",
@@ -2460,6 +2460,79 @@ def api_send():
     return jsonify({"success": False, "error": "MQTT not connected"})
 
 #-------------------------------------------------------------------------------
+# SSL Certificate Management
+#-------------------------------------------------------------------------------
+
+def setup_ssl(log, ssl_config: dict):
+    """Setup SSL with self-signed certificate or provided cert."""
+    import ssl
+    import subprocess
+    
+    ssl_dir = Path("/etc/omniremote/ssl")
+    cert_file = ssl_dir / "server.crt"
+    key_file = ssl_dir / "server.key"
+    
+    # Check for custom cert paths in config
+    if ssl_config.get("cert_file"):
+        cert_file = Path(ssl_config["cert_file"])
+    if ssl_config.get("key_file"):
+        key_file = Path(ssl_config["key_file"])
+    
+    # Generate self-signed cert if needed
+    if not cert_file.exists() or not key_file.exists():
+        log.info("Generating self-signed SSL certificate...")
+        try:
+            ssl_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Get hostname for certificate
+            import socket
+            hostname = socket.gethostname()
+            
+            # Generate self-signed certificate using openssl
+            cmd = [
+                "openssl", "req", "-x509", "-newkey", "rsa:2048",
+                "-keyout", str(key_file),
+                "-out", str(cert_file),
+                "-days", "3650",  # 10 years
+                "-nodes",  # No passphrase
+                "-subj", f"/CN={hostname}/O=OmniRemote/OU=Pi Hub",
+                "-addext", f"subjectAltName=DNS:{hostname},DNS:localhost,IP:127.0.0.1"
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                log.error(f"Failed to generate SSL cert: {result.stderr}")
+                return None
+            
+            # Set permissions
+            key_file.chmod(0o600)
+            cert_file.chmod(0o644)
+            
+            log.info(f"SSL certificate generated: {cert_file}")
+            log.info(f"Certificate valid for: {hostname}, localhost, 127.0.0.1")
+            log.info("Note: Browser will show security warning for self-signed cert")
+            
+        except Exception as e:
+            log.error(f"SSL certificate generation failed: {e}")
+            return None
+    
+    # Create SSL context
+    try:
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(str(cert_file), str(key_file))
+        
+        # Modern security settings
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
+        context.set_ciphers('ECDHE+AESGCM:DHE+AESGCM:ECDHE+CHACHA20:DHE+CHACHA20')
+        
+        log.info("SSL context configured successfully")
+        return context
+        
+    except Exception as e:
+        log.error(f"Failed to create SSL context: {e}")
+        return None
+
+#-------------------------------------------------------------------------------
 # Main
 #-------------------------------------------------------------------------------
 
@@ -2469,6 +2542,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", "-c", default="/etc/omniremote/config.yaml")
     parser.add_argument("--panel", "-p", help="Path to panel.js file")
+    parser.add_argument("--no-ssl", action="store_true", help="Disable SSL")
     args = parser.parse_args()
     
     cfg_path = Path(args.config)
@@ -2508,8 +2582,22 @@ def main():
         log.warning("Panel.js not found - UI may not work correctly")
         log.info("Copy panel.js to /etc/omniremote/panel.js or specify with --panel")
     
-    log.info(f"Starting on http://{host}:{port}")
-    app.run(host=host, port=port, threaded=True, debug=False)
+    # SSL Configuration
+    ssl_config = web.get("ssl", {})
+    ssl_enabled = ssl_config.get("enabled", True) and not args.no_ssl
+    ssl_context = None
+    
+    if ssl_enabled:
+        ssl_context = setup_ssl(log, ssl_config)
+        if ssl_context:
+            log.info(f"Starting on https://{host}:{port}")
+        else:
+            log.warning("SSL setup failed, falling back to HTTP")
+            log.info(f"Starting on http://{host}:{port}")
+    else:
+        log.info(f"Starting on http://{host}:{port} (SSL disabled)")
+    
+    app.run(host=host, port=port, threaded=True, debug=False, ssl_context=ssl_context)
 
 if __name__ == "__main__":
     main()

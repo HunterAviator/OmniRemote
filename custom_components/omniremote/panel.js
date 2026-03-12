@@ -10,8 +10,8 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.44";
-const PIHUB_VERSION = "1.5.14";  // Bundled Pi Hub version
+const OMNIREMOTE_VERSION = "1.10.45";
+const PIHUB_VERSION = "1.5.15";  // Bundled Pi Hub version
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {
@@ -1227,14 +1227,30 @@ class OmniRemotePanel extends HTMLElement {
     }
   }
   
+  async _fetchPiHub(hubIp, endpoint, options = {}) {
+    // Try HTTPS first (Pi Hub uses self-signed cert), fall back to HTTP
+    for (const protocol of ['https', 'http']) {
+      try {
+        const url = `${protocol}://${hubIp}:8080${endpoint}`;
+        console.log(`[OmniRemote] Trying ${url}`);
+        const response = await fetch(url, options);
+        return response;
+      } catch (e) {
+        if (protocol === 'http') throw e;  // Last attempt, throw error
+        console.log(`[OmniRemote] ${protocol.toUpperCase()} failed, trying next...`);
+        continue;
+      }
+    }
+  }
+  
   async _restartPiHub(hubId, hubIp) {
     if (!confirm(`Restart Pi Hub at ${hubIp}?`)) return;
     
     console.log(`[OmniRemote] Restarting Pi Hub ${hubId} at ${hubIp}`);
     
     try {
-      // Send restart command directly to the hub's API
-      const response = await fetch(`http://${hubIp}:8080/api/omniremote/system`, {
+      // Send restart command directly to the hub's API (tries HTTPS first)
+      const response = await this._fetchPiHub(hubIp, '/api/omniremote/system', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'restart_services' }),
