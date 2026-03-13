@@ -10,8 +10,8 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.52";
-const PIHUB_VERSION = "1.5.24";  // Bundled Pi Hub version
+const OMNIREMOTE_VERSION = "1.10.53";
+const PIHUB_VERSION = "1.5.25";  // Bundled Pi Hub version
 
 // ha-icon polyfill for standalone mode (when not running in Home Assistant)
 // This MUST run before the panel renders
@@ -565,9 +565,13 @@ class OmniRemotePanel extends HTMLElement {
                 <strong style="font-size:16px;">Panel Update Required!</strong><br>
                 <span style="font-size:13px;">Panel: v${this._version} → Server: v${this._versionMismatch}</span>
               </div>
+              <button class="btn" data-action="update-panel-file"
+                      style="background:#fff;color:#ff5722;font-weight:bold;padding:12px 24px;margin-right:8px;">
+                <ha-icon icon="mdi:download"></ha-icon> Update Panel
+              </button>
               <button class="btn" onclick="window.location.href=window.location.href.split('?')[0]+'?_reload='+Date.now();" 
-                      style="background:#fff;color:#ff5722;font-weight:bold;padding:12px 24px;">
-                <ha-icon icon="mdi:refresh"></ha-icon> Reload Panel
+                      style="background:rgba(255,255,255,0.2);color:#fff;padding:12px 24px;">
+                <ha-icon icon="mdi:refresh"></ha-icon> Reload
               </button>
             </div>
           ` : ''}
@@ -1166,6 +1170,9 @@ class OmniRemotePanel extends HTMLElement {
       case 'update-pi-hub':
         await this._updatePiHub(data.hubId, data.hubIp, data.hubWebUi);
         break;
+      case 'update-panel-file':
+        await this._updatePanelFile();
+        break;
       case 'restart-pi-hub':
         await this._restartPiHub(data.hubId, data.hubIp, data.hubWebUi);
         break;
@@ -1565,6 +1572,67 @@ class OmniRemotePanel extends HTMLElement {
       }
     } catch (e) {
       console.error('[OmniRemote] Update error:', e);
+      const statusEl = this.shadowRoot.getElementById('update-status');
+      if (statusEl) {
+        statusEl.innerHTML = `
+          <ha-icon icon="mdi:alert-circle" style="font-size:48px;color:#f44336;"></ha-icon>
+          <p style="color:#f44336;margin-top:16px;font-weight:bold;">Update Failed</p>
+          <p style="color:#888;">${e.message}</p>
+          <button class="btn" data-action="close-modal" style="margin-top:16px;">Close</button>
+        `;
+      }
+    }
+  }
+  
+  async _updatePanelFile() {
+    // Quick panel.js update - for standalone mode when panel is out of date
+    console.log('[OmniRemote] Updating panel.js file...');
+    
+    // Show progress modal
+    this._modal = `
+      <div class="modal-content" style="max-width:500px;">
+        <h3><ha-icon icon="mdi:download"></ha-icon> Updating Panel</h3>
+        <div id="update-status" style="padding:20px;text-align:center;">
+          <ha-icon icon="mdi:loading" class="spin" style="font-size:48px;color:#7C3AED;"></ha-icon>
+          <p style="color:#888;margin-top:16px;">Extracting panel from update package...</p>
+        </div>
+      </div>
+    `;
+    this._render();
+    
+    try {
+      // Call the quick panel update endpoint
+      const res = await this._api('/api/omniremote/update/panel', 'POST', {});
+      
+      const statusEl = this.shadowRoot.getElementById('update-status');
+      
+      if (res.success) {
+        if (statusEl) {
+          statusEl.innerHTML = `
+            <ha-icon icon="mdi:check-circle" style="font-size:48px;color:#4caf50;"></ha-icon>
+            <p style="color:#4caf50;margin-top:16px;font-weight:bold;">Panel Updated!</p>
+            <p style="color:#888;">Version: ${res.version || 'unknown'}</p>
+            <p style="color:#888;">Page will reload in 3 seconds...</p>
+          `;
+        }
+        
+        // Reload the page after a short delay
+        setTimeout(() => {
+          window.location.href = window.location.href.split('?')[0] + '?_reload=' + Date.now();
+        }, 3000);
+      } else {
+        if (statusEl) {
+          statusEl.innerHTML = `
+            <ha-icon icon="mdi:alert-circle" style="font-size:48px;color:#f44336;"></ha-icon>
+            <p style="color:#f44336;margin-top:16px;font-weight:bold;">Update Failed</p>
+            <p style="color:#888;">${res.error || 'Unknown error'}</p>
+            <p style="font-size:12px;color:#666;margin-top:8px;">Try: Settings → System Controls → Restart Services</p>
+            <button class="btn" data-action="close-modal" style="margin-top:16px;">Close</button>
+          `;
+        }
+      }
+    } catch (e) {
+      console.error('[OmniRemote] Panel update error:', e);
       const statusEl = this.shadowRoot.getElementById('update-status');
       if (statusEl) {
         statusEl.innerHTML = `

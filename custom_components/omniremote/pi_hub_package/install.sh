@@ -20,7 +20,7 @@
 set -e
 
 # Version
-CURRENT_VERSION="1.5.24"
+CURRENT_VERSION="1.5.25"
 RELEASE_DATE="2026-03-10"
 GITHUB_REPO="omniremote/pi-zero-hub"
 GITHUB_RELEASES="https://api.github.com/repos/$GITHUB_REPO/releases/latest"
@@ -437,11 +437,14 @@ configure_installation() {
 install_dependencies() {
     log_step "Installing Dependencies"
     
+    # Set non-interactive for ALL apt commands
+    export DEBIAN_FRONTEND=noninteractive
+    
     log_info "Updating packages..."
     run_cmd apt-get update -qq
     
     log_info "Installing base packages..."
-    run_cmd apt-get install -y python3 python3-pip python3-dev python3-evdev \
+    run_cmd apt-get install -y -q python3 python3-pip python3-dev python3-evdev \
         mosquitto-clients git build-essential unzip wget || {
         log_error "Failed. See $INSTALL_LOG"; exit 1
     }
@@ -449,7 +452,7 @@ install_dependencies() {
     
     # Always install Bluetooth packages (needed for remote discovery)
     log_info "Installing Bluetooth..."
-    DEBIAN_FRONTEND=noninteractive timeout 120 apt-get install -y -q bluetooth bluez python3-dbus >> "$INSTALL_LOG" 2>&1 || {
+    timeout 120 apt-get install -y -q bluetooth bluez python3-dbus >> "$INSTALL_LOG" 2>&1 || {
         log_warn "Bluetooth install failed or timed out"
     }
     
@@ -542,6 +545,13 @@ install_scripts() {
             log_success "panel.js (web UI)"
         }
     }
+    
+    # ALWAYS copy panel.js during upgrade (regardless of ENABLE_WEB_SERVER) 
+    # This ensures the panel gets updated even if settings are wrong
+    if [ "$INSTALL_MODE" = "upgrade" ] && [ -f "$SCRIPT_DIR/scripts/panel.js" ]; then
+        cp "$SCRIPT_DIR/scripts/panel.js" "$INSTALL_DIR/"
+        log_info "panel.js updated (upgrade mode)"
+    fi
     
     [ -d "$SCRIPT_DIR/assets" ] && cp -r "$SCRIPT_DIR/assets" "$INSTALL_DIR/"
     [ -f "$SCRIPT_DIR/VERSION" ] && cp "$SCRIPT_DIR/VERSION" "$INSTALL_DIR/.version"

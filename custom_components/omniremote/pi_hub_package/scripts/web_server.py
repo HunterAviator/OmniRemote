@@ -34,7 +34,7 @@ import paho.mqtt.client as mqtt
 # Configuration
 #-------------------------------------------------------------------------------
 
-VERSION = "1.5.24"
+VERSION = "1.5.25"
 PANEL_VERSION = "1.10.50"
 BRAND = {
     "name": "OmniRemote",
@@ -2234,6 +2234,84 @@ def api_update():
         
     except Exception as e:
         log.error(f"Update processing error: {e}")
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route("/api/omniremote/update/panel", methods=["POST"])
+def api_update_panel():
+    """Quick panel.js update - just replace the file without full reinstall."""
+    import base64
+    
+    data = request.get_json() or {}
+    
+    # Option 1: Panel data sent directly
+    panel_data = data.get("panel_js")
+    
+    # Option 2: Fetch from HA
+    ha_url = data.get("ha_url")
+    
+    install_dir = Path("/opt/omniremote")
+    panel_path = install_dir / "panel.js"
+    
+    try:
+        if panel_data:
+            # Direct panel data (base64 encoded)
+            if isinstance(panel_data, str) and len(panel_data) > 1000:
+                try:
+                    decoded = base64.b64decode(panel_data).decode('utf-8')
+                    panel_path.write_text(decoded)
+                    log.info(f"Panel.js updated directly ({len(decoded)} bytes)")
+                except:
+                    # Maybe it's already plain text
+                    panel_path.write_text(panel_data)
+                    log.info(f"Panel.js updated ({len(panel_data)} bytes)")
+            else:
+                return jsonify({"success": False, "error": "Invalid panel data"})
+                
+        elif ha_url:
+            # Fetch from HA
+            import urllib.request
+            import ssl
+            
+            # Allow self-signed certs
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            
+            req = urllib.request.Request(ha_url, headers={"User-Agent": "OmniRemote-PiHub"})
+            response = urllib.request.urlopen(req, timeout=30, context=ctx)
+            content = response.read().decode('utf-8')
+            
+            if "OMNIREMOTE_VERSION" in content:
+                panel_path.write_text(content)
+                log.info(f"Panel.js fetched from HA ({len(content)} bytes)")
+            else:
+                return jsonify({"success": False, "error": "Invalid panel.js content"})
+        else:
+            # Try to get from the update package if it exists
+            update_dir = Path("/tmp/omniremote-update")
+            update_panel = update_dir / "scripts" / "panel.js"
+            
+            if update_panel.exists():
+                import shutil
+                shutil.copy(update_panel, panel_path)
+                log.info("Panel.js copied from update package")
+            else:
+                return jsonify({"success": False, "error": "No panel data provided and no update package found"})
+        
+        # Extract version from panel.js
+        content = panel_path.read_text()
+        import re
+        version_match = re.search(r'OMNIREMOTE_VERSION\s*=\s*["\']([^"\']+)["\']', content)
+        panel_version = version_match.group(1) if version_match else "unknown"
+        
+        return jsonify({
+            "success": True,
+            "message": f"Panel.js updated to v{panel_version}",
+            "version": panel_version
+        })
+        
+    except Exception as e:
+        log.error(f"Panel update error: {e}")
         return jsonify({"success": False, "error": str(e)})
 
 @app.route("/api/omniremote/remote_models", methods=["GET"])
