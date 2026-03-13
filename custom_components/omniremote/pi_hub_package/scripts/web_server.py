@@ -34,7 +34,7 @@ import paho.mqtt.client as mqtt
 # Configuration
 #-------------------------------------------------------------------------------
 
-VERSION = "1.5.25"
+VERSION = "1.5.26"
 PANEL_VERSION = "1.10.50"
 BRAND = {
     "name": "OmniRemote",
@@ -3281,6 +3281,135 @@ def api_send():
         return jsonify({"success": success})
     
     return jsonify({"success": False, "error": "MQTT not connected"})
+
+@app.route("/api/omniremote/test", methods=["POST"])
+def api_test():
+    """Test/send IR commands - mirrors HA integration's test endpoint."""
+    data = request.json or {}
+    action = data.get("action", "test_command")
+    
+    log.info(f"api_test: action={action}, data_keys={list(data.keys())}")
+    
+    if action == "test_command":
+        device_id = data.get("device_id")
+        command_name = data.get("command_name")
+        blaster_id = data.get("blaster_id")
+        
+        if not device_id or not command_name:
+            return jsonify({"success": False, "error": "device_id and command_name required"})
+        
+        # Get device from local database
+        device = db.get_device(device_id)
+        if not device:
+            return jsonify({"success": False, "error": f"Device not found: {device_id}"})
+        
+        commands = device.get("commands", {})
+        code = commands.get(command_name)
+        if not code:
+            return jsonify({"success": False, "error": f"Command not found: {command_name}"})
+        
+        # Try to send the code
+        success = False
+        error_msg = None
+        
+        # Check if we have a Broadlink code
+        broadlink_code = None
+        protocol = None
+        if isinstance(code, dict):
+            broadlink_code = code.get("broadlink_code") or code.get("broadlink_b64")
+            protocol = code.get("protocol")
+        elif isinstance(code, str) and len(code) > 50:
+            # Might be a raw broadlink code
+            broadlink_code = code
+        
+        # Method 1: Send via MQTT to Home Assistant
+        if mqtt_client and mqtt_client.connected:
+            try:
+                # Build command payload with all details
+                payload = {
+                    "device_id": device_id,
+                    "command": command_name,
+                    "blaster_id": blaster_id or "",
+                    "timestamp": datetime.now().isoformat(),
+                }
+                
+                # Include the actual code data for HA to use
+                if broadlink_code:
+                    payload["broadlink_code"] = broadlink_code
+                if isinstance(code, dict):
+                    payload["protocol"] = code.get("protocol")
+                    payload["address"] = code.get("address")
+                    payload["command_code"] = code.get("command")
+                
+                # Publish to the command topic that HA listens to
+                mqtt_client.client.publish(
+                    f"{mqtt_client.prefix}/command",
+                    json.dumps(payload)
+                )
+                success = True
+                log.info(f"Sent command via MQTT: {device_id}/{command_name} (blaster: {blaster_id})")
+            except Exception as e:
+                log.error(f"MQTT send failed: {e}")
+                error_msg = str(e)
+        else:
+            error_msg = "MQTT not connected - configure MQTT in Settings to send commands via Home Assistant"
+        
+        # Method 2: Try direct Broadlink if MQTT failed and we have local blasters
+        if not success and broadlink_code:
+            blasters = db.get_blasters()
+            target_blaster = None
+            
+            # Find the right blaster
+            if blaster_id:
+                target_blaster = next((b for b in blasters if b.get("id") == blaster_id), None)
+            if not target_blaster and blasters:
+                target_blaster = blasters[0]  # Default to first
+            
+            if target_blaster and target_blaster.get("type") == "broadlink":
+                try:
+                    import broadlink
+                    host = target_blaster.get("host") or target_blaster.get("ip")
+                    if host:
+                        log.info(f"Trying direct Broadlink to {host}...")
+                        devices = broadlink.discover(timeout=3)
+                        for dev in devices:
+                            if dev.host[0] == host:
+                                dev.auth()
+                                import base64
+                                code_bytes = base64.b64decode(broadlink_code)
+                                dev.send_data(code_bytes)
+                                success = True
+                                error_msg = None
+                                log.info(f"Sent via local Broadlink: {host}")
+                                break
+                except ImportError:
+                    log.debug("broadlink module not installed")
+                except Exception as e:
+                    log.warning(f"Direct Broadlink send failed: {e}")
+                    if not success:
+                        error_msg = f"Direct send failed: {e}"
+        
+        return jsonify({
+            "success": success,
+            "device": device.get("name", device_id),
+            "command": command_name,
+            "protocol": protocol,
+            "has_broadlink_code": bool(broadlink_code),
+            "error": error_msg if not success else None,
+        })
+    
+    elif action == "list_profiles":
+        # Return empty list - catalog is on HA side
+        return jsonify({"profiles": []})
+    
+    elif action == "get_profile_commands":
+        return jsonify({"commands": []})
+    
+    elif action == "switch_profile":
+        return jsonify({"success": False, "error": "Profile switching only available in HA mode"})
+    
+    else:
+        return jsonify({"success": False, "error": f"Unknown action: {action}"})
 
 #-------------------------------------------------------------------------------
 # SSL Certificate Management

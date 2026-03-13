@@ -10,8 +10,8 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.53";
-const PIHUB_VERSION = "1.5.25";  // Bundled Pi Hub version
+const OMNIREMOTE_VERSION = "1.10.54";
+const PIHUB_VERSION = "1.5.26";  // Bundled Pi Hub version
 
 // ha-icon polyfill for standalone mode (when not running in Home Assistant)
 // This MUST run before the panel renders

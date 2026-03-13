@@ -201,6 +201,13 @@ class PiHubManager:
                 self._handle_sync_request
             )
             
+            # Subscribe to command requests from Pi Hubs (for sending IR via HA-controlled blasters)
+            await mqtt.async_subscribe(
+                self.hass,
+                f"{MQTT_TOPIC_PREFIX}/command",
+                self._handle_command_request
+            )
+            
             self._subscribed = True
             _LOGGER.info("Pi Hub MQTT subscriptions active")
             
@@ -394,6 +401,82 @@ class PiHubManager:
             
         except Exception as e:
             _LOGGER.debug("Error handling sync request: %s", e)
+    
+    @callback
+    def _handle_command_request(self, msg):
+        """Handle IR command request from Pi Hub standalone UI."""
+        try:
+            payload = json.loads(msg.payload)
+            device_id = payload.get("device_id")
+            command_name = payload.get("command")
+            blaster_id = payload.get("blaster_id")
+            broadlink_code = payload.get("broadlink_code")
+            
+            _LOGGER.info("📡 Command request from Pi Hub: device=%s, command=%s", device_id, command_name)
+            
+            # Execute the command via HA in background
+            self.hass.async_create_task(
+                self._execute_command_request(device_id, command_name, blaster_id, broadlink_code, payload)
+            )
+            
+        except Exception as e:
+            _LOGGER.error("Error handling command request: %s", e)
+    
+    async def _execute_command_request(self, device_id: str, command_name: str, blaster_id: str, broadlink_code: str, payload: dict):
+        """Execute an IR command request from Pi Hub."""
+        from .const import DOMAIN
+        
+        try:
+            # Get the database
+            db = None
+            if DOMAIN in self.hass.data:
+                for entry_data in self.hass.data[DOMAIN].values():
+                    if isinstance(entry_data, dict) and "database" in entry_data:
+                        db = entry_data.get("database")
+                        break
+            
+            if not db:
+                _LOGGER.warning("Database not found for command request")
+                return
+            
+            # Method 1: If we have device_id and command, look it up
+            if device_id and command_name:
+                device = db.devices.get(device_id)
+                if device:
+                    code = device.commands.get(command_name)
+                    if code:
+                        success = await db.async_send_code(code, blaster_id)
+                        _LOGGER.info("Command executed via device lookup: %s", "success" if success else "failed")
+                        return
+            
+            # Method 2: If we have a raw broadlink code, send it directly
+            if broadlink_code:
+                # Find a blaster to use
+                blasters = db.blasters + db.ha_blasters
+                target_blaster = None
+                
+                if blaster_id:
+                    target_blaster = next((b for b in blasters if b.get("id") == blaster_id), None)
+                if not target_blaster and blasters:
+                    target_blaster = blasters[0]
+                
+                if target_blaster:
+                    entity_id = target_blaster.get("entity_id")
+                    if entity_id:
+                        # Send via HA remote.send_command
+                        import base64
+                        await self.hass.services.async_call(
+                            "remote", "send_command",
+                            {"entity_id": entity_id, "command": f"b64:{broadlink_code}"},
+                            blocking=True
+                        )
+                        _LOGGER.info("Command sent via broadlink code to %s", entity_id)
+                        return
+            
+            _LOGGER.warning("Could not execute command: no valid method found")
+            
+        except Exception as e:
+            _LOGGER.error("Error executing command request: %s", e)
     
     async def _publish_full_sync(self):
         """Publish full database sync to MQTT."""
