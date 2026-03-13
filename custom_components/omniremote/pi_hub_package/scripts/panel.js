@@ -11,7 +11,7 @@
  */
 
 const OMNIREMOTE_VERSION = "1.10.54";
-const PIHUB_VERSION = "1.5.26";  // Bundled Pi Hub version
+const PIHUB_VERSION = "1.5.28";  // Bundled Pi Hub version
 
 // ha-icon polyfill for standalone mode (when not running in Home Assistant)
 // This MUST run before the panel renders

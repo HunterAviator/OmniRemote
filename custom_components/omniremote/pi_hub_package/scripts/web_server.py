@@ -34,8 +34,8 @@ import paho.mqtt.client as mqtt
 # Configuration
 #-------------------------------------------------------------------------------
 
-VERSION = "1.5.26"
-PANEL_VERSION = "1.10.50"
+VERSION = "1.5.28"
+PANEL_VERSION = "1.10.54"
 BRAND = {
     "name": "OmniRemote",
     "tagline": "One Remote to Rule Them All",
@@ -1663,8 +1663,9 @@ def bluetooth_scan():
         subprocess.run(["bluetoothctl", "agent", "NoInputNoOutput"], capture_output=True, timeout=5)
         subprocess.run(["bluetoothctl", "default-agent"], capture_output=True, timeout=5)
         
-        # Make discoverable (helps some devices)
+        # Make discoverable AND pairable (required for remotes to connect)
         subprocess.run(["bluetoothctl", "discoverable", "on"], capture_output=True, timeout=5)
+        subprocess.run(["bluetoothctl", "pairable", "on"], capture_output=True, timeout=5)
         
         log.info("Starting Bluetooth scan (8 seconds)...")
         
@@ -3116,6 +3117,15 @@ def api_bluetooth_control():
                 ["bluetoothctl", "power", "on"],
                 capture_output=True, text=True, timeout=5
             )
+            
+            # Also enable pairable mode for remotes
+            subprocess.run(["bluetoothctl", "pairable", "on"], capture_output=True, timeout=5)
+            subprocess.run(["bluetoothctl", "discoverable", "on"], capture_output=True, timeout=5)
+            
+            # Set up agent for automatic pairing
+            subprocess.run(["bluetoothctl", "agent", "NoInputNoOutput"], capture_output=True, timeout=5)
+            subprocess.run(["bluetoothctl", "default-agent"], capture_output=True, timeout=5)
+            
             result["success"] = "succeeded" in power_result.stdout.lower() or "yes" in power_result.stdout.lower()
             result["output"] = power_result.stdout
             
@@ -3142,6 +3152,22 @@ def api_bluetooth_control():
             )
             result["success"] = "succeeded" in disc_result.stdout.lower()
             result["output"] = disc_result.stdout
+            
+        elif action == "pairable_on":
+            pair_result = subprocess.run(
+                ["bluetoothctl", "pairable", "on"],
+                capture_output=True, text=True, timeout=5
+            )
+            result["success"] = "succeeded" in pair_result.stdout.lower()
+            result["output"] = pair_result.stdout
+            
+        elif action == "pairable_off":
+            pair_result = subprocess.run(
+                ["bluetoothctl", "pairable", "off"],
+                capture_output=True, text=True, timeout=5
+            )
+            result["success"] = "succeeded" in pair_result.stdout.lower()
+            result["output"] = pair_result.stdout
             
         elif action == "restart_service":
             # Restart bluetooth service
