@@ -34,7 +34,7 @@ import paho.mqtt.client as mqtt
 # Configuration
 #-------------------------------------------------------------------------------
 
-VERSION = "1.5.22"
+VERSION = "1.5.24"
 PANEL_VERSION = "1.10.50"
 BRAND = {
     "name": "OmniRemote",
@@ -402,7 +402,7 @@ class MQTTClient:
             # Request full sync from HA
             self.log.info("📤 Requesting database sync from Home Assistant")
             client.publish(f"{self.prefix}/sync/request", json.dumps({
-                "hub_id": self.cfg.get("hub_id", "standalone"),
+                "hub_id": self.cfg.get("hub_id", get_hub_id()),
                 "timestamp": datetime.now().isoformat()
             }))
     
@@ -427,6 +427,12 @@ class MQTTClient:
                 hub_id = topic_parts[2]
                 msg_type = topic_parts[3]
                 payload = json.loads(msg.payload.decode())
+                
+                # Skip our own messages (we publish to this topic too)
+                local_hub_id = config.get("hub_id", get_hub_id())
+                if hub_id == local_hub_id or hub_id.lower() == local_hub_id.lower():
+                    self.log.debug(f"Ignoring own hub message: {hub_id}")
+                    return
                 
                 if msg_type == 'config':
                     self.pi_hubs[hub_id] = {
@@ -1645,7 +1651,7 @@ def bluetooth_scan():
             "name": name,
             "paired": True,
             "source": "pi_hub",
-            "hub_id": config.get("hub_id", "local"),
+            "hub_id": config.get("hub_id", get_hub_id()),
         })
     
     # Start scanning for additional devices
@@ -1710,7 +1716,7 @@ def bluetooth_scan():
                         "paired": False,
                         "likely_remote": is_remote,
                         "source": "pi_hub",
-                        "hub_id": config.get("hub_id", "local"),
+                        "hub_id": config.get("hub_id", get_hub_id()),
                     })
         
         # Add ALL discovered devices to the list (not just filtered)
@@ -1852,7 +1858,7 @@ def bluetooth_list_paired():
                         "mac": parts[1].upper(),
                         "name": parts[2],
                         "paired": True,
-                        "hub_id": config.get("hub_id", "local"),
+                        "hub_id": config.get("hub_id", get_hub_id()),
                     })
         
         return jsonify({"success": True, "devices": devices})
@@ -1932,6 +1938,12 @@ def api_system():
                 status[svc.replace("-", "_")] = result.stdout.strip()
             except:
                 status[svc.replace("-", "_")] = "unknown"
+        
+        # Bluetooth status
+        status["bluetooth"] = get_bluetooth_status()
+        
+        # WiFi status
+        status["wifi"] = get_wifi_status()
         
         return jsonify(status)
     
@@ -2562,6 +2574,208 @@ def discover_chromecast():
     
     return devices
 
+@app.route("/api/omniremote/network/scan", methods=["POST"])
+def api_network_scan():
+    """Scan the network for controllable devices (TVs, receivers, etc.)."""
+    import subprocess
+    import socket
+    import concurrent.futures
+    
+    data = request.get_json() or {}
+    timeout = data.get("timeout", 20)
+    
+    devices = []
+    
+    log.info("Starting network scan for controllable devices...")
+    
+    # Get local network range
+    local_ip = get_local_ip()
+    network_prefix = '.'.join(local_ip.split('.')[:-1])
+    
+    def check_device(ip):
+        """Check a single IP for controllable device signatures."""
+        result = {"ip": ip}
+        
+        # Common ports for controllable devices
+        port_checks = {
+            8060: "roku",           # Roku ECP
+            8008: "chromecast",     # Chromecast
+            8443: "samsung_tv",     # Samsung SmartThings
+            3000: "lg_tv",          # LG WebOS
+            80: "http",             # Generic HTTP
+            23: "telnet",           # Telnet (some older devices)
+            10002: "onkyo",         # Onkyo eISCP
+            50000: "denon",         # Denon/Marantz
+        }
+        
+        open_ports = []
+        detected_type = None
+        
+        for port, device_type in port_checks.items():
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(0.5)
+                if sock.connect_ex((ip, port)) == 0:
+                    open_ports.append(port)
+                    if not detected_type:
+                        detected_type = device_type
+                sock.close()
+            except:
+                pass
+        
+        if not open_ports:
+            return None
+        
+        result["open_ports"] = open_ports
+        result["type"] = detected_type
+        
+        # Try to get hostname
+        try:
+            hostname = socket.gethostbyaddr(ip)[0]
+            result["hostname"] = hostname
+            result["name"] = hostname.split('.')[0]
+        except:
+            pass
+        
+        # Try to get MAC address from ARP table
+        try:
+            arp_result = subprocess.run(["arp", "-n", ip], capture_output=True, text=True, timeout=2)
+            for line in arp_result.stdout.split('\n'):
+                if ip in line:
+                    parts = line.split()
+                    for part in parts:
+                        if ':' in part and len(part) == 17:
+                            result["mac"] = part.upper()
+                            break
+        except:
+            pass
+        
+        # Specific device detection
+        if 8060 in open_ports:
+            # Roku - try to get device info
+            try:
+                import urllib.request
+                req = urllib.request.Request(f"http://{ip}:8060/query/device-info", headers={"User-Agent": "OmniRemote"})
+                response = urllib.request.urlopen(req, timeout=2)
+                content = response.read().decode()
+                if "<device-info>" in content:
+                    result["type"] = "roku"
+                    # Parse name from XML
+                    import re
+                    name_match = re.search(r'<user-device-name>([^<]+)</user-device-name>', content)
+                    if name_match:
+                        result["name"] = name_match.group(1)
+                    model_match = re.search(r'<model-name>([^<]+)</model-name>', content)
+                    if model_match:
+                        result["model"] = model_match.group(1)
+            except:
+                pass
+        
+        return result
+    
+    # Scan network in parallel
+    with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:
+        futures = {executor.submit(check_device, f"{network_prefix}.{i}"): i for i in range(1, 255)}
+        
+        for future in concurrent.futures.as_completed(futures, timeout=timeout):
+            try:
+                result = future.result()
+                if result:
+                    devices.append(result)
+            except:
+                pass
+    
+    # Also run SSDP and mDNS discovery
+    try:
+        roku_devices = discover_roku()
+        for rd in roku_devices:
+            if not any(d["ip"] == rd["ip"] for d in devices):
+                devices.append(rd)
+    except:
+        pass
+    
+    try:
+        cc_devices = discover_chromecast()
+        for cd in cc_devices:
+            if not any(d["ip"] == cd["ip"] for d in devices):
+                devices.append(cd)
+    except:
+        pass
+    
+    log.info(f"Network scan found {len(devices)} controllable devices")
+    return jsonify({"success": True, "devices": devices})
+
+@app.route("/api/omniremote/network/test", methods=["POST"])
+def api_network_test():
+    """Test network connectivity to a device."""
+    import subprocess
+    import socket
+    
+    data = request.get_json() or {}
+    ip = data.get("ip")
+    port = data.get("port")
+    protocol = data.get("protocol")
+    
+    if not ip:
+        return jsonify({"success": False, "error": "No IP address provided"})
+    
+    result = {"success": False, "ip": ip}
+    
+    # Ping test
+    try:
+        ping_result = subprocess.run(
+            ["ping", "-c", "1", "-W", "2", ip],
+            capture_output=True, text=True, timeout=5
+        )
+        if ping_result.returncode == 0:
+            result["success"] = True
+            # Parse ping time
+            import re
+            time_match = re.search(r'time[=<](\d+\.?\d*)', ping_result.stdout)
+            if time_match:
+                result["ping_ms"] = float(time_match.group(1))
+    except Exception as e:
+        result["error"] = f"Ping failed: {e}"
+    
+    # Try to get hostname
+    try:
+        hostname = socket.gethostbyaddr(ip)[0]
+        result["hostname"] = hostname
+    except:
+        pass
+    
+    # Check common ports
+    open_ports = []
+    port_checks = [80, 443, 8060, 8008, 8443, 3000, 10002, 50000, 23]
+    if port:
+        port_checks.insert(0, int(port))
+    
+    for p in port_checks:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)
+            if sock.connect_ex((ip, p)) == 0:
+                open_ports.append(p)
+            sock.close()
+        except:
+            pass
+    
+    if open_ports:
+        result["open_ports"] = open_ports
+        result["success"] = True
+    
+    # Try to detect device type
+    if 8060 in open_ports:
+        result["detected_type"] = "Roku"
+    elif 8008 in open_ports:
+        result["detected_type"] = "Chromecast/Google TV"
+    elif 10002 in open_ports:
+        result["detected_type"] = "Onkyo/Pioneer AVR"
+    elif 50000 in open_ports:
+        result["detected_type"] = "Denon/Marantz AVR"
+    
+    return jsonify(result)
+
 @app.route("/api/omniremote/pi_hubs", methods=["GET"])
 def api_pi_hubs():
     """Return list of Pi Hubs - always includes local hub in standalone mode."""
@@ -2586,6 +2800,7 @@ def api_pi_hubs():
     # Check if Bluetooth is available locally
     bt_available = False
     bt_status = "unknown"
+    bt_powered = False
     try:
         result = subprocess.run(["bluetoothctl", "show"], capture_output=True, text=True, timeout=3)
         if "Controller" in result.stdout:
@@ -2593,6 +2808,9 @@ def api_pi_hubs():
             bt_status = "available"
             if "Powered: yes" in result.stdout:
                 bt_status = "powered"
+                bt_powered = True
+            elif "Powered: no" in result.stdout:
+                bt_status = "off"
     except:
         pass
     
@@ -2605,6 +2823,7 @@ def api_pi_hubs():
         "status": "online",
         "has_bluetooth": bt_available,
         "bluetooth_status": bt_status,
+        "bluetooth_powered": bt_powered,
         "has_usb": True,
         "has_ir": config.get("ir_blaster", {}).get("enabled", False),
         "web_ui": f"{protocol}://{local_ip}:{web_port}",
@@ -2613,6 +2832,7 @@ def api_pi_hubs():
         "capabilities": {
             "bluetooth": bt_available,
             "bluetooth_status": bt_status,
+            "bluetooth_powered": bt_powered,
             "usb_hid": True,
             "ir_blaster": config.get("ir_blaster", {}).get("enabled", False),
         },
@@ -2621,23 +2841,34 @@ def api_pi_hubs():
     hubs.append(local_hub)
     
     # Also include any other Pi Hubs discovered via MQTT
+    # But skip any that match our local hub (by ID or IP)
     if mqtt_client:
         for remote_hub_id, hub_data in mqtt_client.pi_hubs.items():
+            # Skip ourselves - check multiple ways to avoid duplicates
             if remote_hub_id == hub_id:
-                continue  # Skip ourselves if we already added
+                continue
+            if remote_hub_id.lower() == hub_id.lower():
+                continue
             
             cfg = hub_data.get("config", {})
+            remote_ip = cfg.get("ip", "")
+            
+            # Skip if same IP as local
+            if remote_ip and remote_ip == local_ip:
+                continue
+            
             caps = cfg.get("capabilities", {})
             
             hubs.append({
                 "id": remote_hub_id,
                 "hub_id": remote_hub_id,
                 "name": cfg.get("name", f"Pi Hub {remote_hub_id[:8]}"),
-                "ip": cfg.get("ip", ""),
+                "ip": remote_ip,
                 "online": True,  # If we see it via MQTT, it's online
                 "status": hub_data.get("status", {}).get("status", "online"),
                 "has_bluetooth": caps.get("bluetooth", False),
                 "bluetooth_status": caps.get("bluetooth_status", "unknown"),
+                "bluetooth_powered": caps.get("bluetooth_powered", False),
                 "has_usb": caps.get("usb_hid", True),
                 "has_ir": caps.get("ir_blaster", False),
                 "web_ui": cfg.get("web_ui", ""),
@@ -2669,6 +2900,255 @@ def get_hub_id():
     except:
         return "pihub_local"
 
+def get_bluetooth_status():
+    """Get Bluetooth adapter status."""
+    import subprocess
+    import shutil
+    
+    status = {
+        "available": False,
+        "powered": False,
+        "address": None,
+        "name": None,
+    }
+    
+    if not shutil.which("bluetoothctl"):
+        return status
+    
+    try:
+        result = subprocess.run(
+            ["bluetoothctl", "show"],
+            capture_output=True, text=True, timeout=5
+        )
+        
+        if "Controller" in result.stdout:
+            status["available"] = True
+            status["powered"] = "Powered: yes" in result.stdout
+            
+            for line in result.stdout.split('\n'):
+                if line.strip().startswith("Controller"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        status["address"] = parts[1]
+                elif "Name:" in line:
+                    status["name"] = line.split(":", 1)[1].strip()
+    except:
+        pass
+    
+    return status
+
+def get_wifi_status():
+    """Get WiFi connection status."""
+    import subprocess
+    import re
+    
+    status = {
+        "connected": False,
+        "ssid": None,
+        "frequency": None,
+        "band": None,
+        "signal_dbm": None,
+        "interface": "wlan0",
+    }
+    
+    try:
+        # Use iwconfig to get WiFi info
+        result = subprocess.run(
+            ["iwconfig", "wlan0"],
+            capture_output=True, text=True, timeout=5
+        )
+        
+        output = result.stdout
+        
+        # Parse ESSID
+        essid_match = re.search(r'ESSID:"([^"]*)"', output)
+        if essid_match and essid_match.group(1):
+            status["ssid"] = essid_match.group(1)
+            status["connected"] = True
+        
+        # Parse frequency
+        freq_match = re.search(r'Frequency:(\d+\.?\d*)\s*(GHz|MHz)', output)
+        if freq_match:
+            freq = float(freq_match.group(1))
+            unit = freq_match.group(2)
+            if unit == "GHz":
+                status["frequency"] = f"{freq} GHz"
+                if freq < 3:
+                    status["band"] = "2.4 GHz"
+                else:
+                    status["band"] = "5 GHz"
+            else:
+                status["frequency"] = f"{freq} MHz"
+        
+        # Parse signal level
+        signal_match = re.search(r'Signal level[=:](-?\d+)', output)
+        if signal_match:
+            status["signal_dbm"] = int(signal_match.group(1))
+            
+    except:
+        pass
+    
+    return status
+
+@app.route("/api/omniremote/bluetooth/control", methods=["POST"])
+def api_bluetooth_control():
+    """Control Bluetooth adapter - power on/off, discoverable, etc."""
+    import subprocess
+    import shutil
+    
+    data = request.get_json() or {}
+    action = data.get("action", "status")
+    
+    if not shutil.which("bluetoothctl"):
+        return jsonify({"success": False, "error": "Bluetooth not installed"})
+    
+    result = {"success": False, "action": action}
+    
+    try:
+        if action == "status":
+            # Get current status
+            status_result = subprocess.run(
+                ["bluetoothctl", "show"],
+                capture_output=True, text=True, timeout=5
+            )
+            result["success"] = True
+            result["output"] = status_result.stdout
+            
+            # Parse status
+            result["powered"] = "Powered: yes" in status_result.stdout
+            result["discoverable"] = "Discoverable: yes" in status_result.stdout
+            result["pairable"] = "Pairable: yes" in status_result.stdout
+            result["available"] = "Controller" in status_result.stdout
+            
+            # Get controller address
+            for line in status_result.stdout.split('\n'):
+                if line.strip().startswith("Controller"):
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        result["address"] = parts[1]
+                elif "Name:" in line:
+                    result["name"] = line.split(":", 1)[1].strip()
+                    
+        elif action in ("power_on", "enable"):
+            # Unblock with rfkill first
+            subprocess.run(["rfkill", "unblock", "bluetooth"], capture_output=True, timeout=5)
+            
+            # Power on
+            power_result = subprocess.run(
+                ["bluetoothctl", "power", "on"],
+                capture_output=True, text=True, timeout=5
+            )
+            result["success"] = "succeeded" in power_result.stdout.lower() or "yes" in power_result.stdout.lower()
+            result["output"] = power_result.stdout
+            
+        elif action in ("power_off", "disable"):
+            power_result = subprocess.run(
+                ["bluetoothctl", "power", "off"],
+                capture_output=True, text=True, timeout=5
+            )
+            result["success"] = "succeeded" in power_result.stdout.lower() or "no" in power_result.stdout.lower()
+            result["output"] = power_result.stdout
+            
+        elif action == "discoverable_on":
+            disc_result = subprocess.run(
+                ["bluetoothctl", "discoverable", "on"],
+                capture_output=True, text=True, timeout=5
+            )
+            result["success"] = "succeeded" in disc_result.stdout.lower()
+            result["output"] = disc_result.stdout
+            
+        elif action == "discoverable_off":
+            disc_result = subprocess.run(
+                ["bluetoothctl", "discoverable", "off"],
+                capture_output=True, text=True, timeout=5
+            )
+            result["success"] = "succeeded" in disc_result.stdout.lower()
+            result["output"] = disc_result.stdout
+            
+        elif action == "restart_service":
+            # Restart bluetooth service
+            restart_result = subprocess.run(
+                ["systemctl", "restart", "bluetooth"],
+                capture_output=True, text=True, timeout=30
+            )
+            result["success"] = restart_result.returncode == 0
+            result["output"] = restart_result.stdout + restart_result.stderr
+            
+            # Wait and power on
+            import time
+            time.sleep(2)
+            subprocess.run(["bluetoothctl", "power", "on"], capture_output=True, timeout=5)
+            
+        else:
+            result["error"] = f"Unknown action: {action}"
+            
+    except Exception as e:
+        result["error"] = str(e)
+        log.error(f"Bluetooth control error: {e}")
+    
+    return jsonify(result)
+
+@app.route("/api/omniremote/wifi/control", methods=["POST"])
+def api_wifi_control():
+    """Get WiFi status and info (read-only for safety)."""
+    import subprocess
+    
+    data = request.get_json() or {}
+    action = data.get("action", "status")
+    
+    result = {"success": False, "action": action}
+    
+    try:
+        if action == "status":
+            # Get WiFi status
+            result["success"] = True
+            
+            # Get interface info
+            try:
+                iw_result = subprocess.run(
+                    ["iwconfig", "wlan0"],
+                    capture_output=True, text=True, timeout=5
+                )
+                result["interface"] = "wlan0"
+                result["output"] = iw_result.stdout
+                
+                # Parse ESSID
+                for line in iw_result.stdout.split('\n'):
+                    if "ESSID:" in line:
+                        essid = line.split('ESSID:')[1].strip().strip('"')
+                        result["ssid"] = essid
+                    if "Frequency:" in line:
+                        if "2.4" in line or "2.5" in line:
+                            result["band"] = "2.4GHz"
+                        elif "5." in line:
+                            result["band"] = "5GHz"
+                    if "Signal level" in line:
+                        # Parse signal level
+                        import re
+                        match = re.search(r'Signal level[=:](-?\d+)', line)
+                        if match:
+                            result["signal_dbm"] = int(match.group(1))
+            except:
+                pass
+            
+            # Get IP address
+            try:
+                ip_result = subprocess.run(
+                    ["hostname", "-I"],
+                    capture_output=True, text=True, timeout=5
+                )
+                result["ip"] = ip_result.stdout.strip().split()[0]
+            except:
+                pass
+                
+        else:
+            result["error"] = "Only 'status' action is supported for WiFi"
+            
+    except Exception as e:
+        result["error"] = str(e)
+    
+    return jsonify(result)
+
 @app.route("/api/omniremote/pi_hubs/discover", methods=["POST"])
 def api_pi_hubs_discover():
     if mqtt_client:
@@ -2697,7 +3177,7 @@ def api_pi_hubs_devices():
                         "name": dev.name,
                         "phys": getattr(dev, 'phys', ''),
                         "type": "usb_hid",
-                        "hub_id": config.get("hub_id", "local"),
+                        "hub_id": config.get("hub_id", get_hub_id()),
                         "hub_name": config.get("name", "Pi Hub"),
                     })
             except:
@@ -2708,7 +3188,7 @@ def api_pi_hubs_devices():
     return jsonify({
         "success": True,
         "devices": devices,
-        "hub_id": config.get("hub_id", "local"),
+        "hub_id": config.get("hub_id", get_hub_id()),
         "hub_name": config.get("name", "Pi Hub"),
     })
 

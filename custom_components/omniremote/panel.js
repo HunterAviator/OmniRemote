@@ -10,8 +10,8 @@
  * Uses event delegation for reliable button handling in Shadow DOM
  */
 
-const OMNIREMOTE_VERSION = "1.10.50";
-const PIHUB_VERSION = "1.5.22";  // Bundled Pi Hub version
+const OMNIREMOTE_VERSION = "1.10.52";
+const PIHUB_VERSION = "1.5.24";  // Bundled Pi Hub version
 
 // ha-icon polyfill for standalone mode (when not running in Home Assistant)
 // This MUST run before the panel renders
@@ -81,11 +81,22 @@ const PIHUB_VERSION = "1.5.22";  // Bundled Pi Hub version
     'mdi:eye': 'M12,9A3,3 0 0,0 9,12A3,3 0 0,0 12,15A3,3 0 0,0 15,12A3,3 0 0,0 12,9M12,17A5,5 0 0,1 7,12A5,5 0 0,1 12,7A5,5 0 0,1 17,12A5,5 0 0,1 12,17M12,4.5C7,4.5 2.73,7.61 1,12C2.73,16.39 7,19.5 12,19.5C17,19.5 21.27,16.39 23,12C21.27,7.61 17,4.5 12,4.5Z',
     'mdi:link': 'M3.9,12C3.9,10.29 5.29,8.9 7,8.9H11V7H7A5,5 0 0,0 2,12A5,5 0 0,0 7,17H11V15.1H7C5.29,15.1 3.9,13.71 3.9,12M8,13H16V11H8V13M17,7H13V8.9H17C18.71,8.9 20.1,10.29 20.1,12C20.1,13.71 18.71,15.1 17,15.1H13V17H17A5,5 0 0,0 22,12A5,5 0 0,0 17,7Z',
     'mdi:bluetooth': 'M14.88,16.29L13,18.17V14.41M13,5.83L14.88,7.71L13,9.58M17.71,7.71L12,2H11V9.58L6.41,5L5,6.41L10.59,12L5,17.58L6.41,19L11,14.41V22H12L17.71,16.29L13.41,12L17.71,7.71Z',
+    'mdi:bluetooth-off': 'M13,5.83L14.88,7.71L13.28,9.31L14.69,10.72L17.71,7.71L12,2H11V7.03L13,9.03M5.41,4L4,5.41L10.59,12L5,17.59L6.41,19L11,14.41V22H12L16.29,17.71L18.59,20L20,18.59M13,18.17V14.41L14.88,16.29',
     'mdi:usb': 'M15,7V11H16V13H13V5H15L12,1L9,5H11V13H8V10.93C8.7,10.56 9.2,9.85 9.2,9C9.2,7.78 8.21,6.8 7,6.8C5.78,6.8 4.8,7.78 4.8,9C4.8,9.85 5.3,10.56 6,10.93V13A2,2 0 0,0 8,15H11V18.05C10.29,18.41 9.8,19.15 9.8,20A2.2,2.2 0 0,0 12,22.2A2.2,2.2 0 0,0 14.2,20C14.2,19.15 13.71,18.41 13,18.05V15H16A2,2 0 0,0 18,13V11H19V7H15Z',
     'mdi:wifi': 'M12,21L15.6,16.2C14.6,15.45 13.35,15 12,15C10.65,15 9.4,15.45 8.4,16.2L12,21M12,3C7.95,3 4.21,4.34 1.2,6.6L3,9C5.5,7.12 8.62,6 12,6C15.38,6 18.5,7.12 21,9L22.8,6.6C19.79,4.34 16.05,3 12,3M12,9C9.3,9 6.81,9.89 4.8,11.4L6.6,13.8C8.1,12.67 9.97,12 12,12C14.03,12 15.9,12.67 17.4,13.8L19.2,11.4C17.19,9.89 14.7,9 12,9Z',
     'mdi:raspberry-pi': 'M20,8H22V6H21V4H19V3A1,1 0 0,0 18,2H14V4H16V6H14V8H16V10H14V12H20V8M22,10H20V12H22V10M4,6V4H6V2H2A1,1 0 0,0 1,3V6H3V8H1V12H7V10H5V8H7V6H5V4H7V2H4V6M3,10H1V12H3V10M13,2H11V4H13V6H11V8H13V10H11V12H13V14H11V16H13V18H11V20H13V22H15V20H13V18H15V16H13V14H15V12H13V10H15V8H13V6H15V4H13V2M22,16H20V18H18V22H20V20H22V16M4,16H2V20H4V22H6V18H4V16M22,14V12H20V14H22M4,12H2V14H4V12Z',
     'mdi:cast': 'M1,10V12A9,9 0 0,1 10,21H12C12,14.92 7.07,10 1,10M1,14V16A5,5 0 0,1 6,21H8A7,7 0 0,0 1,14M1,18V21H4A3,3 0 0,0 1,18M21,3H3C1.89,3 1,3.89 1,5V8H3V5H21V19H14V21H21A2,2 0 0,0 23,19V5C23,3.89 22.1,3 21,3Z',
     'mdi:home': 'M10,20V14H14V20H19V12H22L12,3L2,12H5V20H10Z',
+    'mdi:ip-network': 'M15,20A1,1 0 0,0 14,19H13V17H17A2,2 0 0,0 19,15V5A2,2 0 0,0 17,3H7A2,2 0 0,0 5,5V15A2,2 0 0,0 7,17H11V19H10A1,1 0 0,0 9,20H2V22H9A1,1 0 0,0 10,23H14A1,1 0 0,0 15,22H22V20H15M7,15V5H17V15H7Z',
+    'mdi:lan-check': 'M4,1C2.89,1 2,1.89 2,3V7C2,8.11 2.89,9 4,9H1V11H13V9H10C11.11,9 12,8.11 12,7V3C12,1.89 11.11,1 10,1H4M4,3H10V7H4V3M3,13V18L3,20H10V18H5V13H3M14,13C12.89,13 12,13.89 12,15V19C12,20.11 12.89,21 14,21H11V23H22V21H20C21.11,21 22,20.11 22,19V15C22,13.89 21.11,13 20,13H14M14,15H20V19H14V15M15.91,17L14.5,18.41L16.09,20L18.5,17.59L20.91,20L22.5,18.41L20.09,16L22.5,13.59L20.91,12.18L18.5,14.59L16.09,12.18L14.5,13.59L16.91,16L15.91,17Z',
+    'mdi:nas': 'M4,5C2.89,5 2,5.89 2,7V17C2,18.11 2.89,19 4,19H20C21.11,19 22,18.11 22,17V7C22,5.89 21.11,5 20,5H4M4.5,7A1,1 0 0,1 5.5,8A1,1 0 0,1 4.5,9A1,1 0 0,1 3.5,8A1,1 0 0,1 4.5,7M7,7H20V17H7V7M8,8V16H11V8H8M12,8V16H15V8H12M16,8V16H19V8H16Z',
+    'mdi:printer': 'M18,3H6V7H18M19,12A1,1 0 0,1 18,11A1,1 0 0,1 19,10A1,1 0 0,1 20,11A1,1 0 0,1 19,12M16,19H8V14H16M19,8H5A3,3 0 0,0 2,11V17H6V21H18V17H22V11A3,3 0 0,0 19,8Z',
+    'mdi:cctv': 'M18,14L12.8,8.8L18,3.6V5.6L13.8,8.8L18,12M12,8.8L7.8,12V14L12,10.8L17.2,16L18.6,14.6L12,8.8M4,2C2.89,2 2,2.89 2,4V20C2,21.11 2.89,22 4,22H20C21.11,22 22,21.11 22,20V4C22,2.89 21.11,2 20,2H4Z',
+    'mdi:router-wireless': 'M12,21.5C12,21.5 4,16 4,10V4L12,1L20,4V10C20,16 12,21.5 12,21.5M12,3.18L6,5.42V10.17C6,14.39 9.38,18.06 12,19.41C14.62,18.06 18,14.39 18,10.17V5.42L12,3.18M12,5A4,4 0 0,1 16,9A4,4 0 0,1 12,13A4,4 0 0,1 8,9A4,4 0 0,1 12,5M12,7A2,2 0 0,0 10,9A2,2 0 0,0 12,11A2,2 0 0,0 14,9A2,2 0 0,0 12,7Z',
+    'mdi:swap-horizontal': 'M21,9L17,5V8H10V10H17V13M7,11L3,15L7,19V16H14V14H7V11Z',
+    'mdi:magnify': 'M9.5,3A6.5,6.5 0 0,1 16,9.5C16,11.11 15.41,12.59 14.44,13.73L14.71,14H15.5L20.5,19L19,20.5L14,15.5V14.71L13.73,14.44C12.59,15.41 11.11,16 9.5,16A6.5,6.5 0 0,1 3,9.5A6.5,6.5 0 0,1 9.5,3M9.5,5C7,5 5,7 5,9.5C5,12 7,14 9.5,14C12,14 14,12 14,9.5C14,7 12,5 9.5,5Z',
+    'mdi:apple': 'M18.71,19.5C17.88,20.74 17,21.95 15.66,21.97C14.32,22 13.89,21.18 12.37,21.18C10.84,21.18 10.37,21.95 9.1,22C7.79,22.05 6.8,20.68 5.96,19.47C4.25,17 2.94,12.45 4.7,9.39C5.57,7.87 7.13,6.91 8.82,6.88C10.1,6.86 11.32,7.75 12.11,7.75C12.89,7.75 14.37,6.68 15.92,6.84C16.57,6.87 18.39,7.1 19.56,8.82C19.47,8.88 17.39,10.1 17.41,12.63C17.44,15.65 20.06,16.66 20.09,16.67C20.06,16.74 19.67,18.11 18.71,19.5M13,3.5C13.73,2.67 14.94,2.04 15.94,2C16.07,3.17 15.6,4.35 14.9,5.19C14.21,6.04 13.07,6.7 11.95,6.61C11.8,5.46 12.36,4.26 13,3.5Z',
+    'mdi:speaker-wireless': 'M20,2H4A2,2 0 0,0 2,4V22A2,2 0 0,0 4,24H20A2,2 0 0,0 22,22V4A2,2 0 0,0 20,2M12,4A2,2 0 0,1 14,6A2,2 0 0,1 12,8A2,2 0 0,1 10,6A2,2 0 0,1 12,4M12,22A6,6 0 0,1 6,16A6,6 0 0,1 12,10A6,6 0 0,1 18,16A6,6 0 0,1 12,22M12,14A2,2 0 0,0 10,16A2,2 0 0,0 12,18A2,2 0 0,0 14,16A2,2 0 0,0 12,14Z',
   };
 
   class HaIconPolyfill extends HTMLElement {
@@ -1011,6 +1022,22 @@ class OmniRemotePanel extends HTMLElement {
       case 'learn-code':
         this._showLearnCodeModal(data.deviceId);
         break;
+      case 'nav-to-blasters':
+        this._view = 'blasters';
+        this._render();
+        break;
+      case 'show-add-network-control':
+        this._showAddNetworkControlModal(data.deviceId);
+        break;
+      case 'test-network-device':
+        await this._testNetworkDevice(data.deviceId);
+        break;
+      case 'scan-network-devices':
+        await this._scanNetworkDevices();
+        break;
+      case 'save-network-control':
+        await this._saveNetworkControl();
+        break;
       
       // Physical Remotes actions
       case 'add-remote':
@@ -1169,6 +1196,16 @@ class OmniRemotePanel extends HTMLElement {
         }
         break;
       
+      case 'bluetooth-enable':
+        await this._bluetoothControl('enable');
+        break;
+      case 'bluetooth-disable':
+        await this._bluetoothControl('disable');
+        break;
+      case 'bluetooth-scan-test':
+        await this._bluetoothScanTest();
+        break;
+      
       case 'download-logs':
         await this._downloadLogs(false);
         break;
@@ -1225,6 +1262,9 @@ class OmniRemotePanel extends HTMLElement {
       const ipEl = this.shadowRoot.getElementById('sys-ip');
       const uptimeEl = this.shadowRoot.getElementById('sys-uptime');
       const sshEl = this.shadowRoot.getElementById('sys-ssh');
+      const btStatusEl = this.shadowRoot.getElementById('bt-status');
+      const wifiStatusEl = this.shadowRoot.getElementById('wifi-status');
+      const wifiInfoEl = this.shadowRoot.getElementById('wifi-info');
       
       if (hostnameEl) hostnameEl.textContent = res.hostname || 'unknown';
       if (ipEl) ipEl.textContent = res.ip || 'unknown';
@@ -1234,8 +1274,157 @@ class OmniRemotePanel extends HTMLElement {
           '<span style="color:#4caf50;">● Enabled</span>' : 
           '<span style="color:#f44336;">● Disabled</span>';
       }
+      
+      // Bluetooth status
+      if (btStatusEl) {
+        const bt = res.bluetooth || {};
+        if (bt.powered) {
+          btStatusEl.innerHTML = '<span style="color:#4caf50;">● Powered On</span>';
+          btStatusEl.style.background = '#1b3d1b';
+        } else if (bt.available) {
+          btStatusEl.innerHTML = '<span style="color:#ff9800;">● Available (Off)</span>';
+          btStatusEl.style.background = '#3d3d1b';
+        } else {
+          btStatusEl.innerHTML = '<span style="color:#f44336;">● Not Available</span>';
+          btStatusEl.style.background = '#3d1b1b';
+        }
+      }
+      
+      // WiFi status
+      if (wifiStatusEl && res.wifi) {
+        const wifi = res.wifi;
+        if (wifi.connected) {
+          wifiStatusEl.innerHTML = `<span style="color:#4caf50;">● Connected</span>`;
+          wifiStatusEl.style.background = '#1b3d1b';
+        } else {
+          wifiStatusEl.innerHTML = '<span style="color:#f44336;">● Disconnected</span>';
+          wifiStatusEl.style.background = '#3d1b1b';
+        }
+      }
+      
+      if (wifiInfoEl && res.wifi) {
+        const wifi = res.wifi;
+        wifiInfoEl.innerHTML = `
+          <div style="display:grid;grid-template-columns:80px 1fr;gap:4px;">
+            <span>SSID:</span><span>${wifi.ssid || 'N/A'}</span>
+            <span>Frequency:</span><span>${wifi.frequency || 'N/A'} ${wifi.band ? `(${wifi.band})` : ''}</span>
+            <span>Signal:</span><span>${wifi.signal_dbm ? `${wifi.signal_dbm} dBm` : 'N/A'}</span>
+            <span>Interface:</span><span>${wifi.interface || 'wlan0'}</span>
+          </div>
+        `;
+      }
     } catch (e) {
       console.error('[OmniRemote] System status error:', e);
+    }
+  }
+  
+  async _bluetoothControl(action) {
+    const btStatusEl = this.shadowRoot.getElementById('bt-status');
+    if (btStatusEl) {
+      btStatusEl.innerHTML = '<ha-icon icon="mdi:loading" class="spin"></ha-icon>';
+    }
+    
+    // Map UI actions to backend actions
+    const backendAction = action === 'enable' ? 'power_on' : action === 'disable' ? 'power_off' : action;
+    
+    try {
+      const res = await this._api('/api/omniremote/bluetooth/control', 'POST', { action: backendAction });
+      
+      if (res.success) {
+        if (btStatusEl) {
+          btStatusEl.innerHTML = `<span style="color:#4caf50;">✓ ${action === 'enable' ? 'Enabled' : 'Disabled'}</span>`;
+          btStatusEl.style.background = action === 'enable' ? '#1b3d1b' : '#333';
+        }
+        // Refresh full status
+        setTimeout(() => this._refreshSystemStatus(), 1000);
+      } else {
+        if (btStatusEl) {
+          btStatusEl.innerHTML = `<span style="color:#f44336;">✗ ${res.error || 'Failed'}</span>`;
+        }
+      }
+    } catch (e) {
+      console.error('[OmniRemote] Bluetooth control error:', e);
+      if (btStatusEl) {
+        btStatusEl.innerHTML = `<span style="color:#f44336;">✗ Error</span>`;
+      }
+    }
+  }
+  
+  async _bluetoothScanTest() {
+    this._modal = `
+      <div class="modal-content" style="max-width:500px;">
+        <h3><ha-icon icon="mdi:bluetooth"></ha-icon> Bluetooth Scan Test</h3>
+        <div id="bt-scan-status" style="text-align:center;padding:24px;">
+          <ha-icon icon="mdi:loading" class="spin" style="font-size:48px;color:#2196f3;"></ha-icon>
+          <p>Scanning for Bluetooth devices...</p>
+          <p style="font-size:12px;color:#888;">This takes about 8 seconds</p>
+        </div>
+        <div id="bt-scan-results" style="display:none;"></div>
+        <div style="margin-top:16px;text-align:right;">
+          <button class="btn btn-s" data-action="close-modal">Close</button>
+        </div>
+      </div>
+    `;
+    this._render();
+    
+    try {
+      const res = await this._api('/api/omniremote/bluetooth/scan', 'POST', { include_all: true });
+      
+      const statusEl = this.shadowRoot.getElementById('bt-scan-status');
+      const resultsEl = this.shadowRoot.getElementById('bt-scan-results');
+      
+      if (statusEl) statusEl.style.display = 'none';
+      if (resultsEl) {
+        resultsEl.style.display = 'block';
+        
+        if (res.error) {
+          resultsEl.innerHTML = `
+            <div style="background:#3d1b1b;border:1px solid #f44336;border-radius:8px;padding:16px;">
+              <p style="margin:0;color:#f44336;"><ha-icon icon="mdi:alert-circle"></ha-icon> ${res.error}</p>
+            </div>
+          `;
+        } else if (!res.devices || res.devices.length === 0) {
+          resultsEl.innerHTML = `
+            <div style="background:#3d3d1b;border:1px solid #ff9800;border-radius:8px;padding:16px;">
+              <p style="margin:0;color:#ff9800;"><ha-icon icon="mdi:information"></ha-icon> No Bluetooth devices found</p>
+              <p style="margin:8px 0 0;font-size:12px;color:#888;">Make sure your remote is in pairing mode and within range.</p>
+            </div>
+            ${res.adapter ? `
+              <div style="margin-top:12px;font-size:12px;color:#888;">
+                <strong>Adapter Info:</strong><br>
+                ${Object.entries(res.adapter).map(([k,v]) => `${k}: ${v}`).join('<br>')}
+              </div>
+            ` : ''}
+          `;
+        } else {
+          resultsEl.innerHTML = `
+            <div style="background:#1b3d1b;border:1px solid #4caf50;border-radius:8px;padding:16px;margin-bottom:12px;">
+              <p style="margin:0;color:#4caf50;"><ha-icon icon="mdi:check-circle"></ha-icon> Found ${res.devices.length} device(s)</p>
+            </div>
+            <div style="max-height:300px;overflow-y:auto;">
+              ${res.devices.map(d => `
+                <div style="display:flex;align-items:center;padding:8px;background:#252545;border-radius:4px;margin-bottom:4px;">
+                  <ha-icon icon="mdi:bluetooth" style="margin-right:12px;color:${d.paired ? '#4caf50' : '#2196f3'};"></ha-icon>
+                  <div style="flex:1;">
+                    <div style="font-weight:500;">${d.name || 'Unknown Device'}</div>
+                    <div style="font-size:12px;color:#888;">${d.mac}</div>
+                  </div>
+                  <div style="font-size:11px;color:#888;">
+                    ${d.paired ? '<span style="color:#4caf50;">Paired</span>' : ''}
+                    ${d.likely_remote ? '<span style="color:#7C3AED;margin-left:8px;">Remote?</span>' : ''}
+                  </div>
+                </div>
+              `).join('')}
+            </div>
+          `;
+        }
+      }
+    } catch (e) {
+      console.error('[OmniRemote] Bluetooth scan error:', e);
+      const statusEl = this.shadowRoot.getElementById('bt-scan-status');
+      if (statusEl) {
+        statusEl.innerHTML = `<p style="color:#f44336;"><ha-icon icon="mdi:alert-circle"></ha-icon> Scan failed: ${e.message}</p>`;
+      }
     }
   }
   
@@ -2595,6 +2784,48 @@ class OmniRemotePanel extends HTMLElement {
             <span style="color:#888;">SSH:</span>
             <span id="sys-ssh">Loading...</span>
           </div>
+        </div>
+        
+        <!-- Bluetooth Controls -->
+        <div style="background:#252545;border-radius:8px;padding:12px;margin-bottom:16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <ha-icon icon="mdi:bluetooth" style="color:#2196f3;"></ha-icon>
+              <strong>Bluetooth</strong>
+            </div>
+            <span id="bt-status" style="font-size:12px;padding:4px 8px;border-radius:4px;background:#333;">Loading...</span>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-s" data-action="bluetooth-enable" id="btn-bt-enable">
+              <ha-icon icon="mdi:bluetooth"></ha-icon> Enable
+            </button>
+            <button class="btn btn-s" data-action="bluetooth-disable" id="btn-bt-disable">
+              <ha-icon icon="mdi:bluetooth-off"></ha-icon> Disable
+            </button>
+            <button class="btn btn-s" data-action="bluetooth-scan-test">
+              <ha-icon icon="mdi:magnify"></ha-icon> Test Scan
+            </button>
+          </div>
+          <p style="margin:8px 0 0;font-size:11px;color:#888;">
+            Pi Zero 2 W has built-in Bluetooth. Enable it to discover and pair wireless remotes.
+          </p>
+        </div>
+        
+        <!-- WiFi Info -->
+        <div style="background:#252545;border-radius:8px;padding:12px;margin-bottom:16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+            <div style="display:flex;align-items:center;gap:8px;">
+              <ha-icon icon="mdi:wifi" style="color:#4caf50;"></ha-icon>
+              <strong>WiFi</strong>
+            </div>
+            <span id="wifi-status" style="font-size:12px;padding:4px 8px;border-radius:4px;background:#333;">Loading...</span>
+          </div>
+          <div id="wifi-info" style="font-size:13px;color:#888;">
+            Loading WiFi info...
+          </div>
+          <p style="margin:8px 0 0;font-size:11px;color:#666;">
+            To change WiFi band (2.4/5GHz), edit <code>/etc/wpa_supplicant/wpa_supplicant.conf</code> via SSH.
+          </p>
         </div>
         
         <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;">
@@ -4473,8 +4704,15 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
     const cmds = Object.keys(device.commands || {});
     const catalogId = device.catalog_id || '';
     
+    // Get available blasters
+    const allBlasters = [...(this._data.blasters || []), ...(this._data.haBlasters || [])];
+    const selectedBlaster = this._selectedBlasterId || (allBlasters[0]?.id || '');
+    
+    // Check if device has network control info
+    const hasNetworkControl = device.ip_address || device.mac_address || device.entity_id;
+    
     return `
-      <div class="card" style="max-width:800px;">
+      <div class="card" style="max-width:900px;">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;">
           <div>
             <h3 style="margin-top:0;">${device.name}</h3>
@@ -4485,6 +4723,53 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
             ${catalogId ? `<button class="btn btn-s" data-action="show-switch-profile" data-device-id="${device.id}" data-brand="${device.brand || ''}"><ha-icon icon="mdi:swap-horizontal"></ha-icon>Switch Profile</button>` : ''}
             <button class="btn btn-s" data-action="learn-code" data-device-id="${device.id}"><ha-icon icon="mdi:record"></ha-icon>Learn Code</button>
           </div>
+        </div>
+        
+        <!-- Blaster / Output Selection -->
+        <div style="background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:8px;padding:12px;margin-bottom:16px;">
+          <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;">
+            <div style="flex:1;min-width:200px;">
+              <label style="display:block;font-size:12px;color:#888;margin-bottom:4px;">
+                <ha-icon icon="mdi:access-point" style="--mdc-icon-size:14px;"></ha-icon> IR Blaster
+              </label>
+              <select class="fi" id="device-blaster-select" style="margin:0;" onchange="this.getRootNode().host._selectedBlasterId = this.value">
+                ${allBlasters.length === 0 ? '<option value="">No blasters configured</option>' : ''}
+                ${allBlasters.map(b => `
+                  <option value="${b.id}" ${b.id === selectedBlaster ? 'selected' : ''}>
+                    ${b.name || b.host || b.id} ${b.type ? `(${b.type})` : ''}
+                  </option>
+                `).join('')}
+              </select>
+            </div>
+            ${hasNetworkControl ? `
+              <div style="flex:1;min-width:200px;">
+                <label style="display:block;font-size:12px;color:#888;margin-bottom:4px;">
+                  <ha-icon icon="mdi:ip-network" style="--mdc-icon-size:14px;"></ha-icon> Network Control
+                </label>
+                <div style="display:flex;gap:8px;align-items:center;">
+                  <input type="text" class="fi" style="margin:0;flex:1;" value="${device.ip_address || device.entity_id || ''}" readonly>
+                  <button class="btn btn-s" data-action="test-network-device" data-device-id="${device.id}" title="Test network connection">
+                    <ha-icon icon="mdi:lan-check"></ha-icon>
+                  </button>
+                </div>
+              </div>
+            ` : `
+              <div style="flex:1;min-width:200px;">
+                <label style="display:block;font-size:12px;color:#888;margin-bottom:4px;">
+                  <ha-icon icon="mdi:ip-network" style="--mdc-icon-size:14px;"></ha-icon> Network Control
+                </label>
+                <button class="btn btn-s" data-action="show-add-network-control" data-device-id="${device.id}">
+                  <ha-icon icon="mdi:plus"></ha-icon> Add IP/Network Control
+                </button>
+              </div>
+            `}
+          </div>
+          ${allBlasters.length === 0 ? `
+            <p style="margin:8px 0 0;font-size:12px;color:#f59e0b;">
+              <ha-icon icon="mdi:alert" style="--mdc-icon-size:14px;"></ha-icon> 
+              No IR blasters configured. <a href="#" data-action="nav-to-blasters" style="color:#7C3AED;">Add a blaster</a> to send IR commands.
+            </p>
+          ` : ''}
         </div>
         
         <h4>Commands (${cmds.length})</h4>
@@ -6743,10 +7028,12 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
   }
 
   async _sendCommand(deviceId, commandName) {
+    const blasterId = this._selectedBlasterId || '';
     const res = await this._api('/api/omniremote/test', 'POST', {
       action: 'test_command',
       device_id: deviceId,
-      command_name: commandName
+      command_name: commandName,
+      blaster_id: blasterId
     });
     
     if (!res.success) {
@@ -6760,14 +7047,21 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
     const originalContent = btn.innerHTML;
     btn.innerHTML = '<ha-icon icon="mdi:loading" class="spin"></ha-icon>';
     
+    const blasterId = this._selectedBlasterId || '';
     const res = await this._api('/api/omniremote/test', 'POST', {
       action: 'test_command',
       device_id: deviceId,
-      command_name: commandName
+      command_name: commandName,
+      blaster_id: blasterId
     });
     
     // Restore button
     btn.innerHTML = originalContent;
+    
+    // Get blaster name for display
+    const allBlasters = [...(this._data.blasters || []), ...(this._data.haBlasters || [])];
+    const blaster = allBlasters.find(b => b.id === blasterId);
+    const blasterName = blaster?.name || blaster?.host || blasterId || 'Default';
     
     // Show result
     const resultHtml = `
@@ -6782,6 +7076,7 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
         <table style="width:100%;font-size:13px;">
           <tr><td style="color:#888;">Device:</td><td>${res.device || deviceId}</td></tr>
           <tr><td style="color:#888;">Command:</td><td>${commandName}</td></tr>
+          <tr><td style="color:#888;">Blaster:</td><td>${blasterName}</td></tr>
           <tr><td style="color:#888;">Protocol:</td><td>${res.protocol || 'unknown'}</td></tr>
           <tr><td style="color:#888;">Has Broadlink Code:</td><td>${res.has_broadlink_code ? 'Yes' : 'No'}</td></tr>
           ${res.error ? `<tr><td style="color:#888;">Error:</td><td style="color:var(--error-color);">${res.error}</td></tr>` : ''}
@@ -6949,6 +7244,220 @@ mosquitto_pub -h YOUR_HA_IP -u omniremote -P your_password -t "omniremote/test" 
       if (btn) btn.style.display = 'inline-flex';
       alert('Learning failed: ' + (res.error || 'No IR signal received'));
     }
+  }
+
+  // ==========================================================================
+  // Network Device Control
+  // ==========================================================================
+
+  _showAddNetworkControlModal(deviceId) {
+    const device = this._data.devices.find(d => d.id === deviceId);
+    if (!device) return;
+    
+    this._modal = `
+      <div class="modal-content" style="max-width:600px;">
+        <div class="modal-head">
+          <h3><ha-icon icon="mdi:ip-network"></ha-icon> Add Network Control</h3>
+          <button class="modal-close" data-action="close-modal">&times;</button>
+        </div>
+        
+        <p style="color:#888;">Configure IP-based control for "${device.name}"</p>
+        
+        <div class="fg">
+          <label class="fl">IP Address</label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" class="fi" id="device-ip" placeholder="192.168.1.100" value="${device.ip_address || ''}" style="flex:1;">
+            <button class="btn btn-s" data-action="scan-network-devices">
+              <ha-icon icon="mdi:magnify"></ha-icon> Scan Network
+            </button>
+          </div>
+        </div>
+        
+        <div class="fg">
+          <label class="fl">MAC Address (optional)</label>
+          <input type="text" class="fi" id="device-mac" placeholder="AA:BB:CC:DD:EE:FF" value="${device.mac_address || ''}">
+        </div>
+        
+        <div class="fg">
+          <label class="fl">Control Protocol</label>
+          <select class="fi" id="device-protocol">
+            <option value="">Auto-detect</option>
+            <option value="samsung_tv" ${device.control_protocol === 'samsung_tv' ? 'selected' : ''}>Samsung TV (WebSocket)</option>
+            <option value="lg_tv" ${device.control_protocol === 'lg_tv' ? 'selected' : ''}>LG TV (WebOS)</option>
+            <option value="roku" ${device.control_protocol === 'roku' ? 'selected' : ''}>Roku (ECP)</option>
+            <option value="sony_bravia" ${device.control_protocol === 'sony_bravia' ? 'selected' : ''}>Sony Bravia</option>
+            <option value="vizio" ${device.control_protocol === 'vizio' ? 'selected' : ''}>Vizio SmartCast</option>
+            <option value="denon" ${device.control_protocol === 'denon' ? 'selected' : ''}>Denon/Marantz AVR</option>
+            <option value="onkyo" ${device.control_protocol === 'onkyo' ? 'selected' : ''}>Onkyo/Pioneer (eISCP)</option>
+            <option value="yamaha" ${device.control_protocol === 'yamaha' ? 'selected' : ''}>Yamaha (YNCA)</option>
+            <option value="http" ${device.control_protocol === 'http' ? 'selected' : ''}>HTTP/REST API</option>
+          </select>
+        </div>
+        
+        <div class="fg">
+          <label class="fl">Port (optional)</label>
+          <input type="number" class="fi" id="device-port" placeholder="Auto" value="${device.control_port || ''}">
+        </div>
+        
+        <div id="network-scan-results" style="display:none;margin:16px 0;max-height:200px;overflow-y:auto;"></div>
+        
+        <input type="hidden" id="network-device-id" value="${deviceId}">
+        
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px;">
+          <button class="btn btn-s" data-action="close-modal">Cancel</button>
+          <button class="btn btn-p" data-action="save-network-control">
+            <ha-icon icon="mdi:content-save"></ha-icon> Save
+          </button>
+        </div>
+      </div>
+    `;
+    this._render();
+  }
+
+  async _saveNetworkControl() {
+    const deviceId = this.shadowRoot.getElementById('network-device-id')?.value;
+    const ip = this.shadowRoot.getElementById('device-ip')?.value?.trim();
+    const mac = this.shadowRoot.getElementById('device-mac')?.value?.trim();
+    const protocol = this.shadowRoot.getElementById('device-protocol')?.value;
+    const port = this.shadowRoot.getElementById('device-port')?.value;
+    
+    if (!ip) {
+      alert('Please enter an IP address');
+      return;
+    }
+    
+    const device = this._data.devices.find(d => d.id === deviceId);
+    if (!device) {
+      alert('Device not found');
+      return;
+    }
+    
+    // Update device with network control info
+    device.ip_address = ip;
+    device.mac_address = mac || null;
+    device.control_protocol = protocol || null;
+    device.control_port = port ? parseInt(port) : null;
+    
+    const res = await this._api('/api/omniremote/devices', 'PUT', device);
+    
+    if (res.success || res.device) {
+      this._modal = null;
+      await this._loadData();
+      this._render();
+    } else {
+      alert('Failed to save: ' + (res.error || 'Unknown error'));
+    }
+  }
+
+  async _testNetworkDevice(deviceId) {
+    const device = this._data.devices.find(d => d.id === deviceId);
+    if (!device || !device.ip_address) {
+      alert('No IP address configured');
+      return;
+    }
+    
+    // Show loading
+    this._modal = `
+      <div class="modal-content" style="max-width:400px;text-align:center;">
+        <ha-icon icon="mdi:loading" class="spin" style="font-size:48px;color:#7C3AED;"></ha-icon>
+        <p>Testing connection to ${device.ip_address}...</p>
+      </div>
+    `;
+    this._render();
+    
+    const res = await this._api('/api/omniremote/network/test', 'POST', {
+      ip: device.ip_address,
+      port: device.control_port,
+      protocol: device.control_protocol
+    });
+    
+    this._modal = `
+      <div class="modal-content" style="max-width:500px;">
+        <h3>Network Test Result</h3>
+        <div style="background:${res.success ? 'rgba(0,200,0,0.1)' : 'rgba(200,0,0,0.1)'};padding:16px;border-radius:8px;margin-bottom:16px;">
+          <p style="margin:0;font-size:18px;color:${res.success ? 'var(--success-color)' : 'var(--error-color)'};">
+            <ha-icon icon="${res.success ? 'mdi:check-circle' : 'mdi:alert-circle'}"></ha-icon>
+            ${res.success ? 'Device Reachable' : 'Connection Failed'}
+          </p>
+        </div>
+        <table style="width:100%;font-size:13px;">
+          <tr><td style="color:#888;">IP:</td><td>${device.ip_address}</td></tr>
+          <tr><td style="color:#888;">Ping:</td><td>${res.ping_ms ? res.ping_ms + 'ms' : 'N/A'}</td></tr>
+          ${res.hostname ? `<tr><td style="color:#888;">Hostname:</td><td>${res.hostname}</td></tr>` : ''}
+          ${res.detected_type ? `<tr><td style="color:#888;">Detected:</td><td>${res.detected_type}</td></tr>` : ''}
+          ${res.open_ports ? `<tr><td style="color:#888;">Open Ports:</td><td>${res.open_ports.join(', ')}</td></tr>` : ''}
+          ${res.error ? `<tr><td style="color:#888;">Error:</td><td style="color:var(--error-color);">${res.error}</td></tr>` : ''}
+        </table>
+        <div style="margin-top:16px;text-align:right;">
+          <button class="btn btn-p" data-action="close-modal">Close</button>
+        </div>
+      </div>
+    `;
+    this._render();
+  }
+
+  async _scanNetworkDevices() {
+    const resultsDiv = this.shadowRoot.getElementById('network-scan-results');
+    if (!resultsDiv) return;
+    
+    resultsDiv.style.display = 'block';
+    resultsDiv.innerHTML = `
+      <div style="text-align:center;padding:16px;">
+        <ha-icon icon="mdi:loading" class="spin" style="font-size:32px;color:#7C3AED;"></ha-icon>
+        <p>Scanning network for controllable devices...</p>
+        <p style="font-size:12px;color:#888;">This may take 15-30 seconds</p>
+      </div>
+    `;
+    
+    const res = await this._api('/api/omniremote/network/scan', 'POST', {
+      timeout: 20
+    });
+    
+    if (!res.devices || res.devices.length === 0) {
+      resultsDiv.innerHTML = `
+        <div style="text-align:center;padding:16px;color:#888;">
+          <ha-icon icon="mdi:information"></ha-icon>
+          <p>No controllable devices found on the network.</p>
+        </div>
+      `;
+      return;
+    }
+    
+    resultsDiv.innerHTML = `
+      <h4 style="margin:0 0 8px;">Found ${res.devices.length} device(s):</h4>
+      ${res.devices.map(d => `
+        <div style="display:flex;align-items:center;padding:8px;background:var(--card-background-color);border-radius:4px;margin-bottom:4px;cursor:pointer;border:1px solid var(--divider-color);"
+             onclick="this.getRootNode().getElementById('device-ip').value='${d.ip}';this.getRootNode().getElementById('device-mac').value='${d.mac || ''}';${d.protocol ? `this.getRootNode().getElementById('device-protocol').value='${d.protocol}';` : ''}">
+          <ha-icon icon="${this._getNetworkDeviceIcon(d.type)}" style="margin-right:12px;color:#7C3AED;"></ha-icon>
+          <div style="flex:1;">
+            <div style="font-weight:500;">${d.name || d.hostname || 'Unknown Device'}</div>
+            <div style="font-size:12px;color:#888;">${d.ip} ${d.mac ? `(${d.mac})` : ''}</div>
+          </div>
+          <div style="font-size:12px;color:#666;">${d.type || 'Unknown'}</div>
+        </div>
+      `).join('')}
+    `;
+  }
+
+  _getNetworkDeviceIcon(type) {
+    const icons = {
+      'tv': 'mdi:television',
+      'samsung_tv': 'mdi:television',
+      'lg_tv': 'mdi:television',
+      'roku': 'mdi:cast',
+      'receiver': 'mdi:speaker',
+      'denon': 'mdi:speaker',
+      'onkyo': 'mdi:speaker',
+      'yamaha': 'mdi:speaker',
+      'sonos': 'mdi:speaker-wireless',
+      'chromecast': 'mdi:cast',
+      'apple_tv': 'mdi:apple',
+      'printer': 'mdi:printer',
+      'router': 'mdi:router-wireless',
+      'nas': 'mdi:nas',
+      'camera': 'mdi:cctv',
+    };
+    return icons[type] || 'mdi:devices';
   }
 
   // ==========================================================================
