@@ -20,7 +20,7 @@
 set -e
 
 # Version
-CURRENT_VERSION="1.5.20"
+CURRENT_VERSION="1.5.21"
 RELEASE_DATE="2026-03-10"
 GITHUB_REPO="omniremote/pi-zero-hub"
 GITHUB_RELEASES="https://api.github.com/repos/$GITHUB_REPO/releases/latest"
@@ -535,10 +535,40 @@ install_scripts() {
 create_config() {
     log_step "Creating Configuration"
     
-    # Don't overwrite existing config on upgrade unless forced
-    if [ -f "$CONFIG_FILE" ] && [ "$INSTALL_MODE" = "upgrade" ]; then
-        log_info "Preserving existing config"
+    # Extract existing MQTT credentials if config exists (ALWAYS preserve across updates/reinstalls)
+    local EXISTING_MQTT_USER=""
+    local EXISTING_MQTT_PASS=""
+    local EXISTING_MQTT_BROKER=""
+    local EXISTING_MQTT_PORT=""
+    
+    if [ -f "$CONFIG_FILE" ]; then
+        # Extract existing values using grep/sed (works without python yaml)
+        EXISTING_MQTT_BROKER=$(grep -E "^\s*broker:" "$CONFIG_FILE" 2>/dev/null | head -1 | sed 's/.*broker:\s*["'\'']\?\([^"'\'']*\)["'\'']\?.*/\1/' | tr -d ' ')
+        EXISTING_MQTT_PORT=$(grep -E "^\s*port:" "$CONFIG_FILE" 2>/dev/null | head -1 | sed 's/.*port:\s*//' | tr -d ' ')
+        EXISTING_MQTT_USER=$(grep -E "^\s*username:" "$CONFIG_FILE" 2>/dev/null | head -1 | sed 's/.*username:\s*["'\'']\?\([^"'\'']*\)["'\'']\?.*/\1/')
+        EXISTING_MQTT_PASS=$(grep -E "^\s*password:" "$CONFIG_FILE" 2>/dev/null | head -1 | sed 's/.*password:\s*["'\'']\?\([^"'\'']*\)["'\'']\?.*/\1/')
+        
+        if [ -n "$EXISTING_MQTT_USER" ] || [ -n "$EXISTING_MQTT_BROKER" ]; then
+            log_info "Preserving existing MQTT configuration"
+        fi
+    fi
+    
+    # ALWAYS use existing values if available (preserve across ANY install type)
+    MQTT_BROKER="${EXISTING_MQTT_BROKER:-$MQTT_BROKER}"
+    MQTT_PORT="${EXISTING_MQTT_PORT:-${MQTT_PORT:-1883}}"
+    MQTT_USER="${EXISTING_MQTT_USER:-$MQTT_USER}"
+    MQTT_PASS="${EXISTING_MQTT_PASS:-$MQTT_PASS}"
+    
+    # For upgrades where we have valid existing config, skip rewriting entirely
+    if [ -f "$CONFIG_FILE" ] && [ "$INSTALL_MODE" = "upgrade" ] && [ -n "$EXISTING_MQTT_BROKER" ]; then
+        log_info "Preserving existing config (upgrade mode)"
         return
+    fi
+    
+    # Backup existing config before rewriting
+    if [ -f "$CONFIG_FILE" ]; then
+        cp "$CONFIG_FILE" "${CONFIG_FILE}.bak"
+        log_info "Backed up config to ${CONFIG_FILE}.bak"
     fi
     
     cat > "$CONFIG_FILE" << EOF
@@ -587,7 +617,23 @@ logging:
   max_size_mb: 10
 EOF
     chmod 600 "$CONFIG_FILE"
-    log_success "Config created"
+    log_success "Config created (MQTT credentials preserved)"
+}
+
+create_log_symlinks() {
+    log_step "Creating Log Symlinks"
+    
+    # Create symlinks in /opt/omniremote for easy access
+    mkdir -p "$INSTALL_DIR/logs"
+    
+    # Symlink to actual log directory
+    if [ -d "$LOG_DIR" ]; then
+        ln -sf "$LOG_DIR/web.log" "$INSTALL_DIR/logs/web.log" 2>/dev/null || true
+        ln -sf "$LOG_DIR/bridge.log" "$INSTALL_DIR/logs/bridge.log" 2>/dev/null || true
+        ln -sf "$LOG_DIR/install.log" "$INSTALL_DIR/logs/install.log" 2>/dev/null || true
+        ln -sf "$LOG_DIR" "$INSTALL_DIR/logs/all" 2>/dev/null || true
+        log_success "Log symlinks: $INSTALL_DIR/logs/"
+    fi
 }
 
 create_services() {
@@ -704,9 +750,13 @@ show_completion() {
     echo -e "${WHITE}Version:${NC} $CURRENT_VERSION"
     [ "$INSTALL_MODE" = "upgrade" ] && echo -e "${GREEN}Upgraded from $(get_installed_version)${NC}"
     echo ""
+    echo -e "${WHITE}Logs:${NC}"
+    echo -e "  Easy access: ${YELLOW}/opt/omniremote/logs/${NC}"
+    echo -e "  Full logs:   ${YELLOW}/var/log/omniremote/${NC}"
+    echo -e "  Live view:   ${YELLOW}journalctl -u omniremote-web -f${NC}"
+    echo ""
     echo -e "${WHITE}Commands:${NC}"
-    echo -e "  Logs:    ${YELLOW}journalctl -u omniremote-web -f${NC}"
-    echo -e "  Restart: ${YELLOW}sudo systemctl restart omniremote-web${NC}"
+    echo -e "  Restart: ${YELLOW}sudo systemctl restart omniremote-web omniremote-bridge${NC}"
     echo ""
     echo -e "${PURPLE}════════════════════════════════════════════════════════════════${NC}"
     echo -e "  ${PURPLE}Omni${BLUE}Remote${NC}™ • © 2026 One Eye Enterprises LLC"
@@ -757,6 +807,7 @@ main() {
     setup_directories
     install_scripts
     create_config
+    create_log_symlinks
     create_services
     start_services
     show_completion

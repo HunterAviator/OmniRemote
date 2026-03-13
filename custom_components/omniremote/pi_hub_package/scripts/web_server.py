@@ -34,7 +34,7 @@ import paho.mqtt.client as mqtt
 # Configuration
 #-------------------------------------------------------------------------------
 
-VERSION = "1.5.20"
+VERSION = "1.5.21"
 PANEL_VERSION = "1.10.50"
 BRAND = {
     "name": "OmniRemote",
@@ -1556,9 +1556,34 @@ def bluetooth_scan():
     """Scan for Bluetooth devices."""
     import subprocess
     import time
+    import shutil
     
     devices = []
     paired_devices = {}  # mac -> name
+    
+    # Check if bluetoothctl is available
+    if not shutil.which("bluetoothctl"):
+        log.error("bluetoothctl not found - install bluetooth package")
+        return jsonify({"success": False, "error": "Bluetooth not installed", "devices": []})
+    
+    # Check Bluetooth adapter status
+    try:
+        status_result = subprocess.run(
+            ["bluetoothctl", "show"],
+            capture_output=True, text=True, timeout=5
+        )
+        if "No default controller" in status_result.stdout or "No default controller" in status_result.stderr:
+            log.warning("No Bluetooth adapter found")
+            return jsonify({"success": False, "error": "No Bluetooth adapter found", "devices": []})
+        
+        # Check if powered
+        if "Powered: no" in status_result.stdout:
+            log.info("Bluetooth adapter not powered, turning on...")
+            subprocess.run(["bluetoothctl", "power", "on"], capture_output=True, timeout=5)
+            time.sleep(1)
+    except Exception as e:
+        log.error(f"Bluetooth status check failed: {e}")
+        return jsonify({"success": False, "error": f"Bluetooth check failed: {e}", "devices": []})
     
     # Get currently paired devices first (we'll ALWAYS show these)
     try:
