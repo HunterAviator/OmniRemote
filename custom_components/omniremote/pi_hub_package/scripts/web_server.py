@@ -34,7 +34,7 @@ import paho.mqtt.client as mqtt
 # Configuration
 #-------------------------------------------------------------------------------
 
-VERSION = "1.5.21"
+VERSION = "1.5.22"
 PANEL_VERSION = "1.10.50"
 BRAND = {
     "name": "OmniRemote",
@@ -1560,11 +1560,17 @@ def bluetooth_scan():
     
     devices = []
     paired_devices = {}  # mac -> name
+    adapter_info = {}
     
     # Check if bluetoothctl is available
     if not shutil.which("bluetoothctl"):
         log.error("bluetoothctl not found - install bluetooth package")
-        return jsonify({"success": False, "error": "Bluetooth not installed", "devices": []})
+        return jsonify({
+            "success": False, 
+            "error": "Bluetooth not installed. Run: sudo apt install bluetooth bluez",
+            "devices": [],
+            "adapter": None
+        })
     
     # Check Bluetooth adapter status
     try:
@@ -1572,18 +1578,48 @@ def bluetooth_scan():
             ["bluetoothctl", "show"],
             capture_output=True, text=True, timeout=5
         )
+        log.info(f"Bluetooth adapter status:\n{status_result.stdout}")
+        
         if "No default controller" in status_result.stdout or "No default controller" in status_result.stderr:
             log.warning("No Bluetooth adapter found")
-            return jsonify({"success": False, "error": "No Bluetooth adapter found", "devices": []})
+            return jsonify({
+                "success": False, 
+                "error": "No Bluetooth adapter found. Pi Zero 2 W has built-in Bluetooth - check if enabled in /boot/config.txt",
+                "devices": [],
+                "adapter": None
+            })
+        
+        # Parse adapter info
+        for line in status_result.stdout.split('\n'):
+            if ':' in line:
+                key, _, value = line.partition(':')
+                adapter_info[key.strip()] = value.strip()
         
         # Check if powered
         if "Powered: no" in status_result.stdout:
             log.info("Bluetooth adapter not powered, turning on...")
-            subprocess.run(["bluetoothctl", "power", "on"], capture_output=True, timeout=5)
+            power_result = subprocess.run(["bluetoothctl", "power", "on"], capture_output=True, text=True, timeout=5)
+            log.info(f"Power on result: {power_result.stdout} {power_result.stderr}")
             time.sleep(1)
+            
+            # Re-check status
+            status_result = subprocess.run(["bluetoothctl", "show"], capture_output=True, text=True, timeout=5)
+            if "Powered: no" in status_result.stdout:
+                return jsonify({
+                    "success": False,
+                    "error": "Failed to power on Bluetooth adapter. Try: sudo systemctl restart bluetooth",
+                    "devices": [],
+                    "adapter": adapter_info
+                })
+                
     except Exception as e:
         log.error(f"Bluetooth status check failed: {e}")
-        return jsonify({"success": False, "error": f"Bluetooth check failed: {e}", "devices": []})
+        return jsonify({
+            "success": False, 
+            "error": f"Bluetooth check failed: {e}",
+            "devices": [],
+            "adapter": None
+        })
     
     # Get currently paired devices first (we'll ALWAYS show these)
     try:
@@ -1621,6 +1657,11 @@ def bluetooth_scan():
         subprocess.run(["bluetoothctl", "agent", "NoInputNoOutput"], capture_output=True, timeout=5)
         subprocess.run(["bluetoothctl", "default-agent"], capture_output=True, timeout=5)
         
+        # Make discoverable (helps some devices)
+        subprocess.run(["bluetoothctl", "discoverable", "on"], capture_output=True, timeout=5)
+        
+        log.info("Starting Bluetooth scan (8 seconds)...")
+        
         # Start scan
         scan_proc = subprocess.Popen(
             ["bluetoothctl", "scan", "on"],
@@ -1640,6 +1681,9 @@ def bluetooth_scan():
             capture_output=True, text=True, timeout=5
         )
         
+        log.info(f"bluetoothctl devices output:\n{result.stdout}")
+        
+        all_discovered = []
         for line in result.stdout.strip().split('\n'):
             if line.startswith("Device "):
                 parts = line.split(" ", 2)
@@ -1651,30 +1695,44 @@ def bluetooth_scan():
                     if mac in paired_devices:
                         continue
                     
-                    # Filter for likely remotes (only for non-paired devices)
+                    # Check if likely a remote
                     name_lower = name.lower()
                     is_remote = any(x in name_lower for x in [
                         'remote', 'keyboard', 'g20', 'g30', 'air', 'mouse',
                         'hid', 'gamepad', 'controller', 'clicker', 'rii',
-                        'wechip', 'mele', 'vontar', 'h17', 'minix', 'firetv'
+                        'wechip', 'mele', 'vontar', 'h17', 'minix', 'firetv',
+                        'flipper', 'input', 'key', 'pad'
                     ])
                     
-                    if is_remote:
-                        devices.append({
-                            "mac": mac,
-                            "name": name,
-                            "paired": False,
-                            "source": "pi_hub",
-                            "hub_id": config.get("hub_id", "local"),
-                        })
+                    all_discovered.append({
+                        "mac": mac,
+                        "name": name,
+                        "paired": False,
+                        "likely_remote": is_remote,
+                        "source": "pi_hub",
+                        "hub_id": config.get("hub_id", "local"),
+                    })
         
-        log.info(f"Bluetooth scan found {len(devices)} devices ({len(paired_devices)} paired)")
-        return jsonify({"success": True, "devices": devices})
+        # Add ALL discovered devices to the list (not just filtered)
+        devices.extend(all_discovered)
+        
+        log.info(f"Bluetooth scan found {len(devices)} total devices ({len(paired_devices)} paired, {len(all_discovered)} discovered)")
+        return jsonify({
+            "success": True, 
+            "devices": devices,
+            "adapter": adapter_info,
+            "scan_duration": 8
+        })
         
     except Exception as e:
         log.error(f"Bluetooth scan error: {e}")
         # Still return paired devices even if scan failed
-        return jsonify({"success": True, "devices": devices, "scan_error": str(e)})
+        return jsonify({
+            "success": True, 
+            "devices": devices, 
+            "scan_error": str(e),
+            "adapter": adapter_info
+        })
 
 def bluetooth_pair(mac: str):
     """Pair with a Bluetooth device."""

@@ -11,10 +11,23 @@
  */
 
 const OMNIREMOTE_VERSION = "1.10.50";
-const PIHUB_VERSION = "1.5.21";  // Bundled Pi Hub version
+const PIHUB_VERSION = "1.5.22";  // Bundled Pi Hub version
 
 // ha-icon polyfill for standalone mode (when not running in Home Assistant)
-if (typeof customElements !== 'undefined' && !customElements.get('ha-icon')) {
+// This MUST run before the panel renders
+(function() {
+  if (typeof customElements === 'undefined') {
+    console.error('[OmniRemote] customElements not supported!');
+    return;
+  }
+  
+  if (customElements.get('ha-icon')) {
+    console.log('[OmniRemote] ha-icon already defined (running in HA)');
+    return;
+  }
+  
+  console.log('[OmniRemote] Registering ha-icon polyfill for standalone mode...');
+  
   // MDI icon name to SVG path mapping (commonly used icons)
   const MDI_ICONS = {
     'mdi:view-dashboard': 'M13,3V9H21V3M13,21H21V11H13M3,21H11V15H3M3,13H11V3H3V13Z',
@@ -128,8 +141,8 @@ if (typeof customElements !== 'undefined' && !customElements.get('ha-icon')) {
   }
 
   customElements.define('ha-icon', HaIconPolyfill);
-  console.log('[OmniRemote] ha-icon polyfill registered for standalone mode');
-}
+  console.log('[OmniRemote] ✓ ha-icon polyfill registered successfully');
+})();
 
 class OmniRemotePanel extends HTMLElement {
   constructor() {

@@ -20,7 +20,7 @@
 set -e
 
 # Version
-CURRENT_VERSION="1.5.21"
+CURRENT_VERSION="1.5.22"
 RELEASE_DATE="2026-03-10"
 GITHUB_REPO="omniremote/pi-zero-hub"
 GITHUB_RELEASES="https://api.github.com/repos/$GITHUB_REPO/releases/latest"
@@ -447,13 +447,30 @@ install_dependencies() {
     }
     log_success "Base packages"
     
-    if [ "$ENABLE_BLUETOOTH" = "yes" ]; then
-        log_info "Installing Bluetooth..."
-        # Use non-interactive mode and timeout to prevent hangs
-        DEBIAN_FRONTEND=noninteractive timeout 120 apt-get install -y -q bluetooth bluez python3-dbus >> "$INSTALL_LOG" 2>&1 || {
-            log_warn "Bluetooth install failed or timed out"; ENABLE_BLUETOOTH="no"
-        }
-        [ "$ENABLE_BLUETOOTH" = "yes" ] && log_success "Bluetooth"
+    # Always install Bluetooth packages (needed for remote discovery)
+    log_info "Installing Bluetooth..."
+    DEBIAN_FRONTEND=noninteractive timeout 120 apt-get install -y -q bluetooth bluez python3-dbus >> "$INSTALL_LOG" 2>&1 || {
+        log_warn "Bluetooth install failed or timed out"
+    }
+    
+    # Ensure Bluetooth service is enabled and started
+    if command -v bluetoothctl &> /dev/null; then
+        log_info "Enabling Bluetooth service..."
+        systemctl enable bluetooth >> "$INSTALL_LOG" 2>&1 || true
+        systemctl start bluetooth >> "$INSTALL_LOG" 2>&1 || true
+        
+        # Unblock Bluetooth if blocked by rfkill
+        if command -v rfkill &> /dev/null; then
+            rfkill unblock bluetooth >> "$INSTALL_LOG" 2>&1 || true
+        fi
+        
+        # Power on adapter
+        sleep 1
+        bluetoothctl power on >> "$INSTALL_LOG" 2>&1 || true
+        
+        log_success "Bluetooth enabled"
+    else
+        log_warn "Bluetooth not available"
     fi
     
     if [ "$ENABLE_IR_BLASTER" = "yes" ]; then
