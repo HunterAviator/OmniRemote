@@ -30,7 +30,7 @@ try:
 except ImportError:
     EVDEV_AVAILABLE = False
 
-VERSION = "1.5.28"
+VERSION = "1.5.29"
 
 KEY_MAP = {
     116: "power", 142: "sleep", 143: "wakeup",

@@ -34,7 +34,7 @@ import paho.mqtt.client as mqtt
 # Configuration
 #-------------------------------------------------------------------------------
 
-VERSION = "1.5.28"
+VERSION = "1.5.29"
 PANEL_VERSION = "1.10.54"
 BRAND = {
     "name": "OmniRemote",
@@ -1656,42 +1656,64 @@ def bluetooth_scan():
     
     # Start scanning for additional devices
     try:
-        # Power on adapter
-        subprocess.run(["bluetoothctl", "power", "on"], capture_output=True, timeout=5)
+        # Use Popen with stdin for proper bluetoothctl interaction
+        log.info("Setting up Bluetooth for scanning...")
         
-        # Enable agent for pairing
-        subprocess.run(["bluetoothctl", "agent", "NoInputNoOutput"], capture_output=True, timeout=5)
-        subprocess.run(["bluetoothctl", "default-agent"], capture_output=True, timeout=5)
+        # First ensure bluetooth service is running and adapter is ready
+        subprocess.run(["systemctl", "start", "bluetooth"], capture_output=True, timeout=10)
+        time.sleep(1)
         
-        # Make discoverable AND pairable (required for remotes to connect)
-        subprocess.run(["bluetoothctl", "discoverable", "on"], capture_output=True, timeout=5)
-        subprocess.run(["bluetoothctl", "pairable", "on"], capture_output=True, timeout=5)
-        
-        log.info("Starting Bluetooth scan (8 seconds)...")
-        
-        # Start scan
-        scan_proc = subprocess.Popen(
-            ["bluetoothctl", "scan", "on"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        # Run bluetoothctl commands via stdin pipe
+        btctl = subprocess.Popen(
+            ["bluetoothctl"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
         )
+        
+        # Send setup commands
+        commands = [
+            "power on",
+            "agent NoInputNoOutput", 
+            "default-agent",
+            "pairable on",
+            "discoverable on",
+            "scan on",
+        ]
+        
+        for cmd in commands:
+            btctl.stdin.write(f"{cmd}\n")
+            btctl.stdin.flush()
+            time.sleep(0.3)
+        
+        log.info("Bluetooth scanning for 10 seconds...")
         
         # Wait for devices to be discovered
-        time.sleep(8)
+        time.sleep(10)
         
-        # Stop scan
-        scan_proc.terminate()
-        subprocess.run(["bluetoothctl", "scan", "off"], capture_output=True, timeout=5)
+        # Stop scan and get devices
+        btctl.stdin.write("scan off\n")
+        btctl.stdin.flush()
+        time.sleep(0.5)
         
-        # Get all discovered devices
-        result = subprocess.run(
-            ["bluetoothctl", "devices"],
-            capture_output=True, text=True, timeout=5
-        )
+        btctl.stdin.write("devices\n")
+        btctl.stdin.flush()
+        time.sleep(0.5)
         
-        log.info(f"bluetoothctl devices output:\n{result.stdout}")
+        btctl.stdin.write("quit\n")
+        btctl.stdin.flush()
+        
+        try:
+            stdout, stderr = btctl.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            btctl.kill()
+            stdout, stderr = btctl.communicate()
+        
+        log.info(f"bluetoothctl output:\n{stdout[-2000:] if stdout else 'none'}")
         
         all_discovered = []
-        for line in result.stdout.strip().split('\n'):
+        for line in (stdout or "").split('\n'):
             if line.startswith("Device "):
                 parts = line.split(" ", 2)
                 if len(parts) >= 3:
@@ -1728,7 +1750,7 @@ def bluetooth_scan():
             "success": True, 
             "devices": devices,
             "adapter": adapter_info,
-            "scan_duration": 8
+            "scan_duration": 10
         })
         
     except Exception as e:
@@ -3111,23 +3133,27 @@ def api_bluetooth_control():
         elif action in ("power_on", "enable"):
             # Unblock with rfkill first
             subprocess.run(["rfkill", "unblock", "bluetooth"], capture_output=True, timeout=5)
+            subprocess.run(["systemctl", "start", "bluetooth"], capture_output=True, timeout=10)
+            time.sleep(1)
             
-            # Power on
-            power_result = subprocess.run(
-                ["bluetoothctl", "power", "on"],
-                capture_output=True, text=True, timeout=5
+            # Use Popen with stdin for reliable bluetoothctl interaction
+            btctl = subprocess.Popen(
+                ["bluetoothctl"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
             )
             
-            # Also enable pairable mode for remotes
-            subprocess.run(["bluetoothctl", "pairable", "on"], capture_output=True, timeout=5)
-            subprocess.run(["bluetoothctl", "discoverable", "on"], capture_output=True, timeout=5)
-            
-            # Set up agent for automatic pairing
-            subprocess.run(["bluetoothctl", "agent", "NoInputNoOutput"], capture_output=True, timeout=5)
-            subprocess.run(["bluetoothctl", "default-agent"], capture_output=True, timeout=5)
-            
-            result["success"] = "succeeded" in power_result.stdout.lower() or "yes" in power_result.stdout.lower()
-            result["output"] = power_result.stdout
+            commands = "power on\nagent NoInputNoOutput\ndefault-agent\npairable on\ndiscoverable on\nquit\n"
+            try:
+                stdout, stderr = btctl.communicate(input=commands, timeout=10)
+                result["success"] = "succeeded" in stdout.lower() or "yes" in stdout.lower()
+                result["output"] = stdout
+            except subprocess.TimeoutExpired:
+                btctl.kill()
+                result["success"] = False
+                result["output"] = "Timeout"
             
         elif action in ("power_off", "disable"):
             power_result = subprocess.run(

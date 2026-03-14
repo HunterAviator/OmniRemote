@@ -20,7 +20,7 @@
 set -e
 
 # Version
-CURRENT_VERSION="1.5.28"
+CURRENT_VERSION="1.5.29"
 RELEASE_DATE="2026-03-10"
 GITHUB_REPO="omniremote/pi-zero-hub"
 GITHUB_RELEASES="https://api.github.com/repos/$GITHUB_REPO/releases/latest"
@@ -471,7 +471,28 @@ install_dependencies() {
         sleep 1
         bluetoothctl power on >> "$INSTALL_LOG" 2>&1 || true
         
-        log_success "Bluetooth enabled"
+        # Set pairable and discoverable for remote detection
+        bluetoothctl pairable on >> "$INSTALL_LOG" 2>&1 || true
+        bluetoothctl discoverable on >> "$INSTALL_LOG" 2>&1 || true
+        bluetoothctl agent NoInputNoOutput >> "$INSTALL_LOG" 2>&1 || true
+        bluetoothctl default-agent >> "$INSTALL_LOG" 2>&1 || true
+        
+        # Make pairable persistent via bluetooth config
+        if [ -f /etc/bluetooth/main.conf ]; then
+            # Update existing config
+            sed -i 's/^#*Pairable *=.*/Pairable = true/' /etc/bluetooth/main.conf
+            sed -i 's/^#*Discoverable *=.*/Discoverable = true/' /etc/bluetooth/main.conf
+            sed -i 's/^#*DiscoverableTimeout *=.*/DiscoverableTimeout = 0/' /etc/bluetooth/main.conf
+            # Add if not present
+            grep -q "^Pairable" /etc/bluetooth/main.conf || echo "Pairable = true" >> /etc/bluetooth/main.conf
+            grep -q "^Discoverable" /etc/bluetooth/main.conf || echo "Discoverable = true" >> /etc/bluetooth/main.conf
+        fi
+        
+        # Restart bluetooth to apply config
+        systemctl restart bluetooth >> "$INSTALL_LOG" 2>&1 || true
+        sleep 1
+        
+        log_success "Bluetooth enabled (pairable)"
     else
         log_warn "Bluetooth not available"
     fi
