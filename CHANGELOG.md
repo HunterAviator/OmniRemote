@@ -1,5 +1,32 @@
 # OmniRemote Changelog
 
+## [Pi Hub 1.5.31] - 2026-03-14
+
+### Added
+- **Bluetooth Connect Action** - New `connect` action for `/api/omniremote/bluetooth` endpoint
+  - Explicitly connect to paired Bluetooth devices
+  - Better error messages for connection failures
+  - Helps when remote is paired but not actively connected
+
+### Fixed
+- Bluetooth remotes can now be managed directly from Pi Hub standalone UI
+
+## [Pi Hub 1.5.30] - 2026-03-14
+
+### Added
+- **HTTP to HTTPS Redirect** - HTTP server on port 8080 automatically redirects to HTTPS on port 8125
+  - No more "connection refused" when typing http:// instead of https://
+  - Configurable via `http_redirect_port` in config.yaml
+
+### Fixed
+- **`time` variable error on Bluetooth enable** - Removed local `import time` that was shadowing global import
+  - Fixed: "cannot access local variable 'time' where it is not associated with a value"
+- **Improved Bluetooth scanning** - More reliable device discovery
+  - Now runs `rfkill unblock bluetooth` before scanning
+  - Runs `power on`, `pairable on`, `discoverable on` before scan process
+  - Added fallback `bluetoothctl devices` query after scan completes
+  - Better parsing of scan output (handles `[NEW] Device` format)
+
 ## [1.10.22] - 2026-03-10
 
 ### Added
