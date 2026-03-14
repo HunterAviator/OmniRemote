@@ -1,129 +1,78 @@
-# OmniRemote™ Pi Zero W Hub
+# OmniRemote Pi Hub
 
-<p align="center">
-  <img src="https://omniremote.com/logo.png" width="120" alt="OmniRemote">
-  <br>
-  <strong>One Remote to Rule Them All</strong>
-  <br>
-  <em>© 2026 One Eye Enterprises LLC</em>
-</p>
+The OmniRemote Pi Hub is a dedicated Raspberry Pi device that captures button presses from USB and Bluetooth remotes, then sends commands to your Home Assistant via MQTT.
 
-Transform a ~$45 Raspberry Pi Zero into a universal remote control hub for Home Assistant.
+## Features
 
-## ✨ Features
+- 📱 **Captive Portal Setup** - Connect to "OmniRemote-Setup" WiFi, configure via phone browser
+- 🔵 **Bluetooth Remote Support** - Pair any Bluetooth HID remote directly to the Pi
+- 🔌 **USB Remote Support** - Works with USB 2.4GHz air mouse remotes (MX3, G20, etc.)
+- 📡 **IR Blaster** - Control TVs and receivers with IR commands
+- 🔄 **OTA Updates** - One-click updates from the web UI
+- 🔒 **Secure** - HTTPS with auto-generated certificates
 
-| Feature | Description |
-|---------|-------------|
-| **USB HID Remotes** | G20S, MX3, and 2.4GHz air mice via USB dongle |
-| **Bluetooth HID** | Optional built-in Bluetooth support |
-| **GPIO IR Blaster** | ~$2 DIY IR transmitter |
-| **Web Interface** | Mobile-friendly, works standalone or with HA |
-| **HA Sync** | Devices sync between web UI and Home Assistant |
-| **Upgrade Support** | In-place upgrades with settings preservation |
+## Get OmniRemote Pi Hub
 
-## 🚀 Quick Install
+### Pre-Built Image (Recommended)
 
-```bash
-# Create install directory and extract
-sudo mkdir -p /opt/omniremote
-cd /opt/omniremote
-sudo tar -xzf /path/to/omniremote-pi-hub.tar.gz
+The easiest way to get started is with our pre-built Raspberry Pi image:
 
-# Run installer
-sudo bash install.sh
-```
+**[Buy OmniRemote Pi Hub Image](https://oneeyeenterprises.com/omniremote-pihub)** - $19.99
 
-## 🔄 Upgrade
+Includes:
+- ✅ Ready-to-flash SD card image
+- ✅ Captive portal WiFi setup (no SSH needed)
+- ✅ Web-based configuration wizard
+- ✅ 1 year of OTA updates
+- ✅ Email support
 
-```bash
-# Extract new version to same location (overwrites old files)
-cd /opt/omniremote
-sudo tar -xzf /path/to/omniremote-pi-hub.tar.gz
+### Complete Kit
 
-# Run installer (auto-detects upgrade, preserves config)
-sudo bash install.sh
-```
+Want a fully assembled, ready-to-use device?
 
-## 📦 What's Included
+**[Buy Complete Pi Hub Kit](https://oneeyeenterprises.com/omniremote-kit)** - $79.99
 
-```
-├── install.sh           # Interactive installer with upgrade support
-├── scripts/
-│   ├── remote_bridge.py # USB HID → MQTT
-│   ├── ir_blaster.py    # GPIO IR transmitter
-│   ├── web_server.py    # Standalone web server
-│   └── panel.js         # Web UI (same as HA integration)
-├── assets/
-└── VERSION
-```
-
-## 💰 Pricing
-
-| Product | Price |
-|---------|-------|
-| **HA Integration** | FREE (via HACS) |
-| **Pi Hub Software** | This package |
-| **Pre-configured SD** | Available at omniremote.com |
-| **Hardware Bundles** | Available at omniremote.com |
-
-## 🔧 Commands
-
-```bash
-# Upgrade to latest version
-sudo bash install.sh --upgrade
-
-# Check version
-sudo bash install.sh --version
-
-# View logs
-journalctl -u omniremote-bridge -f
-
-# Restart
-sudo systemctl restart omniremote-bridge
-```
-
-## 🌐 Web Interface
-
-Access at `http://<pi-ip>:8080`
-
-- Works standalone OR with Home Assistant
-- Devices sync automatically via MQTT
-- Mobile-optimized responsive design
-
-## 📡 Home Assistant Setup
-
-Add to `configuration.yaml`:
-
-```yaml
-mqtt:
-  sensor:
-    - name: "OmniRemote Button"
-      state_topic: "omniremote/physical_remote"
-      value_template: "{{ value_json.button }}"
-```
-
-## 🛒 Recommended Hardware
-
-| Product | Price | Link |
-|---------|-------|------|
-| Raspberry Pi Zero 2 W | $20 | [Amazon](https://omniremote.com/go/pizero) |
-| G20S Pro Remote | $18 | [Amazon](https://omniremote.com/go/g20s) |
-| Broadlink RM4 Mini | $25 | [Amazon](https://omniremote.com/go/rm4) |
-
-*Links support OmniRemote development*
-
-## 📄 License
-
-This software is proprietary. See LICENSE file for terms.
-
-**Free for personal use. Commercial use requires a license.**
+Includes:
+- ✅ Raspberry Pi Zero 2 W
+- ✅ Pre-flashed 32GB SD card
+- ✅ Premium case
+- ✅ USB-C power supply
+- ✅ 1 year of OTA updates
+- ✅ Priority email support
 
 ---
 
-<p align="center">
-  <strong>OmniRemote™</strong> - One Remote to Rule Them All
-  <br>
-  © 2026 One Eye Enterprises LLC
-  <br>
-  <a href="https://omniremote.com">omniremote.com</a>
-</p>
+## DIY Option
+
+For technical users who prefer to build their own, see the [Remote Bridge](../remote_bridge/) folder for a basic DIY script.
+
+The DIY option requires:
+- SSH access and command line skills
+- Manual YAML configuration
+- Manual updates
+
+---
+
+## Hardware Compatibility
+
+| Device | Type | Connection |
+|--------|------|------------|
+| Raspberry Pi Zero 2 W | Recommended | Built-in WiFi/BT |
+| Raspberry Pi 3/4 | Supported | Built-in WiFi/BT |
+| MX3 Air Mouse | USB Remote | 2.4GHz Dongle |
+| G20S / G30S | USB Remote | 2.4GHz Dongle |
+| WeChip W1/W2 | USB Remote | 2.4GHz Dongle |
+| Any Bluetooth HID | BT Remote | Pair to Pi |
+| Broadlink RM4 Mini | IR Blaster | WiFi |
+
+---
+
+## Support
+
+- 📧 Email: support@oneeyeenterprises.com
+- 📖 Documentation: [GitHub Wiki](https://github.com/HunterAviator/OmniRemote/wiki)
+- 🐛 Issues: [GitHub Issues](https://github.com/HunterAviator/OmniRemote/issues)
+
+---
+
+© 2026 One Eye Enterprises LLC | [oneeyeenterprises.com](https://oneeyeenterprises.com)
